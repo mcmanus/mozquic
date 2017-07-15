@@ -51,7 +51,7 @@ public:
   static const uint32_t kMinClientInitial = 1252;
   static const uint32_t kMozQuicMSS = 16384;
 
-  static const uint32_t kRetransmitThresh = 300;
+  static const uint32_t kRetransmitThresh = 500;
   static const uint32_t kForgetUnAckedThresh = 4000; // ms
   static const uint32_t kForgetInitialConnectionIDsThresh = 4000; // ms
  
