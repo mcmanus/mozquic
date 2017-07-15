@@ -1,4 +1,5 @@
 # Set the MOZQUIC variables as below.
+# notes in NSSHelper.cpp for tls 1.3 draft version and nss branch
 #MOZQUIC_NSS_ROOT=/Users/ekr/dev/nss-dev/nss-sandbox3/
 #MOZQUIC_NSS_PLATFORM=Darwin15.6.0_cc_64_DBG.OBJ
 

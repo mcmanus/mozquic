@@ -7,3 +7,5 @@ Right now it is capable of both ff000004 and 0xf123f0c5 and some greasing.
 See https://github.com/quicwg/base-drafts/wiki/First-Implementation-Draft
 
 See Makefile notes about linking NSS and sample/* for sample nss dir (included)
+
+based on tls -21

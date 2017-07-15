@@ -20,13 +20,13 @@
 fail complie;
 #endif
 
-// the above version is not sufficient - the -20 branch hasn't been
+// the above version is not sufficient - the -21 branch hasn't been
 // give a new vminor
 /*
-    nss -20 branch
+    nss -21 branch
     https://github.com/nss-dev/nss/tree/NSS_TLS13_DRAFT19_BRANCH
 
-    known cset d48b10106e9e77a7ec9a8fffe64a681d775a0563
+    known cset 5e6ccfb82ff48e83ae1555fe3c16a27cdee0892a 
 */
 
 // todo runtime enforce too
