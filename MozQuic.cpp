@@ -597,6 +597,7 @@ MozQuic::Intake()
       }
 
       if (!session || rv != MOZQUIC_OK) {
+        fprintf(stderr, "unable to find connection for packet\n");
         continue;
       }
 
@@ -1184,8 +1185,11 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
   }
 
   mReceivedServerClearText = true;
-  mConnectionID = header.mConnectionID;
-  // todo log change
+  if (mConnectionID != header.mConnectionID) {
+    fprintf(stderr, "server clear text changed connID from %lx to %lx\n",
+            mConnectionID, header.mConnectionID);
+    mConnectionID = header.mConnectionID;
+  }
   
   return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck);
 }
