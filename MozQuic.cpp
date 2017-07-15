@@ -20,6 +20,14 @@
 #include "prerror.h"
 #include "ufloat16.h"
 
+namespace mozquic  {
+
+// when this set is updated, look at versionOK() and
+// GenerateVersionNegotiation()
+static const uint32_t kMozQuicVersion1 = 0xf123f0c5; // 0xf123f0c* reserved for mozquic
+static const uint32_t kMozQuicIetfID5 = 0xff000005;
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -192,11 +200,6 @@ extern "C" {
 
 namespace mozquic  {
 
-// when this set is updated, look at versionOK() and
-// GenerateVersionNegotiation()
-static const uint32_t kMozQuicVersion1 = 0xf123f0c5; // 0xf123f0c* reserved for mozquic
-static const uint32_t kMozQuicIetfID4 = 0xff000004;
-
 static const uint32_t kMozQuicVersionGreaseC = 0xfa1a7a3a;
 static const uint32_t kMozQuicVersionGreaseS = 0xea0a6a2a;
 static const uint32_t kFNV64Size = 8;
@@ -312,7 +315,7 @@ void
 MozQuic::PreferMilestoneVersion()
 {
   assert(mConnectionState == STATE_UNINITIALIZED);
-  mVersion = kMozQuicIetfID4;
+  mVersion = kMozQuicIetfID5;
 }
 
 bool
@@ -1443,7 +1446,7 @@ bool
 MozQuic::VersionOK(uint32_t proposed)
 {
   if (proposed == kMozQuicVersion1 ||
-      proposed == kMozQuicIetfID4) {
+      proposed == kMozQuicIetfID5) {
     return true;
   }
   return false;
@@ -1478,7 +1481,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
   memcpy (framePtr, &tmp32, 4);
   framePtr += 4;
   assert(((framePtr + 4) - pkt) <= kMozQuicMTU);
-  tmp32 = htonl(kMozQuicIetfID4);
+  tmp32 = htonl(kMozQuicIetfID5);
   memcpy (framePtr, &tmp32, 4);
   framePtr += 4;
   assert(((framePtr + 4) - pkt) <= kMozQuicMTU);
@@ -2105,24 +2108,10 @@ MozQuic::FrameHeaderData::FrameHeaderData(unsigned char *pkt, uint32_t pktSize, 
     mType = FRAME_TYPE_ACK;
     uint8_t numBlocks = (type & 0x10) ? 1 : 0; // N bit
     uint32_t ackedLen = (type & 0x0c) >> 2; // LL bits
-    if (session->mVersion == kMozQuicIetfID4) {
-      ackedLen = 1 << ackedLen;
-      if (ackedLen == 8) {
-        ackedLen = 6;
-      }
-    } else {
-      ackedLen = 1 << ackedLen;
-    }
+    ackedLen = 1 << ackedLen;
 
     // MM bits are type & 0x03
-    if (session->mVersion == kMozQuicIetfID4) {
-      u.mAck.mAckBlockLengthLen = 1 << (type & 0x03);
-      if (u.mAck.mAckBlockLengthLen == 8) {
-        u.mAck.mAckBlockLengthLen = 6;
-      }
-    } else {
-      u.mAck.mAckBlockLengthLen = 1 << (type & 0x03);
-    }
+    u.mAck.mAckBlockLengthLen = 1 << (type & 0x03);
 
     uint16_t bytesNeeded = 1 + numBlocks + 1 + ackedLen + 2;
     if (bytesNeeded > pktSize) {

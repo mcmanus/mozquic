@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-  const char mozquic_alpn[] = "hq-04";
+  const char mozquic_alpn[] = "hq-05";
   const uint32_t mozquic_library_version = 1;
 
   enum {
