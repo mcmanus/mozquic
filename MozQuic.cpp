@@ -1681,7 +1681,7 @@ MozQuic::FlushStream0(bool forceAck)
     }
   }
 
-  // then padding as needed up to 1272 on client_initial
+  // then padding as needed up to kMozQuicMTU on client_initial
   uint32_t finalLen;
 
   if ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) {
