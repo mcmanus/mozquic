@@ -59,8 +59,8 @@ public:
   MozQuic();
   ~MozQuic();
 
-  int StartConnection();
-  int StartServer(int (*handle_new_connection)(void *, mozquic_connection_t *));
+  int StartClient();
+  int StartServer();
   int StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin);
   int IO();
   void HandshakeOutput(unsigned char *, uint32_t amt);
@@ -172,7 +172,6 @@ private:
   int  (*mReceiverCallback)(mozquic_connection_t *, unsigned char *, uint32_t len, uint32_t *outlen);
   int  (*mHandshakeInput)(mozquic_connection_t *, unsigned char *, uint32_t len);
   int  (*mErrorCB)(mozquic_connection_t *, uint32_t, char *);
-  int  (*mNewConnCB)(void *, mozquic_connection_t *);
   int  (*mConnEventCB)(void *, uint32_t, void *);
  
   std::unique_ptr<MozQuicStreamPair> mStream0;

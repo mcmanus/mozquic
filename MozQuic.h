@@ -33,7 +33,9 @@ extern "C" {
   enum {
     MOZQUIC_EVENT_NEW_STREAM_DATA = 0,
     MOZQUIC_EVENT_STREAM_RESET    = 1,
-    MOZQUIC_EVENT_CONNECTED = 2,
+    MOZQUIC_EVENT_CONNECTED = 2, // handshake complete
+    MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION = 3,
+    MOZQUIC_EVENT_CLOSE_CONNECTION = 4,
   };
 
   enum {
@@ -75,8 +77,8 @@ extern "C" {
 
   int mozquic_new_connection(mozquic_connection_t **outSession, struct mozquic_config_t *inConfig);
   int mozquic_destroy_connection(mozquic_connection_t *inSession);
-  int mozquic_start_connection(mozquic_connection_t *inSession); // client rename todo
-  int mozquic_start_server(mozquic_connection_t *inSession, int (*handle_new_connection)(void *, mozquic_connection_t *newconn));
+  int mozquic_start_client(mozquic_connection_t *inSession); // client rename todo
+  int mozquic_start_server(mozquic_connection_t *inSession);
   int mozquic_start_new_stream(mozquic_stream_t **outStream, mozquic_connection_t *conn, void *data, uint32_t amount, int fin);
   int mozquic_send(mozquic_stream_t *stream, void *data, uint32_t amount, int fin);
   int mozquic_end_stream(mozquic_stream_t *stream);

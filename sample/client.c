@@ -37,7 +37,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
   if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
     mozquic_stream_t *stream = param;
     char buf[100];
-    int read = 0;
+    uint32_t read = 0;
     int fin = 0;
     int line = 0;
     do {
@@ -138,7 +138,7 @@ int main(int argc, char **argv)
   config.tolerateBadALPN = 1;
 
   mozquic_new_connection(&c, &config);
-  mozquic_start_connection(c);
+  mozquic_start_client(c);
 
   uint32_t i=0;
   do {

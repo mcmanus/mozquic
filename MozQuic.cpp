@@ -89,17 +89,16 @@ extern "C" {
     return MOZQUIC_OK;
   }
 
-  int mozquic_start_connection(mozquic_connection_t *conn)
+  int mozquic_start_client(mozquic_connection_t *conn)
   {
     mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
-    return self->StartConnection();
+    return self->StartClient();
   }
 
-  int mozquic_start_server(mozquic_connection_t *conn,
-                           int (*handle_new_connection)(void *, mozquic_connection_t *newconn))
+  int mozquic_start_server(mozquic_connection_t *conn)
   {
     mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
-    return self->StartServer(handle_new_connection);
+    return self->StartServer();
   }
 
   int mozquic_start_new_stream(mozquic_stream_t **outStream,
@@ -239,7 +238,6 @@ MozQuic::MozQuic(bool handleIO)
   , mReceiverCallback(nullptr)
   , mHandshakeInput(nullptr)
   , mErrorCB(nullptr)
-  , mNewConnCB(nullptr)
   , mConnEventCB(nullptr)
   , mNextStreamId(1)
   , mNextRecvStreamId(1)
@@ -336,7 +334,7 @@ MozQuic::IgnorePKI()
 }
 
 int
-MozQuic::StartConnection()
+MozQuic::StartClient()
 {
   assert(!mHandleIO); // todo
   mIsClient = true;
@@ -389,10 +387,9 @@ MozQuic::StartConnection()
 }
 
 int
-MozQuic::StartServer(int (*handle_new_connection)(void *, mozquic_connection_t *))
+MozQuic::StartServer()
 {
   assert(!mHandleIO); // todo
-  mNewConnCB = handle_new_connection;
   mIsClient = false;
   mNextStreamId = 2;
   mNextRecvStreamId = 1;
@@ -1571,8 +1568,11 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
   MozQuic *child = Accept(clientAddr, header.mConnectionID);
   child->mConnectionState = SERVER_STATE_1RTT;
   child->ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck);
-  assert(mNewConnCB); // todo handle err
-  mNewConnCB(mClosure, child);
+  if (mConnEventCB) {
+    mConnEventCB(mClosure, MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION, child);
+  } else {
+    fprintf(stderr,"No Event callback\n");
+  }
   *childSession = child;
   return MOZQUIC_OK;
 }

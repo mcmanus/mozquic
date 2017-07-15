@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include "../MozQuic.h"
+#include "assert.h"
 
 #define SERVER_NAME "foo.example.com"
 #define SERVER_PORT 4433
@@ -30,6 +31,8 @@ and key for foo.example.com that is signed by a CA defined by CA.cert.der.
 
 mozquic_connection_t *only_child = NULL;
 
+static int accept_new_connection(mozquic_connection_t *nc);
+
 uint32_t i=0;
 static int connEventCB(void *closure, uint32_t event, void *param)
 {
@@ -39,7 +42,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     mozquic_stream_t *stream = param;
     char buf[100];
     int finStream = 0;
-    int read = 0;
+    uint32_t read = 0;
     int fin = 0;
     int line = 0;
     do {
@@ -74,14 +77,18 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     fprintf(stderr,"Stream was reset\n");
     return MOZQUIC_OK;
   }
+  case MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION:
+    return accept_new_connection(param);
+      
   default:
     fprintf(stderr,"unhandled event %X\n", event);
   }
   return MOZQUIC_OK;
 }
 
-static int accept_new_connection(void *closure, mozquic_connection_t *nc)
+static int accept_new_connection(mozquic_connection_t *nc)
 {
+  assert(!only_child);
   if (only_child) {
     mozquic_destroy_connection(only_child);
   }
@@ -121,7 +128,8 @@ int main(int argc, char **argv)
   config.handleIO = 0; // todo mvp
 
   mozquic_new_connection(&c, &config);
-  mozquic_start_server(c, accept_new_connection);
+  mozquic_set_event_callback(c, connEventCB);
+  mozquic_start_server(c);
 
   do {
     usleep (1000); // this is for handleio todo
