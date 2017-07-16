@@ -644,6 +644,12 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
 
   SSL_OptionSet(mFD, SSL_ENABLE_NPN, false);
   SSL_OptionSet(mFD, SSL_ENABLE_ALPN, true);
+  SSL_SendAdditionalKeyShares(mFD, 2);
+  SSLNamedGroup groups[] = {  ssl_grp_ec_secp256r1,
+                              ssl_grp_ec_curve25519,
+                              ssl_grp_ec_secp384r1 
+  };
+  SECStatus rv = SSL_NamedGroupConfig(mFD, groups, PR_ARRAY_SIZE(groups));
 
   SSLVersionRange range = {SSL_LIBRARY_VERSION_TLS_1_3,
                            SSL_LIBRARY_VERSION_TLS_1_3};
