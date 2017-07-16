@@ -34,6 +34,14 @@ mozquic_connection_t *only_child = NULL;
 static int accept_new_connection(mozquic_connection_t *nc);
 
 uint32_t i=0;
+
+int close_connection(mozquic_connection_t *c)
+{
+  assert (c == only_child);
+  only_child = NULL;
+  return mozquic_destroy_connection(c);
+}
+  
 static int connEventCB(void *closure, uint32_t event, void *param)
 {
   switch (event) {
@@ -79,7 +87,9 @@ static int connEventCB(void *closure, uint32_t event, void *param)
   }
   case MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION:
     return accept_new_connection(param);
-      
+
+  case MOZQUIC_EVENT_CLOSE_CONNECTION:
+    return close_connection(param);
   default:
     fprintf(stderr,"unhandled event %X\n", event);
   }

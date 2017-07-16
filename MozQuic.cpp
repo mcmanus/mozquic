@@ -1412,6 +1412,11 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
       fprintf(stderr,"RECVD CLOSE\n");
       sendAck = true;
       mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
+      if (mConnEventCB) {
+        mConnEventCB(mClosure, MOZQUIC_EVENT_CLOSE_CONNECTION, this);
+      } else {
+        fprintf(stderr,"No Event callback\n");
+      }
     } else {
       sendAck = true;
       RaiseError(MOZQUIC_ERR_GENERAL, (char *) "unexpected frame type");
