@@ -86,6 +86,7 @@ public:
   void SetIgnorePKI() { mIgnorePKI = true; }
   void SetTolerateBadALPN() { mTolerateBadALPN = true; }
   bool IgnorePKI();
+  void DeleteStream(uint32_t streamID);
   void Shutdown(uint32_t, const char *);
 
   uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) override;

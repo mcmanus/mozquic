@@ -57,6 +57,8 @@ static int connEventCB(void *closure, uint32_t event, void *param)
           finStream = 1;
         }
         fprintf(stderr,"[%s] fin=%d\n", buf, fin);
+      } else if (fin) {
+        fprintf(stderr,"fin=%d\n", fin);
       }
     } while (read > 0);
     if (finStream) {

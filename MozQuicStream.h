@@ -84,6 +84,10 @@ public:
   ~MozQuicStreamOut();
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
   int EndStream();
+  bool Done()
+  {
+    return mFin;
+  }
 
 private:
   MozQuicWriter *mWriter;
@@ -101,18 +105,25 @@ public:
   uint32_t Supply(std::unique_ptr<MozQuicStreamChunk> &p);
   bool     Empty();
 
+  bool Done() {
+    return (mOffset == mFinOffset) && mFinGivenToApp;
+  }
+
 private:
   uint64_t mOffset;
   uint64_t mFinOffset;
   bool     mFinRecvd;
+  bool     mFinGivenToApp;
   
   std::list<std::unique_ptr<MozQuicStreamChunk>> mAvailable;
 };
 
+class MozQuic;
+
 class MozQuicStreamPair
 {
 public:
-  MozQuicStreamPair(uint32_t id, MozQuicWriter *);
+  MozQuicStreamPair(uint32_t id, MozQuicWriter *, MozQuic *);
   ~MozQuicStreamPair();
 
   uint32_t Supply(std::unique_ptr<MozQuicStreamChunk> &p) {
@@ -136,8 +147,14 @@ public:
     return mOut.EndStream();
   }
 
+  bool Done(); // All data and fin bit given to an application and all data are transmitted and acked.
+               // todo(or stream has been reseted)
+               // the stream can be removed from the stream list.
+
+  uint32_t mStreamID;
   MozQuicStreamOut mOut;
   MozQuicStreamIn  mIn;
+  MozQuic *mMozQuic;
 };
 
 } //namespace

@@ -14,9 +14,11 @@
 
 namespace mozquic {
 
-MozQuicStreamPair::MozQuicStreamPair(uint32_t id, MozQuicWriter *w)
-  : mOut(id, w)
+MozQuicStreamPair::MozQuicStreamPair(uint32_t id, MozQuicWriter *w, MozQuic *m)
+  : mStreamID(id)
+  , mOut(id, w)
   , mIn(id)
+  , mMozQuic(m)
 {
 }
 
@@ -24,10 +26,17 @@ MozQuicStreamPair::~MozQuicStreamPair()
 {
 }
 
+bool
+MozQuicStreamPair::Done()
+{
+  return mOut.Done() && mIn.Done();
+}
+
 MozQuicStreamIn::MozQuicStreamIn(uint32_t id)
   : mOffset(0)
   , mFinOffset(0)
   , mFinRecvd(false)
+  , mFinGivenToApp(false)
 {
 }
 
@@ -42,6 +51,7 @@ MozQuicStreamIn::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool
   amt = 0;
   if (mFinRecvd && mFinOffset == mOffset) {
     fin = true;
+    mFinGivenToApp = true;
     return MOZQUIC_OK;
   }
   fin = false;
@@ -66,6 +76,7 @@ MozQuicStreamIn::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool
   mOffset += copyLen;
   if (mFinRecvd && mFinOffset == mOffset) {
     fin = true;
+    mFinGivenToApp = true;
   }
   assert(mOffset <= (*i)->mOffset + (*i)->mLen);
   if (mOffset == (*i)->mOffset + (*i)->mLen) {
@@ -205,8 +216,13 @@ MozQuicStreamOut::~MozQuicStreamOut()
 uint32_t
 MozQuicStreamOut::Write(const unsigned char *data, uint32_t len, bool fin)
 {
+  if (mFin) {
+    return MOZQUIC_ERR_ALREADY_FINISHED;
+  }
+
   std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(mStreamID, mOffset, data, len, fin));
   mOffset += len;
+  mFin = fin;
   return mWriter->DoWriter(tmp);
 }
 

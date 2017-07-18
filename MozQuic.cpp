@@ -120,13 +120,21 @@ extern "C" {
                    int fin)
   {
     mozquic::MozQuicStreamPair *self(reinterpret_cast<mozquic::MozQuicStreamPair *>(stream));
-    return self->Write((const unsigned char *)data, amount, fin);
+    int rv = self->Write((const unsigned char *)data, amount, fin);
+    if (fin && self->Done()) {
+      self->mMozQuic->DeleteStream(self->mStreamID);
+    }
+    return rv;
   }
 
   int mozquic_end_stream(mozquic_stream_t *stream)
   {
      mozquic::MozQuicStreamPair *self(reinterpret_cast<mozquic::MozQuicStreamPair *>(stream));
-     return self->EndStream();
+     int rv = self->EndStream();
+     if (self->Done()) {
+      self->mMozQuic->DeleteStream(self->mStreamID);
+    }
+    return rv;
   }
 
   int mozquic_recv(mozquic_stream_t *stream, void *data, uint32_t avail,
@@ -138,6 +146,9 @@ extern "C" {
     int rv = self->Read((unsigned char *)data, avail, a, f);
     *fin = f;
     *amount = a;
+    if (f && self->Done()) {
+      self->mMozQuic->DeleteStream(self->mStreamID);
+    }
     return rv;
   }
 
@@ -332,7 +343,7 @@ MozQuic::StartConnection()
   mNextStreamId = 1;
   mNextRecvStreamId = 2;
   mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
-  mStream0.reset(new MozQuicStreamPair(0, this));
+  mStream0.reset(new MozQuicStreamPair(0, this, this));
 
   mConnectionState = CLIENT_STATE_1RTT;
   for (int i=0; i < 4; i++) {
@@ -394,7 +405,7 @@ MozQuic::StartServer(int (*handle_new_connection)(void *, mozquic_connection_t *
 int
 MozQuic::StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin)
 {
-  *outStream = new MozQuicStreamPair(mNextStreamId, this);
+  *outStream = new MozQuicStreamPair(mNextStreamId, this, this);
   mStreams.insert( { mNextStreamId, *outStream } );
   mNextStreamId += 2;
   if ( amount || fin) {
@@ -1312,7 +1323,7 @@ MozQuic::FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d)
   // streamID that are not already opened.
   while (streamID >= mNextRecvStreamId) {
     fprintf(stderr, "Add new stream %d\n", mNextRecvStreamId);
-    MozQuicStreamPair *stream = new MozQuicStreamPair(mNextRecvStreamId, this);
+    MozQuicStreamPair *stream = new MozQuicStreamPair(mNextRecvStreamId, this, this);
     mStreams.insert( { mNextRecvStreamId, stream } );
     mNextRecvStreamId += 2;
   }
@@ -1329,6 +1340,13 @@ MozQuic::FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d)
     mConnEventCB(mClosure, MOZQUIC_EVENT_NEW_STREAM_DATA, (*i).second);
   }
   return MOZQUIC_OK;
+}
+
+void
+MozQuic::DeleteStream(uint32_t streamID)
+{
+  fprintf(stderr, "Delete stream %lu\n", streamID);
+  mStreams.erase(streamID);
 }
 
 uint32_t
@@ -1412,7 +1430,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID)
   memcpy(&child->mPeer, clientAddr, sizeof (struct sockaddr_in));
   child->mFD = mFD;
   
-  child->mStream0.reset(new MozQuicStreamPair(0, child));
+  child->mStream0.reset(new MozQuicStreamPair(0, child, child));
   do {
     for (int i=0; i < 4; i++) {
       child->mConnectionID = child->mConnectionID << 16;
