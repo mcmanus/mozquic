@@ -60,8 +60,10 @@ static int connEventCB(void *closure, uint32_t event, void *param)
 
     mozquic_end_stream(stream);
     return MOZQUIC_OK;
+  } else if (event == MOZQUIC_EVENT_IO) {
+  } else {
+    fprintf(stderr,"unhandled event %X\n", event);
   }
-  fprintf(stderr,"unhandled event %X\n", event);
   return MOZQUIC_OK;
 }
 

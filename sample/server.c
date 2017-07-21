@@ -29,16 +29,12 @@ and key for foo.example.com that is signed by a CA defined by CA.cert.der.
 
 #endif
 
-mozquic_connection_t *only_child = NULL;
+int send_close = 0;
 
 static int accept_new_connection(mozquic_connection_t *nc);
 
-uint32_t i=0;
-
 int close_connection(mozquic_connection_t *c)
 {
-  assert (c == only_child);
-  only_child = NULL;
   return mozquic_destroy_connection(c);
 }
   
@@ -85,11 +81,28 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     fprintf(stderr,"Stream was reset\n");
     return MOZQUIC_OK;
   }
+
   case MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION:
     return accept_new_connection(param);
 
   case MOZQUIC_EVENT_CLOSE_CONNECTION:
     return close_connection(param);
+
+  case MOZQUIC_EVENT_IO:
+    if (!closure) 
+      return MOZQUIC_OK;
+    {
+      uint32_t *i = closure;
+      mozquic_connection_t *conn = param;
+      *i += 1;
+      if (send_close && (*i == 1500)) {
+        // and what about recv of close
+        mozquic_destroy_connection(conn);
+        free(i);
+      }
+      return MOZQUIC_OK;
+    }
+
   default:
     fprintf(stderr,"unhandled event %X\n", event);
   }
@@ -98,13 +111,10 @@ static int connEventCB(void *closure, uint32_t event, void *param)
 
 static int accept_new_connection(mozquic_connection_t *nc)
 {
-  assert(!only_child);
-  if (only_child) {
-    mozquic_destroy_connection(only_child);
-  }
-  only_child = nc;
-  mozquic_set_event_callback( only_child, connEventCB);
-  i = 0;
+  uint32_t *ctr = malloc (sizeof (uint32_t));
+  *ctr = 0;
+  mozquic_set_event_callback(nc, connEventCB);
+  mozquic_set_event_callback_closure(nc, ctr);
   return MOZQUIC_OK;
 }
 
@@ -122,9 +132,12 @@ has_arg(int argc, char **argv, char *test)
 
 int main(int argc, char **argv)
 {
+  uint32_t i = 0;
   struct mozquic_config_t config;
   mozquic_connection_t *c;
 
+  send_close = has_arg(argc, argv, "-send-close");
+  
   char *cdir = getenv ("MOZQUIC_NSS_CONFIG");
   if (mozquic_nss_config(cdir) != MOZQUIC_OK) {
     fprintf(stderr,"MOZQUIC_NSS_CONFIG FAILURE [%s]\n", cdir ? cdir : "");
@@ -148,13 +161,6 @@ int main(int argc, char **argv)
       fflush(stderr);
     }
     mozquic_IO(c);
-    if (only_child) {
-      mozquic_IO(only_child); // todo mvp do we need this?
-      if ((i == 1500) && has_arg(argc, argv, "-send-close")) {
-        mozquic_destroy_connection(only_child);
-        only_child = NULL;
-      }
-    }
   } while (1);
   
 }

@@ -87,7 +87,7 @@ public:
   void SetTolerateBadALPN() { mTolerateBadALPN = true; }
   bool IgnorePKI();
   void DeleteStream(uint32_t streamID);
-  void Shutdown(uint32_t, const char *);
+  void Destroy(uint32_t, const char *);
 
   uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) override;
 private:
@@ -116,6 +116,7 @@ private:
 
   bool ServerState() { return mConnectionState > SERVER_STATE_BREAK; }
   MozQuic *FindSession(uint64_t cid);
+  void Shutdown(uint32_t, const char *);
 
   uint64_t Timestamp();
   uint32_t Intake();
@@ -192,6 +193,11 @@ private:
   //    of that ack hasn't been ack'd by peer
   //   ->Transmitted() is true in (b)
   std::list<MozQuicStreamAck>                    mAckList;
+
+  // parent and children are only defined on the server
+  MozQuic *mParent; // only in child
+  std::shared_ptr<MozQuic> mAlive;
+  std::list<std::shared_ptr<MozQuic>> mChildren; // only in parent
 
   // The beginning of a connection.
   uint64_t mTimestampConnBegin;

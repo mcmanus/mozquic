@@ -84,8 +84,7 @@ extern "C" {
   int mozquic_destroy_connection(mozquic_connection_t *conn)
   {
     mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
-    self->Shutdown(0, "");
-    delete self;
+    self->Destroy(0, "");
     return MOZQUIC_OK;
   }
 
@@ -158,6 +157,14 @@ extern "C" {
     return MOZQUIC_OK;
   }
 
+  int mozquic_set_event_callback_closure(mozquic_connection_t *conn,
+                                         void *closure)
+  {
+    mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
+    self->SetClosure(closure);
+    return MOZQUIC_OK;
+  }
+  
   int mozquic_IO(mozquic_connection_t *conn)
   {
     mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
@@ -241,6 +248,8 @@ MozQuic::MozQuic(bool handleIO)
   , mConnEventCB(nullptr)
   , mNextStreamId(1)
   , mNextRecvStreamId(1)
+  , mParent(nullptr)
+  , mAlive(this)
 {
   assert(!handleIO); // todo
   unsigned char seed[4];
@@ -261,6 +270,14 @@ MozQuic::~MozQuic()
 }
 
 void
+MozQuic::Destroy(uint32_t code, const char *reason)
+{
+  bool isForkedChild = !mIsClient && mIsChild;
+  Shutdown(code, reason);
+  mAlive = nullptr;
+}
+
+void
 MozQuic::Shutdown(uint32_t code, const char *reason)
 {
   if ((mConnectionState != CLIENT_STATE_CONNECTED) &&
@@ -268,6 +285,11 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
     mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
     return;
   }
+  if (!mIsChild && !mIsClient) {
+    // this is the listener.. it does not send packets
+    return;
+  }
+  
   fprintf(stderr, "sending shutdown as %lx\n", mNextTransmitPacketNumber);
 
   unsigned char plainPkt[kMozQuicMTU];
@@ -310,6 +332,15 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   Transmit(cipherPkt, written + 13, nullptr);
 
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
+
+  if (mParent) {
+    for (auto iter = mParent->mChildren.begin(); iter != mParent->mChildren.end(); ++iter) {
+      if ((*iter).get() == this) {
+          mParent->mChildren.erase(iter);
+          break;
+      }
+    }    
+  }
 }
 
 void
@@ -650,6 +681,7 @@ int
 MozQuic::IO()
 {
   uint32_t code;
+  std::shared_ptr<MozQuic> deleteProtector(mAlive);
 
   Intake();
   RetransmitTimer();
@@ -679,8 +711,18 @@ MozQuic::IO()
         return code;
       }
     }
+    if (!mIsChild) {
+      ssize_t len = mChildren.size();
+      for (auto iter = mChildren.begin();
+           len == mChildren.size() && iter != mChildren.end(); ++iter) {
+        (*iter)->IO();
+      }
+    }
   }
-  
+
+  if (mConnEventCB) {
+    mConnEventCB(mClosure, MOZQUIC_EVENT_IO, this);
+  }
   return MOZQUIC_OK;
 }
 
@@ -705,7 +747,7 @@ MozQuic::AckScoreboard(uint64_t packetNumber, enum keyPhase kp)
     return;
   }
 
-  auto iter=mAckList.begin();
+  auto iter = mAckList.begin();
   for (; iter != mAckList.end(); ++iter) {
     if ((iter->mPhase == kp) &&
         ((iter->mPacketNumber + 1) == packetNumber)) {
@@ -1433,6 +1475,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID)
   MozQuic *child = new MozQuic(mHandleIO);
   child->mIsChild = true;
   child->mIsClient = false;
+  child->mParent = this;
   memcpy(&child->mPeer, clientAddr, sizeof (struct sockaddr_in));
   child->mFD = mFD;
   
@@ -1532,7 +1575,7 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
   assert(!mIsChild);
 
   *childSession = nullptr;
-  if (mConnectionState != SERVER_STATE_LISTEN) { // todo rexmit right?
+  if (mConnectionState != SERVER_STATE_LISTEN) {
     return MOZQUIC_OK;
   }
   if (mIsClient) {
@@ -1571,6 +1614,9 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
     }
   }
   MozQuic *child = Accept(clientAddr, header.mConnectionID);
+  assert(!mIsChild);
+  assert(!mIsClient);
+  mChildren.emplace_back(child->mAlive);
   child->mConnectionState = SERVER_STATE_1RTT;
   child->ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck);
   if (mConnEventCB) {
