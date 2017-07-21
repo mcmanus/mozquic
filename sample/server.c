@@ -34,12 +34,15 @@ and key for foo.example.com that is signed by a CA defined by CA.cert.der.
 #define SEND_CLOSE_TIMEOUT_MS 1500
 #define TIMEOUT_CLIENT_MS 30000
 
-  int send_close = 0;
+int send_close = 0;
+int connected = 0;
 
 static int accept_new_connection(mozquic_connection_t *nc);
 
 int close_connection(mozquic_connection_t *c)
 {
+  connected--;
+  assert(connected >= 0);
   return mozquic_destroy_connection(c);
 }
   
@@ -91,7 +94,8 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     return accept_new_connection(param);
 
   case MOZQUIC_EVENT_CLOSE_CONNECTION:
-    return mozquic_destroy_connection(param);
+    // todo this leaks the 64bit int allocation
+    return close_connection(param);
 
   case MOZQUIC_EVENT_IO:
     if (!closure) 
@@ -103,7 +107,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
       if ((send_close && (*i == SEND_CLOSE_TIMEOUT_MS)) ||
           (*i == TIMEOUT_CLIENT_MS)) {
         fprintf(stderr,"server terminating connection\n");
-        mozquic_destroy_connection(conn);
+        close_connection(param);
         free(i);
       }          
       return MOZQUIC_OK;
@@ -121,6 +125,7 @@ static int accept_new_connection(mozquic_connection_t *nc)
   *ctr = 0;
   mozquic_set_event_callback(nc, connEventCB);
   mozquic_set_event_callback_closure(nc, ctr);
+  connected++;
   return MOZQUIC_OK;
 }
 
@@ -139,6 +144,7 @@ has_arg(int argc, char **argv, char *test)
 int main(int argc, char **argv)
 {
   uint32_t i = 0;
+  uint32_t delay = 1000;
   struct mozquic_config_t config;
   mozquic_connection_t *c;
 
@@ -161,9 +167,21 @@ int main(int argc, char **argv)
   mozquic_start_server(c);
 
   do {
-    usleep (1000); // this is for handleio todo
+    usleep (delay); // this is for handleio todo
     if (!(i++ & 0xf)) {
-      fprintf(stderr,".");
+      char p;
+      assert(connected >= 0);
+      if (!connected) {
+        p = '.';
+        delay = 5000;
+      } else if (connected < 10) {
+        p = '0' + connected;
+        delay = 1000;
+      } else {
+        p = '*';
+        delay = 1000;
+      }
+      fprintf(stderr,"%c",p);
       fflush(stderr);
     }
     mozquic_IO(c);

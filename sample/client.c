@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#define SERVER_NAME "localhost"
+#define SERVER_NAME "127.0.0.1"
 #define SERVER_PORT 4433
 
 #if 0
