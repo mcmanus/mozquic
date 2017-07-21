@@ -21,15 +21,20 @@ Basic server, does a handshake and waits forever.. it can only handle 1
   with a single message and close the stream
 
   -send-close option will send a close before exiting at 1.5sec
-  
-About Certificate Verifcation::
+
+  all connected sessions will be closed 30 seconds after connect
+
+  About Certificate Verifcation::
 The sample/nss-config directory is a sample that can be passed
 to mozquic_nss_config(). It contains a NSS database with a cert
 and key for foo.example.com that is signed by a CA defined by CA.cert.der.
 
 #endif
 
-int send_close = 0;
+#define SEND_CLOSE_TIMEOUT_MS 1500
+#define TIMEOUT_CLIENT_MS 30000
+
+  int send_close = 0;
 
 static int accept_new_connection(mozquic_connection_t *nc);
 
@@ -95,10 +100,12 @@ static int connEventCB(void *closure, uint32_t event, void *param)
       uint32_t *i = closure;
       mozquic_connection_t *conn = param;
       *i += 1;
-      if (send_close && (*i == 1500)) {
+      if ((send_close && (*i == SEND_CLOSE_TIMEOUT_MS)) ||
+          (*i == TIMEOUT_CLIENT_MS)) {
+        fprintf(stderr,"server terminating connection\n");
         mozquic_destroy_connection(conn);
         free(i);
-      }
+      }          
       return MOZQUIC_OK;
     }
 
