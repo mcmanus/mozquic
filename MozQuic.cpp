@@ -272,7 +272,6 @@ MozQuic::~MozQuic()
 void
 MozQuic::Destroy(uint32_t code, const char *reason)
 {
-  bool isForkedChild = !mIsClient && mIsChild;
   Shutdown(code, reason);
   mAlive = nullptr;
 }
@@ -280,6 +279,15 @@ MozQuic::Destroy(uint32_t code, const char *reason)
 void
 MozQuic::Shutdown(uint32_t code, const char *reason)
 {
+  if (mParent) {
+    for (auto iter = mParent->mChildren.begin(); iter != mParent->mChildren.end(); ++iter) {
+      if ((*iter).get() == this) {
+          mParent->mChildren.erase(iter);
+          break;
+      }
+    }    
+  }
+
   if ((mConnectionState != CLIENT_STATE_CONNECTED) &&
       (mConnectionState != SERVER_STATE_CONNECTED)) {
     mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
@@ -332,15 +340,6 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   Transmit(cipherPkt, written + 13, nullptr);
 
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
-
-  if (mParent) {
-    for (auto iter = mParent->mChildren.begin(); iter != mParent->mChildren.end(); ++iter) {
-      if ((*iter).get() == this) {
-          mParent->mChildren.erase(iter);
-          break;
-      }
-    }    
-  }
 }
 
 void

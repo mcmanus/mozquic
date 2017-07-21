@@ -86,7 +86,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     return accept_new_connection(param);
 
   case MOZQUIC_EVENT_CLOSE_CONNECTION:
-    return close_connection(param);
+    return mozquic_destroy_connection(param);
 
   case MOZQUIC_EVENT_IO:
     if (!closure) 
@@ -96,7 +96,6 @@ static int connEventCB(void *closure, uint32_t event, void *param)
       mozquic_connection_t *conn = param;
       *i += 1;
       if (send_close && (*i == 1500)) {
-        // and what about recv of close
         mozquic_destroy_connection(conn);
         free(i);
       }
