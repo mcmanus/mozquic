@@ -1229,7 +1229,7 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
     mConnectionID = header.mConnectionID;
   }
   
-  return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck);
+  return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck, true);
 }
 
 void
@@ -1355,7 +1355,7 @@ MozQuic::ProcessGeneral(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
     fprintf(stderr, "decrypt failed\n");
     return rv;
   }
-  return ProcessGeneralDecoded(out, written, sendAck);
+  return ProcessGeneralDecoded(out, written, sendAck, false);
 }
 
 int
@@ -1393,7 +1393,7 @@ MozQuic::DeleteStream(uint32_t streamID)
 
 uint32_t
 MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
-                               bool &sendAck)
+                               bool &sendAck, bool fromCleartext)
 {
   // used by both client and server
   unsigned char *endpkt = pkt + pktSize;
@@ -1402,6 +1402,9 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
   assert(pktSize <= kMozQuicMSS);
   sendAck = false;
 
+  // fromCleartext frames may only be ack, stream-0, and padding
+  // and process_client_initial may not be ack
+  
   while (ptr < pktSize) {
     FrameHeaderData result(pkt + ptr, pktSize - ptr, this);
     if (result.mValid != MOZQUIC_OK) {
@@ -1437,6 +1440,12 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
               result.u.mStream.mStreamID,
               result.u.mStream.mDataLen);
     } else if (result.mType == FRAME_TYPE_ACK) {
+      if (fromCleartext && (mConnectionState == SERVER_STATE_LISTEN)) {
+        // acks are not allowed processing client_initial
+        fprintf(stderr, "acks are not allowed processing client initial\n");
+        return MOZQUIC_ERR_GENERAL;
+      }
+
       // ptr now points at ack block section
       uint32_t ackBlockSectionLen =
         result.u.mAck.mAckBlockLengthLen +
@@ -1450,6 +1459,10 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
       ptr += ackBlockSectionLen;
       ptr += timestampSectionLen;
     } else if (result.mType == FRAME_TYPE_CLOSE) {
+      if (fromCleartext) {
+        fprintf(stderr, "close frames not allowed in cleartext\n");
+        return MOZQUIC_ERR_GENERAL;
+      }
       fprintf(stderr,"RECVD CLOSE\n");
       sendAck = true;
       mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
@@ -1475,6 +1488,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID)
   child->mIsChild = true;
   child->mIsClient = false;
   child->mParent = this;
+  child->mConnectionState = SERVER_STATE_LISTEN;
   memcpy(&child->mPeer, clientAddr, sizeof (struct sockaddr_in));
   child->mFD = mFD;
   
@@ -1616,8 +1630,8 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
   assert(!mIsChild);
   assert(!mIsClient);
   mChildren.emplace_back(child->mAlive);
+  child->ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck, true);
   child->mConnectionState = SERVER_STATE_1RTT;
-  child->ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck);
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION, child);
   } else {
@@ -1644,7 +1658,7 @@ MozQuic::ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
     return MOZQUIC_ERR_GENERAL;
   }
   
-  return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck);
+  return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck, true);
 }
 
 uint32_t

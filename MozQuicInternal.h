@@ -32,7 +32,6 @@ enum connectionState
   CLIENT_STATE_CONNECTED,
   CLIENT_STATE_CLOSED,  // todo more shutdown states
 
-  CLIENT_STATE_BREAK,
   SERVER_STATE_BREAK,
  
   SERVER_STATE_LISTEN,
@@ -109,7 +108,7 @@ private:
   int ProcessClientInitial(unsigned char *, uint32_t size, struct sockaddr_in *peer,
                            LongHeaderData &, MozQuic **outSession, bool &);
   int ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeaderData &, bool&);
-  uint32_t ProcessGeneralDecoded(unsigned char *, uint32_t size, bool &);
+  uint32_t ProcessGeneralDecoded(unsigned char *, uint32_t size, bool &, bool fromClearText);
   uint32_t ProcessGeneral(unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   bool IntegrityCheck(unsigned char *, uint32_t size);
   void ProcessAck(class FrameHeaderData &result, unsigned char *framePtr);
