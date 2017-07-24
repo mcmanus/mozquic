@@ -87,6 +87,7 @@ public:
   bool IgnorePKI();
   void DeleteStream(uint32_t streamID);
   void Destroy(uint32_t, const char *);
+  uint32_t CheckPeer(uint32_t);
 
   uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) override;
 private:
@@ -111,7 +112,7 @@ private:
   uint32_t ProcessGeneralDecoded(unsigned char *, uint32_t size, bool &, bool fromClearText);
   uint32_t ProcessGeneral(unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   bool IntegrityCheck(unsigned char *, uint32_t size);
-  void ProcessAck(class FrameHeaderData &result, unsigned char *framePtr);
+  void ProcessAck(class FrameHeaderData &result, unsigned char *framePtr, bool fromCleartext);
 
   bool ServerState() { return mConnectionState > SERVER_STATE_BREAK; }
   MozQuic *FindSession(uint64_t cid);
@@ -200,6 +201,8 @@ private:
 
   // The beginning of a connection.
   uint64_t mTimestampConnBegin;
+
+  uint64_t mPingDeadline;
 
   // need other frame 2 list
 public: // callbacks from nsshelper

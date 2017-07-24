@@ -61,6 +61,10 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     mozquic_end_stream(stream);
     return MOZQUIC_OK;
   } else if (event == MOZQUIC_EVENT_IO) {
+  } else if (event == MOZQUIC_EVENT_CLOSE_CONNECTION ||
+             event == MOZQUIC_EVENT_ERROR) {
+    mozquic_destroy_connection(param);
+    exit(0);
   } else {
     fprintf(stderr,"unhandled event %X\n", event);
   }
@@ -154,7 +158,7 @@ int main(int argc, char **argv)
       fprintf(stderr,"IO reported failure\n");
       break;
     }
-  } while (i < 2000);
+  } while (i < 22000);
 
   if (has_arg(argc, argv, "-streamtest1")) {
     streamtest1(c);

@@ -210,6 +210,12 @@ extern "C" {
 
     return mozquic::NSSHelper::Init(dir);
   }
+
+  int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMs)
+  {
+    mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
+    return self->CheckPeer(deadlineMs);
+  }
   
 #ifdef __cplusplus
 }
@@ -250,6 +256,8 @@ MozQuic::MozQuic(bool handleIO)
   , mNextRecvStreamId(1)
   , mParent(nullptr)
   , mAlive(this)
+  , mTimestampConnBegin(0)
+  , mPingDeadline(0)
 {
   assert(!handleIO); // todo
   unsigned char seed[4];
@@ -276,6 +284,40 @@ MozQuic::Destroy(uint32_t code, const char *reason)
   mAlive = nullptr;
 }
 
+uint32_t
+MozQuic::CheckPeer(uint32_t deadline)
+{
+  if (mPingDeadline) {
+    return MOZQUIC_OK;
+  }
+  if ((mConnectionState != CLIENT_STATE_CONNECTED) &&
+      (mConnectionState != SERVER_STATE_CONNECTED)) {
+    fprintf(stderr,"check peer not connected\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  mPingDeadline = Timestamp() + deadline;
+
+  unsigned char plainPkt[kMozQuicMTU];
+  unsigned char cipherPkt[kMozQuicMTU];
+  uint32_t used;
+
+  CreateShortPacketHeader(plainPkt, kMozQuicMTU, used);
+  assert(used == 13);
+  plainPkt[used] = FRAME_TYPE_PING;
+  used++;
+  
+  // 13 bytes of aead, 1 ping frame byte. result is 16 longer for aead tag
+  uint32_t written = 0;
+  memcpy(cipherPkt, plainPkt, 13);
+  uint32_t rv = mNSSHelper->EncryptBlock(plainPkt, 13, plainPkt + 13, 1,
+                                         mNextTransmitPacketNumber, cipherPkt + 13, kMozQuicMTU - 13, written);
+  mNextTransmitPacketNumber++;
+  Transmit(cipherPkt, written + 13, nullptr);
+
+  return MOZQUIC_OK;
+}
+  
 void
 MozQuic::Shutdown(uint32_t code, const char *reason)
 {
@@ -719,6 +761,11 @@ MozQuic::IO()
     }
   }
 
+  if (mPingDeadline && mConnEventCB && mPingDeadline >= Timestamp()) {
+    mPingDeadline = 0;
+    mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
+  }
+  
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_IO, this);
   }
@@ -792,8 +839,8 @@ MozQuic::MaybeSendAck()
     if (iter->Transmitted()) {
       continue;
     }
-    fprintf(stderr,"ASKED TO SEND ACK FOR %lx %d\n",
-            iter->mPacketNumber, iter->mPhase);
+    fprintf(stderr,"Trigger Ack based on %lX (extra %d) kp=%d\n",
+            iter->mPacketNumber, iter->mExtra, iter->mPhase);
     FlushStream0(true);
     FlushStream(true);
     break;
@@ -832,12 +879,14 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
     if (avail < (newFrame ? 11 : 3)) {
       return MOZQUIC_OK;
     }
-    if (iter->mPhase != kp) {
+    if (iter->mPhase > kp) {
       ++iter;
-      fprintf(stderr,"skip ack generation of %lx kp\n", iter->mPacketNumber);
+      fprintf(stderr,"skip ack generation of %lX wrong kp\n", iter->mPacketNumber);
       continue;
     }
-    fprintf(stderr,"ack generation of %lx %d extra\n", iter->mPacketNumber, iter->mExtra);
+
+    fprintf(stderr,"creating ack of %lX (%d extra) into pn=%lX [old pnOfAck %lX]\n",
+            iter->mPacketNumber, iter->mExtra, pktNumOfAck, iter->mPacketNumberOfAck);
     if (newFrame) {
       newFrame = false;
       pkt[0] = 0xb9; // ack with 32 bit num and 16 bit run encoding and numblocks
@@ -963,9 +1012,9 @@ MozQuic::Acknowledge(uint64_t packetNum, keyPhase kp)
     mNextRecvPacketNumber = packetNum + 1;
   }
 
-  fprintf(stderr,"%p GEN ACK FOR %lX kp=%d\n", this, packetNum, kp);
+  fprintf(stderr,"%p REQUEST TO GEN ACK FOR %lX kp=%d\n", this, packetNum, kp);
 
-  // put this packetnumber on the scoreboard along with timestamp
+
   AckScoreboard(packetNum, kp);
 }
 
@@ -1233,7 +1282,7 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
 }
 
 void
-MozQuic::ProcessAck(FrameHeaderData &result, unsigned char *framePtr)
+MozQuic::ProcessAck(FrameHeaderData &result, unsigned char *framePtr, bool fromCleartext)
 {
   // frameptr points to the beginning of the ackblock section
   // we have already runtime tested that there is enough data there
@@ -1251,7 +1300,8 @@ MozQuic::ProcessAck(FrameHeaderData &result, unsigned char *framePtr)
     extra = PR_ntohll(extra);
     framePtr += blockLengthLen;
 
-    fprintf(stderr,"ACK RECVD FOR %lX -> %lX\n",
+    fprintf(stderr,"ACK RECVD (%s) FOR %lX -> %lX\n",
+            fromCleartext ? "cleartext" : "protected",
             largestAcked - extra, largestAcked);
     // form a stack here so we can process them starting at the
     // lowest packet number, which is how mUnAckedData is ordered and
@@ -1350,11 +1400,12 @@ MozQuic::ProcessGeneral(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
   uint32_t rv = mNSSHelper->DecryptBlock(pkt, headerSize, pkt + headerSize,
                                          pktSize - headerSize, packetNum, out,
                                          kMozQuicMSS, written);
-  fprintf(stderr,"decrypt (pktnum=%lx) rv=%d sz=%d\n", packetNum, rv, written);
+  fprintf(stderr,"decrypt (pktnum=%lX) rv=%d sz=%d\n", packetNum, rv, written);
   if (rv != MOZQUIC_OK) {
     fprintf(stderr, "decrypt failed\n");
     return rv;
   }
+  mPingDeadline = 0;
   return ProcessGeneralDecoded(out, written, sendAck, false);
 }
 
@@ -1413,6 +1464,15 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
     ptr += result.mFrameLen;
     if (result.mType == FRAME_TYPE_PADDING) {
       continue;
+    } else if (result.mType == FRAME_TYPE_PING) {
+      // basically padding with an ack
+      if (fromCleartext) {
+        fprintf(stderr, "ping frames not allowed in cleartext\n");
+        return MOZQUIC_ERR_GENERAL;
+      }
+      fprintf(stderr,"recvd ping\n");
+      sendAck = true;
+      continue;
     } else if (result.mType == FRAME_TYPE_STREAM) {
       sendAck = true;
 
@@ -1455,7 +1515,7 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
         timestampSectionLen += 2; // the first one is longer
       }
       assert(pkt + ptr + ackBlockSectionLen + timestampSectionLen <= endpkt);
-      ProcessAck(result, pkt + ptr);
+      ProcessAck(result, pkt + ptr, fromCleartext);
       ptr += ackBlockSectionLen;
       ptr += timestampSectionLen;
     } else if (result.mType == FRAME_TYPE_CLOSE) {
@@ -1804,7 +1864,7 @@ MozQuic::FlushStream0(bool forceAck)
   }
 
   if (iter != mUnWrittenData.end()) {
-    return FlushStream0(false); // todo mvp this is broken with non stream 0 pkts
+    return FlushStream0(false);
   }
   return MOZQUIC_OK;
 }
@@ -1951,8 +2011,8 @@ MozQuic::FlushStream(bool forceAck)
   uint32_t rv = mNSSHelper->EncryptBlock(plainPkt, pktHeaderLen, plainPkt + pktHeaderLen,
                                          finalLen - pktHeaderLen, mNextTransmitPacketNumber,
                                          cipherPkt + pktHeaderLen, kMozQuicMTU - pktHeaderLen, written);
-  fprintf(stderr,"encrypt rv=%d inputlen=%d (+%d of aead) outputlen=%d pktheaderLen =%d\n",
-          rv, finalLen - pktHeaderLen, pktHeaderLen, written, pktHeaderLen);
+  fprintf(stderr,"encrypt[%lX] rv=%d inputlen=%d (+%d of aead) outputlen=%d pktheaderLen =%d\n",
+          mNextTransmitPacketNumber, rv, finalLen - pktHeaderLen, pktHeaderLen, written, pktHeaderLen);
 
   uint32_t code = Transmit(cipherPkt, written + pktHeaderLen, nullptr);
   if (code != MOZQUIC_OK) {

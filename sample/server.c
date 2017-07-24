@@ -32,7 +32,7 @@ and key for foo.example.com that is signed by a CA defined by CA.cert.der.
 #endif
 
 #define SEND_CLOSE_TIMEOUT_MS 1500
-#define TIMEOUT_CLIENT_MS 30000
+#define TIMEOUT_CLIENT_MS 3000
 
 int send_close = 0;
 int connected = 0;
@@ -94,6 +94,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     return accept_new_connection(param);
 
   case MOZQUIC_EVENT_CLOSE_CONNECTION:
+  case MOZQUIC_EVENT_ERROR:
     // todo this leaks the 64bit int allocation
     return close_connection(param);
 
@@ -104,12 +105,14 @@ static int connEventCB(void *closure, uint32_t event, void *param)
       uint32_t *i = closure;
       mozquic_connection_t *conn = param;
       *i += 1;
-      if ((send_close && (*i == SEND_CLOSE_TIMEOUT_MS)) ||
-          (*i == TIMEOUT_CLIENT_MS)) {
+      if (send_close && (*i == SEND_CLOSE_TIMEOUT_MS)) {
         fprintf(stderr,"server terminating connection\n");
         close_connection(param);
         free(i);
-      }          
+      } else if (!(*i % TIMEOUT_CLIENT_MS)) {
+        fprintf(stderr,"server testing conn\n");
+        mozquic_check_peer(param, 500);
+      }
       return MOZQUIC_OK;
     }
 

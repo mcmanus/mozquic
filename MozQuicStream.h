@@ -52,6 +52,7 @@ public:
     , mExtra(0)
     , mTransmitTime(0)
     , mPhase (kp)
+    , mPacketNumberOfAck(0)
     , mTimestampTransmitted(false)
   {
     mReceiveTime.push_front(rtime);
