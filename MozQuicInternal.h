@@ -87,6 +87,7 @@ public:
   bool IgnorePKI();
   void DeleteStream(uint32_t streamID);
   void Destroy(uint32_t, const char *);
+  uint32_t CheckPeer(uint32_t);
 
   uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) override;
 private:
@@ -200,6 +201,8 @@ private:
 
   // The beginning of a connection.
   uint64_t mTimestampConnBegin;
+
+  uint64_t mPingDeadline;
 
   // need other frame 2 list
 public: // callbacks from nsshelper

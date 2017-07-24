@@ -37,6 +37,7 @@ extern "C" {
     MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION = 3,
     MOZQUIC_EVENT_CLOSE_CONNECTION = 4,
     MOZQUIC_EVENT_IO = 5,
+    MOZQUIC_EVENT_ERROR = 6,
   };
 
   enum {
@@ -86,6 +87,7 @@ extern "C" {
   int mozquic_recv(mozquic_stream_t *stream, void *data, uint32_t aval, uint32_t *amount, int *fin);
   int mozquic_set_event_callback(mozquic_connection_t *conn, int (*fx)(mozquic_connection_t *, uint32_t event, void * param));
   int mozquic_set_event_callback_closure(mozquic_connection_t *conn, void *closure);
+  int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadline);
 
   ////////////////////////////////////////////////////
   // IO handlers
