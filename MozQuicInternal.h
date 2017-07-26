@@ -11,6 +11,7 @@
 #include <forward_list>
 #include <unordered_map>
 #include <memory>
+#include <vector>
 #include "MozQuicStream.h"
 #include "NSSHelper.h"
 #include "prnetdb.h"
@@ -42,7 +43,8 @@ enum connectionState
 };
 
 class MozQuicStreamPair;
-
+class MozQuicStreamAck;
+  
 class MozQuic final : public MozQuicWriter
 {
 public:
@@ -182,16 +184,24 @@ private:
   uint32_t mNextRecvStreamId;
   std::unordered_map<uint32_t, MozQuicStreamPair *> mStreams;
 
-  // todo coalesce all unacked
+  // wrt munwrittendata and munackeddata. retransmit happens off of
+  // munackeddata by duplicating it and placing it in munwrittendata. The
+  // dup'd entry is marked retransmitted so it doesn't repeat that. After a
+  // certain amount of time the retransmitted packet is just forgotten (as
+  // it won't be retransmitted again - that happens to the dup'd
+  // incarnation)
   std::list<std::unique_ptr<MozQuicStreamChunk>> mUnWrittenData;
   std::list<std::unique_ptr<MozQuicStreamChunk>> mUnAckedData;
 
+  // macklist is the current state of all unacked acks - maybe written out,
+  // maybe not. ordered with the highest packet ack'd at front.Each time
+  // the whole set needs to be written out. each entry in acklist contains
+  // a vector of pairs (transmitTime, transmitID) representing each time it
+  // is written. Upon receipt of an ack we need to find transmitID and
+  // remove the entry from the acklist. TODO index by transmitID, but for
+  // now iterate from rear (oldest data being acknowledged).
+  //
   // acks ordered {1,2,5,6,7} as 7/2, 2/1 (biggest at head)
-  // You can be on mAckList if either
-  // a] the stack needs to send out an ack for the associated data
-  // b] an ack has been sent out for the associated data, but recpt
-  //    of that ack hasn't been ack'd by peer
-  //   ->Transmitted() is true in (b)
   std::list<MozQuicStreamAck>                    mAckList;
 
   // parent and children are only defined on the server
@@ -332,6 +342,33 @@ private:
   };
   bool Unprotected(MozQuic::LongHeaderType type);
 
+};
+
+class MozQuicStreamAck
+{
+public:
+  MozQuicStreamAck(uint64_t num, uint64_t rtime, enum keyPhase kp)
+    : mPacketNumber(num)
+    , mExtra(0)
+    , mPhase (kp)
+    , mTimestampTransmitted(false)
+  {
+    mReceiveTime.push_front(rtime);
+  }
+
+  // num=10, mExtra=3 means we are acking 10, 9, 8, 7
+  // and ReceiveTime applies to 10
+  uint64_t mPacketNumber; // being ACKd
+  uint64_t mExtra;
+  std::list<uint64_t> mReceiveTime;
+  enum keyPhase mPhase;
+  bool mTimestampTransmitted;
+
+  // pair.first is packet number of transmitted ack
+  // pair.second is transmission time
+  std::vector<std::pair<uint64_t, uint64_t>> mTransmits;
+  
+  bool Transmitted() { return !mTransmits.empty(); }
 };
 
 } //namespace

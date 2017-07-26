@@ -44,33 +44,6 @@ public:
   enum keyPhase mTransmitKeyPhase;
 };
 
-class MozQuicStreamAck
-{
-public:
-  MozQuicStreamAck(uint64_t num, uint64_t rtime, enum keyPhase kp)
-    : mPacketNumber(num)
-    , mExtra(0)
-    , mTransmitTime(0)
-    , mPhase (kp)
-    , mPacketNumberOfAck(0)
-    , mTimestampTransmitted(false)
-  {
-    mReceiveTime.push_front(rtime);
-  }
-
-  // num=10, mExtra=3 means we are acking 10, 9, 8, 7
-  // and ReceiveTime applies to 10
-  uint64_t mPacketNumber; // being ACKd
-  uint64_t mExtra;
-  std::list<uint64_t> mReceiveTime;
-  uint64_t mTransmitTime;
-  enum keyPhase mPhase;
-  uint64_t mPacketNumberOfAck; // of ACK itself when transmitted
-  bool mTimestampTransmitted;
-
-  bool Transmitted() { return mTransmitTime != 0; }
-};
-
 class MozQuicWriter 
 {
 public:

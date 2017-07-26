@@ -792,6 +792,7 @@ MozQuic::AckScoreboard(uint64_t packetNumber, enum keyPhase kp)
     mAckList.emplace_front(packetNumber, Timestamp(), kp);
     return;
   }
+  // todo coalesce also in case where two ranges can be combined
 
   auto iter = mAckList.begin();
   for (; iter != mAckList.end(); ++iter) {
@@ -841,6 +842,7 @@ MozQuic::MaybeSendAck()
     }
     fprintf(stderr,"Trigger Ack based on %lX (extra %d) kp=%d\n",
             iter->mPacketNumber, iter->mExtra, iter->mPhase);
+    // TODO create a unified flush
     FlushStream0(true);
     FlushStream(true);
     break;
@@ -885,8 +887,8 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       continue;
     }
 
-    fprintf(stderr,"creating ack of %lX (%d extra) into pn=%lX [old pnOfAck %lX]\n",
-            iter->mPacketNumber, iter->mExtra, pktNumOfAck, iter->mPacketNumberOfAck);
+    fprintf(stderr,"creating ack of %lX (%d extra) into pn=%lX [%d prev transmits]\n",
+            iter->mPacketNumber, iter->mExtra, pktNumOfAck, iter->mTransmits.size());
     if (newFrame) {
       newFrame = false;
       pkt[0] = 0xb9; // ack with 32 bit num and 16 bit run encoding and numblocks
@@ -934,8 +936,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       avail -= 3;
     }
 
-    iter->mTransmitTime = Timestamp();
-    iter->mPacketNumberOfAck = pktNumOfAck;
+    iter->mTransmits.push_back(std::pair<uint64_t, uint64_t>(pktNumOfAck, Timestamp()));
     ++iter;
     if (*numBlocks == 0xff) {
       break;
@@ -1346,29 +1347,30 @@ MozQuic::ProcessAck(FrameHeaderData &result, unsigned char *framePtr, bool fromC
   // and obviously todo feed the times into congestion control
 
   // obv unacked lists should be combined (data, other frames, acks)
-  auto unackedIter = mAckList.begin();
   for (auto iters = numRanges; iters > 0; --iters) {
     uint64_t haveAckFor = ackStack[iters - 1].first;
     uint64_t haveAckForEnd = haveAckFor + ackStack[iters - 1].second;
     for (; haveAckFor < haveAckForEnd; haveAckFor++) {
-
-      for (; (unackedIter != mAckList.end()) &&
-             ((!unackedIter->Transmitted()) || (unackedIter->mPacketNumberOfAck < haveAckFor));
-           unackedIter++);
-
-      if ((unackedIter == mAckList.end()) || (unackedIter->mPacketNumberOfAck > haveAckFor)) {
-        fprintf(stderr,"ACK'd ack not found for %lX ack\n", haveAckFor);
-      } else {
-        do {
-          assert (unackedIter->mPacketNumberOfAck == haveAckFor);
-          fprintf(stderr,"ACK'd ack found for %lX transmitted=%d\n", haveAckFor, unackedIter->Transmitted());
-          unackedIter = mAckList.erase(unackedIter);
-        } while ((unackedIter != mAckList.end()) &&
-                 (unackedIter->mPacketNumberOfAck == haveAckFor));
+      bool foundAckFor = false;
+      for (auto acklistIter = mAckList.rbegin(); !foundAckFor && acklistIter != mAckList.rend(); acklistIter++) {
+        for (auto vectorIter = acklistIter->mTransmits.begin();
+             !foundAckFor && vectorIter != acklistIter->mTransmits.end(); vectorIter++ ) {
+          if ((*vectorIter).first == haveAckFor) {
+            fprintf(stderr,"haveAckFor %lX found unacked ack of %lX (+%d) transmitted %d times\n",
+                    haveAckFor, acklistIter->mPacketNumber, acklistIter->mExtra,
+                    acklistIter->mTransmits.size());
+            mAckList.erase((++acklistIter).base());
+            // acklistIter is now invalid, but foundAckFor = true will keep it from being used
+            foundAckFor = true;
+          }
+        } // vector iteration
+      } // macklist iteration
+      if (!foundAckFor) {
+        fprintf(stderr,"haveAckFor %lX CANNOT find corresponding unacked ack\n", haveAckFor);
       }
-    }
-  }
-
+    } // haveackfor iteration
+  } //ranges iteration
+  
   uint32_t pktID = result.u.mAck.mLargestAcked;
   uint64_t timestamp;
   for(int i = 0; i < result.u.mAck.mNumTS; i++) {
