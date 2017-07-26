@@ -125,6 +125,8 @@ private:
   uint32_t Flush();
   uint32_t FlushStream0(bool forceAck);
   uint32_t FlushStream(bool forceAck);
+  uint32_t CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpkt);
+
   int Client1RTT();
   int Server1RTT();
   void Log(char *);
@@ -213,6 +215,7 @@ private:
   uint64_t mTimestampConnBegin;
 
   uint64_t mPingDeadline;
+  bool     mDecodedOK;
 
   // need other frame 2 list
 public: // callbacks from nsshelper

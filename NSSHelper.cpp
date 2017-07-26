@@ -455,9 +455,10 @@ NSSHelper::BlockOperation(bool encrypt,
                           unsigned char *data, uint32_t dataLen,
                           uint64_t packetNumber,
                           unsigned char *out, uint32_t outAvail, uint32_t &written)
-  // for encrypt out should be at least dataLen + 16 (for tag), for decrypt out should be at
+  // for encrypt outAvail should be at least dataLen + 16 (for tag), for decrypt out should be at
   // least dataLen - 16 (for tag removal)
 {
+  assert(outAvail >= (dataLen + 16));
   if (!mNSSReady || !mHandshakeComplete || mHandshakeFailed ||
       !mPacketProtectionSenderKey0 || !mPacketProtectionReceiverKey0) {
     return MOZQUIC_ERR_GENERAL;
