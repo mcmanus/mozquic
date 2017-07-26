@@ -923,23 +923,30 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
     } else {
       assert(lowAcked > iter->mPacketNumber);
       uint64_t gap = lowAcked - iter->mPacketNumber - 1;
-      uint64_t needed = (gap + 254) / 255 * 3;
-      if (needed < avail) {
-        break; // dont end frame with 0s
-      }
-      *numBlocks = *numBlocks + 1;
-      if (needed > 3) {
+
+      while (gap > 255) { 
+        if (avail < 3) {
+          break;
+        }
+        *numBlocks = *numBlocks + 1;
         pkt[0] = 255; // empty block
         pkt[1] = 0;
         pkt[2] = 0;
         lowAcked -= 255;
-      } else {
-        assert(gap <= 255);
-        pkt[0] = gap;
-        uint16_t ackBlockLen = htons(iter->mExtra + 1);
-        memcpy(pkt, &ackBlockLen, 2);
-        lowAcked -= (gap + iter->mExtra + 1);
+        pkt += 3;
+        used += 3;
+        avail -= 3;
+        gap -= 255;
       }
+      assert(gap <= 255);
+      if (avail < 3) {
+        break;
+      }
+      *numBlocks = *numBlocks + 1;
+      pkt[0] = gap;
+      uint16_t ackBlockLen = htons(iter->mExtra + 1);
+      memcpy(pkt + 1, &ackBlockLen, 2);
+      lowAcked -= (gap + iter->mExtra + 1);
       pkt += 3;
       used += 3;
       avail -= 3;
@@ -1360,23 +1367,28 @@ MozQuic::ProcessAck(FrameHeaderData &result, unsigned char *framePtr, bool fromC
     uint64_t haveAckFor = ackStack[iters - 1].first;
     uint64_t haveAckForEnd = haveAckFor + ackStack[iters - 1].second;
     for (; haveAckFor < haveAckForEnd; haveAckFor++) {
-      bool foundAckFor = false;
-      for (auto acklistIter = mAckList.rbegin(); !foundAckFor && acklistIter != mAckList.rend(); acklistIter++) {
+      bool foundHaveAckFor = false;
+      for (auto acklistIter = mAckList.begin(); acklistIter != mAckList.end(); ) {
+        bool foundAckFor = false;
         for (auto vectorIter = acklistIter->mTransmits.begin();
-             !foundAckFor && vectorIter != acklistIter->mTransmits.end(); vectorIter++ ) {
+             vectorIter != acklistIter->mTransmits.end(); vectorIter++ ) {
           if ((*vectorIter).first == haveAckFor) {
             fprintf(stderr,"haveAckFor %lX found unacked ack of %lX (+%d) transmitted %d times\n",
                     haveAckFor, acklistIter->mPacketNumber, acklistIter->mExtra,
                     acklistIter->mTransmits.size());
-            mAckList.erase((++acklistIter).base());
-            // acklistIter is now invalid, but foundAckFor = true will keep it from being used
             foundAckFor = true;
+            break; // vector iteration
             // need to keep looking at the rest of mAckList. Todo this is terribly wasteful.
-            // no need to do it in reverse I guess.?
           }
         } // vector iteration
+        if (!foundAckFor) {
+          acklistIter++;
+        } else {
+          acklistIter = mAckList.erase(acklistIter);
+          foundHaveAckFor = true;
+        }
       } // macklist iteration
-      if (!foundAckFor) {
+      if (!foundHaveAckFor) {
         fprintf(stderr,"haveAckFor %lX CANNOT find corresponding unacked ack\n", haveAckFor);
       }
     } // haveackfor iteration
@@ -1409,6 +1421,11 @@ MozQuic::ProcessGeneral(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
   assert(pktSize <= kMozQuicMSS);
   unsigned char out[kMozQuicMSS];
 
+  if (mConnectionState == CLIENT_STATE_CLOSED ||
+      mConnectionState == SERVER_STATE_CLOSED) {
+    fprintf(stderr,"processgeneral discarding %lX as closed\n", packetNum);
+    return MOZQUIC_ERR_GENERAL;
+  }
   uint32_t written;
   uint32_t rv = mNSSHelper->DecryptBlock(pkt, headerSize, pkt + headerSize,
                                          pktSize - headerSize, packetNum, out,
