@@ -772,7 +772,8 @@ MozQuic::IO()
     }
   }
 
-  if (mPingDeadline && mConnEventCB && mPingDeadline >= Timestamp()) {
+  if (mPingDeadline && mConnEventCB && mPingDeadline < Timestamp()) {
+    fprintf(stderr,"deadline expired set at %ld now %ld\n", mPingDeadline, Timestamp());
     mPingDeadline = 0;
     mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
   }
