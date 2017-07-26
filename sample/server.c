@@ -22,7 +22,8 @@ Basic server, does a handshake and waits forever.. it can only handle 1
 
   -send-close option will send a close before exiting at 1.5sec
 
-  all connected sessions will be closed 30 seconds after connect
+  all connected sessions will be be ping at 30 sec interval.. no response after
+  2 seconds closes connection
 
   About Certificate Verifcation::
 The sample/nss-config directory is a sample that can be passed
@@ -32,7 +33,7 @@ and key for foo.example.com that is signed by a CA defined by CA.cert.der.
 #endif
 
 #define SEND_CLOSE_TIMEOUT_MS 1500
-#define TIMEOUT_CLIENT_MS 3000
+#define TIMEOUT_CLIENT_MS 30000
 
 int send_close = 0;
 int connected = 0;
@@ -111,7 +112,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
         free(i);
       } else if (!(*i % TIMEOUT_CLIENT_MS)) {
         fprintf(stderr,"server testing conn\n");
-        mozquic_check_peer(param, 500);
+        mozquic_check_peer(param, 2000);
       }
       return MOZQUIC_OK;
     }

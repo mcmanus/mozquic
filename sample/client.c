@@ -8,13 +8,14 @@
 
 #if 0
 
-Basic client connects to server, does a handshake and exits after 2 seconds
+Basic client connects to server, does a handshake and and waits 2 seconds.. then..
 
-  -send-close option will send a close before exiting
-  
   -streamtest1 will send 3 messages to the server including the keywords PREAMBLE and FIN
                the server will reply with 1 message and close the bidi stream
                after recpt of stream-close client will wait 2 seconds
+
+  -send-close option will send a close before exiting
+  
 
 About Certificate Verifcation::
 The sample/nss-config directory is a sample that can be passed
@@ -117,6 +118,7 @@ void streamtest1(mozquic_connection_t *c)
       break;
     }
   } while (i < 2000);
+  fprintf(stderr,"streamtest1 complete\n");
 }
 
 int main(int argc, char **argv)
@@ -158,7 +160,7 @@ int main(int argc, char **argv)
       fprintf(stderr,"IO reported failure\n");
       break;
     }
-  } while (i < 22000);
+  } while (i < 2000);
 
   if (has_arg(argc, argv, "-streamtest1")) {
     streamtest1(c);
