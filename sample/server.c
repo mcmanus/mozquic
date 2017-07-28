@@ -15,6 +15,8 @@
 
 #if 0
 
+  ./server -cert ORIGIN to use cert for ORIGIN in nss-config DB
+
 Basic server, does a handshake and waits forever.. it can only handle 1
   session at a time right now.. it will ignore stream data it recvs
   except if it contains a msg of FIN, in which case it will respond
@@ -134,11 +136,13 @@ static int accept_new_connection(mozquic_connection_t *nc)
 }
 
 int
-has_arg(int argc, char **argv, char *test)
+has_arg(int argc, char **argv, char *test, char **value)
 {
   int i;
+  *value = NULL;
   for (i=0; i < argc; i++) {
     if (!strcasecmp(argv[i], test)) {
+      *value = ((i + 1) < argc) ? argv[i+1] : "";
       return 1;
     }
   }
@@ -147,12 +151,13 @@ has_arg(int argc, char **argv, char *test)
 
 int main(int argc, char **argv)
 {
+  char *argVal;
   uint32_t i = 0;
   uint32_t delay = 1000;
   struct mozquic_config_t config;
   mozquic_connection_t *c;
 
-  send_close = has_arg(argc, argv, "-send-close");
+  send_close = has_arg(argc, argv, "-send-close", &argVal);
   
   char *cdir = getenv ("MOZQUIC_NSS_CONFIG");
   if (mozquic_nss_config(cdir) != MOZQUIC_OK) {
@@ -161,8 +166,14 @@ int main(int argc, char **argv)
   }
   
   memset(&config, 0, sizeof(config));
-  config.originName = SERVER_NAME;
+  if (has_arg(argc, argv, "-cert", &argVal)) {
+    config.originName = strdup(argVal); // leaked
+  } else {
+    config.originName = SERVER_NAME;
+  }
   config.originPort = SERVER_PORT;
+  fprintf(stderr,"server using certificate for %s on port %d\n", config.originName, config.originPort);
+
   config.tolerateBadALPN = 1;
   config.handleIO = 0; // todo mvp
 
