@@ -151,7 +151,7 @@ int main(int argc, char **argv)
 
   // ingorePKI will allow invalid certs
   // normally they must either be linked to the root store OR on localhost
-  config.ignorePKI = 0; 
+  config.ignorePKI = 1; 
   config.greaseVersionNegotiation = 0;
   config.preferMilestoneVersion = 1;
   config.tolerateBadALPN = 1;

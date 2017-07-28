@@ -42,6 +42,12 @@ int connected = 0;
 
 static int accept_new_connection(mozquic_connection_t *nc);
 
+struct closure_t
+{
+  int i;
+  int state;
+};
+
 int close_connection(mozquic_connection_t *c)
 {
   connected--;
@@ -60,6 +66,11 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     uint32_t read = 0;
     int fin = 0;
     int line = 0;
+    int i;
+    struct closure_t *data = (struct closure_t *)closure;
+    if (!closure) 
+      return MOZQUIC_ERR_GENERAL;
+      
     do {
       uint32_t code = mozquic_recv(stream, buf, 100, &read, &fin);
       if (code != MOZQUIC_OK) {
@@ -71,9 +82,21 @@ static int connEventCB(void *closure, uint32_t event, void *param)
         }
         line++;
         buf[read] = '\0';
-        if (strcmp(buf, "FIN") == 0) {
-          finStream = 1;
+        for (i=0; i < read; i++) {
+          switch (data->state) {
+          case 0:
+            data->state = (buf[i] == 'F') ? 1 : 0;
+            break;
+          case 1:
+            data->state = (buf[i] == 'I') ? 2 : 0;
+            break;
+          case 2:
+            data->state = (buf[i] == 'N') ? 3 : 0;
+            finStream = 1;
+            break;
+          }
         }
+
         fprintf(stderr,"[%s] fin=%d\n", buf, fin);
       } else if (fin) {
         fprintf(stderr,"fin=%d\n", fin);
@@ -105,14 +128,14 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     if (!closure) 
       return MOZQUIC_OK;
     {
-      uint32_t *i = closure;
+      struct closure_t *data = (struct closure_t *)closure;
       mozquic_connection_t *conn = param;
-      *i += 1;
-      if (send_close && (*i == SEND_CLOSE_TIMEOUT_MS)) {
+      data->i += 1;
+      if (send_close && (data->i == SEND_CLOSE_TIMEOUT_MS)) {
         fprintf(stderr,"server terminating connection\n");
         close_connection(param);
-        free(i);
-      } else if (!(*i % TIMEOUT_CLIENT_MS)) {
+        free(data);
+      } else if (!(data->i % TIMEOUT_CLIENT_MS)) {
         fprintf(stderr,"server testing conn\n");
         mozquic_check_peer(param, 2000);
       }
@@ -127,10 +150,10 @@ static int connEventCB(void *closure, uint32_t event, void *param)
 
 static int accept_new_connection(mozquic_connection_t *nc)
 {
-  uint32_t *ctr = malloc (sizeof (uint32_t));
-  *ctr = 0;
+  struct closure_t *closure = malloc(sizeof(struct closure_t));
+  memset(closure, 0, sizeof (*closure));
   mozquic_set_event_callback(nc, connEventCB);
-  mozquic_set_event_callback_closure(nc, ctr);
+  mozquic_set_event_callback_closure(nc, closure);
   connected++;
   return MOZQUIC_OK;
 }
