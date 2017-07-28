@@ -3,10 +3,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#define SERVER_NAME "127.0.0.1"
+#define SERVER_NAME "localhost"
 #define SERVER_PORT 4433
 
 #if 0
+
+  ./client -peer HOSTNAME to use non localhost peer
 
 Basic client connects to server, does a handshake and and waits 2 seconds.. then..
 
@@ -73,11 +75,13 @@ static int connEventCB(void *closure, uint32_t event, void *param)
 }
 
 int
-has_arg(int argc, char **argv, char *test)
+has_arg(int argc, char **argv, char *test, char **value)
 {
   int i;
+  *value = NULL;
   for (i=0; i < argc; i++) {
     if (!strcasecmp(argv[i], test)) {
+      *value = ((i + 1) < argc) ? argv[i+1] : "";
       return 1;
     }
   }
@@ -123,6 +127,7 @@ void streamtest1(mozquic_connection_t *c)
 
 int main(int argc, char **argv)
 {
+  char *argVal;
   struct mozquic_config_t config;
   mozquic_connection_t *c;
 
@@ -133,8 +138,14 @@ int main(int argc, char **argv)
   }
   
   memset(&config, 0, sizeof(config));
-  config.originName = SERVER_NAME;
+  if (has_arg(argc, argv, "-peer", &argVal)) {
+    config.originName = strdup(argVal); // leaked
+  } else {
+    config.originName = SERVER_NAME;
+  }
   config.originPort = SERVER_PORT;
+  fprintf(stderr,"client connecting to %s port %d\n", config.originName, config.originPort);
+
   config.handleIO = 0; // todo mvp
   config.connection_event_callback = connEventCB;
 
@@ -162,10 +173,10 @@ int main(int argc, char **argv)
     }
   } while (i < 2000);
 
-  if (has_arg(argc, argv, "-streamtest1")) {
+  if (has_arg(argc, argv, "-streamtest1", &argVal)) {
     streamtest1(c);
   }
-  if (has_arg(argc, argv, "-send-close")) {
+  if (has_arg(argc, argv, "-send-close", &argVal)) {
     mozquic_destroy_connection(c);
   }
   return 0;
