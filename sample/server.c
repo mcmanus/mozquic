@@ -135,6 +135,10 @@ static int connEventCB(void *closure, uint32_t event, void *param)
         fprintf(stderr,"server terminating connection\n");
         close_connection(param);
         free(data);
+      } else if (data->state == 3) {
+        fprintf(stderr,"server closing based on fin\n");
+        close_connection(param);
+        free(data);
       } else if (!(data->i % TIMEOUT_CLIENT_MS)) {
         fprintf(stderr,"server testing conn\n");
         mozquic_check_peer(param, 2000);
