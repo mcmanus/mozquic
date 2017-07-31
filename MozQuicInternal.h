@@ -334,6 +334,7 @@ private:
     } u;
   };
   bool Unprotected(MozQuic::LongHeaderType type);
+  static uint64_t DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next);
 
 };
 

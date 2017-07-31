@@ -2066,9 +2066,8 @@ MozQuic::FrameHeaderData::FrameHeaderData(unsigned char *pkt, uint32_t pktSize, 
     }
     u.mAck.mNumTS = framePtr[0];
     framePtr++;
-    memcpy(((char *)&u.mAck.mLargestAcked) + (8 - ackedLen), framePtr, ackedLen);
+    u.mAck.mLargestAcked = DecodePacketNumber(framePtr, ackedLen, session->mNextRecvPacketNumber);
     framePtr += ackedLen;
-    u.mAck.mLargestAcked = PR_ntohll(u.mAck.mLargestAcked); // todo mvp these are only the low bits
 
     memcpy(&u.mAck.mAckDelay, framePtr, 2);
     framePtr += 2;
@@ -2292,6 +2291,36 @@ MozQuic::LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize)
   mVersion = ntohl(mVersion);
 }
 
+uint64_t
+MozQuic::DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next)
+{
+  // pkt should point to a variable (as defined by pnSize) amount of data
+  // in network byte order
+  uint64_t candidate1, candidate2;
+  if (pnSize == 1) {
+    candidate1 = (next & ~0xFFUL) | pkt[0];
+    candidate2 = candidate1 + 0x100UL;
+  } else if (pnSize == 2) {
+    uint16_t tmp16;
+    memcpy(&tmp16, pkt, 2);
+    tmp16 = ntohs(tmp16);
+    candidate1 = (next & ~0xFFFFUL) | tmp16;
+    candidate2 = candidate1 + 0x10000UL;
+  } else {
+    assert (pnSize == 4);
+    uint32_t tmp32;
+    memcpy(&tmp32, pkt, 4);
+    tmp32 = ntohl(tmp32);
+    candidate1 = (next & ~0xFFFFFFFFUL) | tmp32;
+    candidate2 = candidate1 + 0x100000000UL;
+  }
+  
+  uint64_t distance1 = (next >= candidate1) ? (next - candidate1) : (candidate1 - next);
+  uint64_t distance2 = (next >= candidate2) ? (next - candidate2) : (candidate2 - next);
+  uint64_t rv = (distance1 < distance2) ? candidate1 : candidate2;
+  return rv;
+}
+
 MozQuic::ShortHeaderData::ShortHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t next)
 {
   mHeaderSize = 0xffffffff;
@@ -2316,30 +2345,8 @@ MozQuic::ShortHeaderData::ShortHeaderData(unsigned char *pkt, uint32_t pktSize, 
   
   memcpy(&mConnectionID, pkt + 1, 8);
   mConnectionID = PR_ntohll(mConnectionID);
-
-  uint64_t candidate1, candidate2;
-  if (pnSize == 1) {
-    candidate1 = (next & ~0xFFUL) | pkt[9];
-    candidate2 = candidate1 + 0x100UL;
-  } else if (pnSize == 2) {
-    uint16_t tmp16;
-    memcpy(&tmp16, pkt + 9, 2);
-    tmp16 = ntohs(tmp16);
-    candidate1 = (next & ~0xFFFFUL) | tmp16;
-    candidate2 = candidate1 + 0x10000UL;
-  } else {
-    assert (pnSize == 4);
-    uint32_t tmp32;
-    memcpy(&tmp32, pkt + 9, 4);
-    tmp32 = ntohl(tmp32);
-    candidate1 = (next & ~0xFFFFFFFFUL) | tmp32;
-    candidate2 = candidate1 + 0x100000000UL;
-  }
-  
-  uint64_t distance1 = (next >= candidate1) ? (next - candidate1) : (candidate1 - next);
-  uint64_t distance2 = (next >= candidate2) ? (next - candidate2) : (candidate2 - next);
-  mPacketNumber = (distance1 < distance2) ? candidate1 : candidate2;
   mHeaderSize = 9 + pnSize;
+  mPacketNumber = DecodePacketNumber(pkt + 9, pnSize, next);
 }
 
 }
