@@ -17,7 +17,8 @@ Basic client connects to server, does a handshake and and waits 2 seconds.. then
                after recpt of stream-close client will wait 2 seconds
 
   -send-close option will send a close before exiting
-  
+
+  -ignorePKI option will allow handshake with untrusted cert. (localhost always implies ignorePKI)
 
 About Certificate Verifcation::
 The sample/nss-config directory is a sample that can be passed
@@ -151,7 +152,8 @@ int main(int argc, char **argv)
 
   // ingorePKI will allow invalid certs
   // normally they must either be linked to the root store OR on localhost
-  config.ignorePKI = 1; 
+  config.ignorePKI = has_arg(argc, argv, "-ignorePKI", &argVal);
+
   config.greaseVersionNegotiation = 0;
   config.preferMilestoneVersion = 1;
   config.tolerateBadALPN = 1;

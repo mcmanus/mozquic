@@ -145,6 +145,8 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
           break;
       }
     }    
+    assert(mIsChild);
+    mParent->RemoveSession(mConnectionID);
   }
 
   if ((mConnectionState != CLIENT_STATE_CONNECTED) &&
@@ -339,6 +341,16 @@ MozQuic::FindSession(uint64_t cid)
     return nullptr;
   }
   return (*i).second;
+}
+
+void
+MozQuic::RemoveSession(uint64_t cid)
+{
+  assert (!mIsChild);
+  if (mIsClient) {
+    return;
+  }
+  mConnectionHash.erase(cid);
 }
 
 static uint64_t
@@ -544,7 +556,7 @@ MozQuic::IO()
 
   Intake();
   RetransmitTimer();
-  ClearOldInitialConnetIdsTimer();
+  ClearOldInitialConnectIdsTimer();
   Flush();
 
   if (mIsClient) {
@@ -579,13 +591,14 @@ MozQuic::IO()
     }
   }
 
-  if (mPingDeadline && mConnEventCB && mPingDeadline < Timestamp()) {
+  if ((mConnectionState == SERVER_STATE_1RTT) &&
+      (mNextTransmitPacketNumber - mOriginalTransmitPacketNumber) > 20) {
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"TimedOut Client In Handshake");
+  } else if (mPingDeadline && mConnEventCB && mPingDeadline < Timestamp()) {
     fprintf(stderr,"deadline expired set at %ld now %ld\n", mPingDeadline, Timestamp());
     mPingDeadline = 0;
     mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
-  }
-  
-  if (mConnEventCB) {
+  } else if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_IO, this);
   }
   return MOZQUIC_OK;
@@ -898,6 +911,9 @@ MozQuic::RaiseError(uint32_t e, char *reason)
   fprintf(stderr,"MozQuic Logger :%u:\n", e);
   if (mErrorCB) {
     mErrorCB(mClosure, e, reason);
+  }
+  if (mConnEventCB) {
+    mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
   }
 }
 
@@ -1624,7 +1640,10 @@ MozQuic::FlushStream0(bool forceAck)
     if (code != MOZQUIC_OK) {
       return code;
     }
-    fprintf(stderr,"TRANSMIT0 %lX len=%d\n", mNextTransmitPacketNumber, finalLen);
+    fprintf(stderr,"TRANSMIT0 %lX len=%d total0=%d\n",
+            mNextTransmitPacketNumber, finalLen,
+            mNextTransmitPacketNumber - mOriginalTransmitPacketNumber);
+
     mNextTransmitPacketNumber++;
     // each member of the list needs to 
   }
@@ -1917,11 +1936,10 @@ MozQuic::RetransmitTimer()
 }
 
 uint32_t
-MozQuic::ClearOldInitialConnetIdsTimer()
+MozQuic::ClearOldInitialConnectIdsTimer()
 {
-  if (mUnAckedData.empty()) {
-    return MOZQUIC_OK;
-  }
+  // todo, really crude
+
   uint64_t now = Timestamp();
   uint64_t discardEpoch = now - kForgetInitialConnectionIDsThresh;
 
@@ -1929,7 +1947,7 @@ MozQuic::ClearOldInitialConnetIdsTimer()
     if ((*i).second.mTimestamp < discardEpoch) {
       fprintf(stderr,"Forget an old client initial connectionID: %lX\n",
                     (*i).first);
-      mConnectionHashOriginalNew.erase(i);
+      i = mConnectionHashOriginalNew.erase(i);
     } else {
       i++;
     }

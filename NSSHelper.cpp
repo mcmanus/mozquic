@@ -750,16 +750,18 @@ NSSHelper::DriveHandshake()
   if (!mNSSReady) {
     return MOZQUIC_ERR_GENERAL;
   }
-  char data[4096];
 
-  SSL_ForceHandshake(mFD);
-  int32_t rd = PR_Read(mFD, data, 4096);
-  if (mHandshakeComplete || (rd > 0)) {
-    return MOZQUIC_OK;
-  }
-  if (rd == 0) {
-    fprintf(stderr,"eof on pipe?\n");
-    return MOZQUIC_ERR_IO;
+
+  if (SSL_ForceHandshake(mFD) == SECSuccess) {
+    char data[256];
+    int32_t rd = PR_Read(mFD, data, 256);
+    if (mHandshakeComplete || (rd > 0)) {
+      return MOZQUIC_OK;
+    }
+    if (rd == 0) {
+      fprintf(stderr,"eof on pipe?\n");
+      return MOZQUIC_ERR_IO;
+    }
   }
   if (PR_GetError() == PR_WOULD_BLOCK_ERROR) {
     return MOZQUIC_OK;

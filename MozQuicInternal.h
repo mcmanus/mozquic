@@ -103,7 +103,7 @@ private:
 
   uint32_t Transmit(unsigned char *, uint32_t len, struct sockaddr_in *peer);
   uint32_t RetransmitTimer();
-  uint32_t ClearOldInitialConnetIdsTimer();
+  uint32_t ClearOldInitialConnectIdsTimer();
   void Acknowledge(uint64_t packetNum, keyPhase kp);
   uint32_t AckPiggyBack(unsigned char *pkt, uint64_t pktNumber, uint32_t avail, keyPhase kp, uint32_t &used);
   uint32_t Recv(unsigned char *, uint32_t len, uint32_t &outLen, struct sockaddr_in *peer);
@@ -118,6 +118,7 @@ private:
 
   bool ServerState() { return mConnectionState > SERVER_STATE_BREAK; }
   MozQuic *FindSession(uint64_t cid);
+  void RemoveSession(uint64_t cid);
   void Shutdown(uint32_t, const char *);
 
   uint64_t Timestamp();
