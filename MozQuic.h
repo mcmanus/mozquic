@@ -38,6 +38,10 @@ extern "C" {
     MOZQUIC_EVENT_CLOSE_CONNECTION = 4,
     MOZQUIC_EVENT_IO = 5,
     MOZQUIC_EVENT_ERROR = 6,
+    MOZQUIC_EVENT_LOG = 7, // char *
+    MOZQUIC_EVENT_TRANSMIT = 8, // mozquic_eventdata_transmit
+    MOZQUIC_EVENT_RECV = 9, // mozquic_eventdata_recv
+    MOZQUIC_EVENT_TLSINPUT = 10, // mozquic_eventdata_tlsinput
   };
 
   enum {
@@ -60,17 +64,9 @@ extern "C" {
     unsigned int preferMilestoneVersion; // flag
     unsigned int ignorePKI; // flag
     unsigned int tolerateBadALPN; // flag
-
-    // all these callbacks should be events
-    void (*logging_callback)(void *, char *); // todo va arg
-    int  (*send_callback)(void *, unsigned char *, uint32_t len);
-    int  (*recv_callback)(void *, unsigned char *, uint32_t len, uint32_t *outLen);
-    int  (*error_callback)(void *, uint32_t err, char *);
+    unsigned int appHandlesSendRecv; // flag to control TRANSMIT/RECV/TLSINPUT events
 
     int  (*connection_event_callback)(void *, uint32_t event, void *aParam);
-
-    // TLS API
-    int (*handshake_input)(void *, unsigned char *data, uint32_t len);
   };
 
   // this is a hack. it will be come a 'crypto config' and allow server key/cert and
@@ -102,7 +98,27 @@ extern "C" {
 #else
   typedef int mozquic_socket_t;
 #endif
-  
+
+  struct mozquic_eventdata_recv
+  {
+    unsigned char *pkt;
+    uint32_t avail;
+    uint32_t *written;
+  };
+
+  struct mozquic_eventdata_transmit
+  {
+    unsigned char *pkt;
+    uint32_t len;
+    struct sockaddr_in *explicitPeer;
+  };
+
+  struct mozquic_eventdata_tlsinput
+  {
+    unsigned char *data;
+    uint32_t len;
+  };
+
   mozquic_socket_t mozquic_osfd(mozquic_connection_t *inSession);
   void mozquic_setosfd(mozquic_connection_t *inSession, mozquic_socket_t fd);
 

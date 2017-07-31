@@ -40,11 +40,6 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   *outConnection = (void *)q;
 
   q->SetClosure(inConfig->closure);
-  q->SetLogger(inConfig->logging_callback);
-  q->SetTransmiter(inConfig->send_callback);
-  q->SetReceiver(inConfig->recv_callback);
-  q->SetHandshakeInput(inConfig->handshake_input);
-  q->SetErrorCB(inConfig->error_callback);
   q->SetConnEventCB(inConfig->connection_event_callback);
   q->SetOriginPort(inConfig->originPort);
   q->SetOriginName(inConfig->originName);
@@ -53,6 +48,9 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   }
   if (inConfig->tolerateBadALPN) {
     q->SetTolerateBadALPN();
+  }
+  if (inConfig->appHandlesSendRecv) {
+    q->SetAppHandlesSendRecv();
   }
   if (inConfig->preferMilestoneVersion) {
     q->PreferMilestoneVersion();

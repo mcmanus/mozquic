@@ -44,6 +44,7 @@ MozQuic::MozQuic(bool handleIO)
   , mReceivedServerClearText(false)
   , mIgnorePKI(false)
   , mTolerateBadALPN(false)
+  , mAppHandlesSendRecv(false)
   , mIsLoopback(false)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
@@ -53,11 +54,6 @@ MozQuic::MozQuic(bool handleIO)
   , mOriginalTransmitPacketNumber(0)
   , mNextRecvPacketNumber(0)
   , mClosure(this)
-  , mLogCallback(nullptr)
-  , mTransmitCallback(nullptr)
-  , mReceiverCallback(nullptr)
-  , mHandshakeInput(nullptr)
-  , mErrorCB(nullptr)
   , mConnEventCB(nullptr)
   , mNextStreamId(1)
   , mNextRecvStreamId(1)
@@ -287,7 +283,6 @@ MozQuic::StartServer()
   mNextRecvStreamId = 1;
 
   mConnectionState = SERVER_STATE_LISTEN;
-  assert (!mHandshakeInput); // todo
   return Bind();
 }
 
@@ -609,12 +604,9 @@ MozQuic::IO()
 void
 MozQuic::Log(char *msg) 
 {
-  // todo default mLogCallback can be dev/null
-  if (mLogCallback) {
-    mLogCallback(mClosure, msg);
-  } else {
-    fprintf(stderr,"MozQuic Logger :%s:\n", msg);
-  }
+  // todo this should be a structure of some kind
+  mConnEventCB(mClosure, MOZQUIC_EVENT_LOG, msg);
+  fprintf(stderr,"MozQuic Logger :%s:\n", msg);
 }
 
 // a request to acknowledge a packetnumber
@@ -864,8 +856,15 @@ MozQuic::Recv(unsigned char *pkt, uint32_t avail, uint32_t &outLen,
 {
   uint32_t code = MOZQUIC_OK;
 
-  if (mReceiverCallback) {
-    code = mReceiverCallback(mClosure, pkt, avail, &outLen);
+  if (mAppHandlesSendRecv) {
+    struct mozquic_eventdata_recv data;
+    uint32_t written;
+
+    data.pkt = pkt;
+    data.avail = avail;
+    data.written = &written;
+    code = mConnEventCB(mClosure, MOZQUIC_EVENT_RECV, &data);
+    outLen = written;
   } else {
     socklen_t sinlen = sizeof(*peer);
     ssize_t amt =
@@ -887,9 +886,14 @@ MozQuic::Transmit(unsigned char *pkt, uint32_t len, struct sockaddr_in *explicit
   // this would be a reasonable place to insert a queuing layer that
   // thought about cong control, flow control, priority, and pacing
   
-  if (mTransmitCallback) {
-    return mTransmitCallback(mClosure, pkt, len); // todo take peer arg
+  if (mAppHandlesSendRecv) {
+    struct mozquic_eventdata_transmit data;
+    data.pkt = pkt;
+    data.len = len;
+    data.explicitPeer = explicitPeer;
+    return mConnEventCB(mClosure, MOZQUIC_EVENT_TRANSMIT, &data);
   }
+
   int rv;
   struct sockaddr_in *peer = explicitPeer ? explicitPeer : &mPeer;
   if (mIsChild || explicitPeer) {
@@ -911,9 +915,6 @@ MozQuic::RaiseError(uint32_t e, char *reason)
 {
   Log(reason);
   fprintf(stderr,"MozQuic Logger :%u:\n", e);
-  if (mErrorCB) {
-    mErrorCB(mClosure, e, reason);
-  }
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
   }
@@ -937,7 +938,7 @@ void
 MozQuic::HandshakeComplete(uint32_t code,
                            struct mozquic_handshake_info *keyInfo)
 {
-  if (!mHandshakeInput) {
+  if (!mAppHandlesSendRecv) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"not using handshaker api");
     return;
   }
@@ -964,7 +965,7 @@ MozQuic::HandshakeComplete(uint32_t code,
 int
 MozQuic::Client1RTT() 
 {
-  if (mHandshakeInput) {
+  if (mAppHandlesSendRecv) {
     if (mStream0->Empty()) {
       return MOZQUIC_OK;
     }
@@ -979,7 +980,10 @@ MozQuic::Client1RTT()
     }
     if (amt > 0) {
       // called to let the app know that the server side TLS data is ready
-      mHandshakeInput(mClosure, buf, amt);
+      struct mozquic_eventdata_tlsinput data;
+      data.data = buf;
+      data.len = amt;
+      mConnEventCB(mClosure, MOZQUIC_EVENT_TLSINPUT, &data);
     }
   } else {
     // handle server reply internally
@@ -1004,7 +1008,7 @@ MozQuic::Client1RTT()
 int
 MozQuic::Server1RTT() 
 {
-  if (mHandshakeInput) {
+  if (mAppHandlesSendRecv) {
     // todo handle app-security on server side
     assert(false);
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"need handshaker");
@@ -1425,10 +1429,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID)
   child->mNextTransmitPacketNumber &= 0x7fffffff; // 31 bits
   child->mOriginalTransmitPacketNumber = child->mNextTransmitPacketNumber;
 
-  assert(!mHandshakeInput);
-  if (!mHandshakeInput) {
-    child->mNSSHelper.reset(new NSSHelper(child, mTolerateBadALPN, mOriginName.get()));
-  }
+  child->mNSSHelper.reset(new NSSHelper(child, mTolerateBadALPN, mOriginName.get()));
   child->mVersion = mVersion;
   child->mTimestampConnBegin = Timestamp();
 

@@ -70,14 +70,6 @@ public:
   void SetOriginPort(int port) { mOriginPort = port; }
   void SetOriginName(const char *name);
   void SetClosure(void *closure) { mClosure = closure; }
-  void SetLogger(void (*fx)(mozquic_connection_t *, char *)) { mLogCallback = fx; }
-  void SetTransmiter(int(*fx)(mozquic_connection_t *,
-                              unsigned char *, uint32_t)) { mTransmitCallback = fx; }
-  void SetReceiver(int(*fx)(mozquic_connection_t *,
-                            unsigned char *, uint32_t, uint32_t *)) { mReceiverCallback = fx; }
-  void SetHandshakeInput(int (*fx)(mozquic_connection_t *,
-                                   unsigned char *data, uint32_t len)) { mHandshakeInput = fx; }
-  void SetErrorCB(int (*fx)(mozquic_connection_t *, uint32_t err, char *)) { mErrorCB = fx; }
   void SetConnEventCB(int (*fx)(mozquic_connection_t *,
                       uint32_t event, void * param)) { mConnEventCB = fx; }
   void SetFD(mozquic_socket_t fd) { mFD = fd; }
@@ -86,6 +78,7 @@ public:
   void PreferMilestoneVersion();
   void SetIgnorePKI() { mIgnorePKI = true; }
   void SetTolerateBadALPN() { mTolerateBadALPN = true; }
+  void SetAppHandlesSendRecv() { mAppHandlesSendRecv = true; }
   bool IgnorePKI();
   void DeleteStream(uint32_t streamID);
   void Destroy(uint32_t, const char *);
@@ -148,6 +141,7 @@ private:
   bool mReceivedServerClearText;
   bool mIgnorePKI;
   bool mTolerateBadALPN;
+  bool mAppHandlesSendRecv;
   bool mIsLoopback;
   enum connectionState mConnectionState;
   int mOriginPort;
@@ -173,11 +167,6 @@ private:
   uint64_t mNextRecvPacketNumber; // expected
 
   void *mClosure;
-  void (*mLogCallback)(mozquic_connection_t *, char *); // todo va arg
-  int  (*mTransmitCallback)(mozquic_connection_t *, unsigned char *, uint32_t len);
-  int  (*mReceiverCallback)(mozquic_connection_t *, unsigned char *, uint32_t len, uint32_t *outlen);
-  int  (*mHandshakeInput)(mozquic_connection_t *, unsigned char *, uint32_t len);
-  int  (*mErrorCB)(mozquic_connection_t *, uint32_t, char *);
   int  (*mConnEventCB)(void *, uint32_t, void *);
  
   std::unique_ptr<MozQuicStreamPair> mStream0;
