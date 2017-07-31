@@ -5,15 +5,21 @@
 
 NSPR_INCLUDE = /usr/include/nspr/
 
+CC = clang
+CXX = clang++
+
 LDFLAGS += -L$(MOZQUIC_NSS_ROOT)dist/$(MOZQUIC_NSS_PLATFORM)/lib -lnss3 -lnssutil3 -lsmime3 -lssl3 -lplds4 -lplc4 -lnspr4
 CXXFLAGS +=  -std=c++0x  -I$(MOZQUIC_NSS_ROOT) -I$(MOZQUIC_NSS_ROOT)dist/$(MOZQUIC_NSS_PLATFORM)/include/ -I$(MOZQUIC_NSS_ROOT)dist/public/nss -Wno-format
 CXXFLAGS += -I$(NSPR_INCLUDE)
+CFLAGS += -Wno-unused-command-line-argument
+CXXFLAGS += -Wno-unused-command-line-argument
 CXXFLAGS += -g
 CFLAGS += -g
 
 # For .h dependency management
 CXXFLAGS += -MP -MD 
 
+OBJS += API.o
 OBJS += MozQuic.o
 OBJS += MozQuicStream.o
 OBJS += NSSHelper.o
@@ -23,10 +29,10 @@ all: client server
 -include $(OBJS:.o=.d)
 
 client: $(OBJS) sample/client.o
-	clang++ -o client $(OBJS) sample/client.o $(LDFLAGS)
+	$(CXX) -o client $(OBJS) sample/client.o $(LDFLAGS)
 
 server: $(OBJS) sample/server.o
-	clang++ -o server $(OBJS) sample/server.o $(LDFLAGS)
+	$(CXX) -o server $(OBJS) sample/server.o $(LDFLAGS)
 
 .PHONY: clean
 clean:
