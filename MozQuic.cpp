@@ -426,7 +426,9 @@ MozQuic::Intake()
       fprintf(stderr,"SHORTFORM PACKET RECVD id=%lx size=%d\n", tmpShortHeader.mConnectionID, pktSize);
       session = FindSession(tmpShortHeader.mConnectionID);
       if (!session) {
+        fprintf(stderr,"no session found for encoded packet\n");
         rv = MOZQUIC_ERR_GENERAL;
+        continue;
       }
       ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber);
       rv = session->ProcessGeneral(pkt, pktSize,
