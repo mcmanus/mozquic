@@ -915,7 +915,7 @@ MozQuic::RaiseError(uint32_t e, char *reason)
 {
   Log(reason);
   fprintf(stderr,"MozQuic Logger :%u:\n", e);
-  if (mConnEventCB) {
+  if (mConnEventCB && (mIsClient || mIsChild)) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
   }
 }
@@ -1612,7 +1612,7 @@ MozQuic::FlushStream0(bool forceAck)
   unsigned char *framePtr = pkt + 17;
   CreateStreamAndAckFrames(framePtr, endpkt - 8); // last 8 are for checksum
 
-  // then padding as needed up to 1272 on client_initial
+  // then padding as needed up to mtu on client_initial
   uint32_t finalLen;
 
   if ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) {
