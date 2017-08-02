@@ -30,18 +30,22 @@ extern "C" {
     MOZQUIC_ERR_ALREADY_FINISHED = 7,
   };
 
+  // The event Callbacks receive an application specified closure,
+  // an ID (this enum), and the argument pointer defined here
   enum {
-    MOZQUIC_EVENT_NEW_STREAM_DATA = 0,
-    MOZQUIC_EVENT_STREAM_RESET    = 1,
-    MOZQUIC_EVENT_CONNECTED = 2, // handshake complete
-    MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION = 3,
-    MOZQUIC_EVENT_CLOSE_CONNECTION = 4,
-    MOZQUIC_EVENT_IO = 5,
-    MOZQUIC_EVENT_ERROR = 6,
-    MOZQUIC_EVENT_LOG = 7, // char *
-    MOZQUIC_EVENT_TRANSMIT = 8, // mozquic_eventdata_transmit
-    MOZQUIC_EVENT_RECV = 9, // mozquic_eventdata_recv
-    MOZQUIC_EVENT_TLSINPUT = 10, // mozquic_eventdata_tlsinput
+    // NAME                              ID     POINTER TYPE
+    // --------------------------        ----   -------------------
+    MOZQUIC_EVENT_NEW_STREAM_DATA        =  0, // mozquic_stream_t *
+    MOZQUIC_EVENT_STREAM_RESET           =  1, // mozquic_stream_t *
+    MOZQUIC_EVENT_CONNECTED              =  2, // mozquic_connection_t *
+    MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION  =  3, // mozquic_connection_t *
+    MOZQUIC_EVENT_CLOSE_CONNECTION       =  4, // mozquic_connection_t *
+    MOZQUIC_EVENT_IO                     =  5, // mozquic_connection_t *
+    MOZQUIC_EVENT_ERROR                  =  6, // mozquic_connection_t *
+    MOZQUIC_EVENT_LOG                    =  7, // char *
+    MOZQUIC_EVENT_TRANSMIT               =  8, // mozquic_eventdata_transmit
+    MOZQUIC_EVENT_RECV                   =  9, // mozquic_eventdata_recv
+    MOZQUIC_EVENT_TLSINPUT               = 10, // mozquic_eventdata_tlsinput
   };
 
   enum {

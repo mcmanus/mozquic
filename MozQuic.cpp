@@ -958,7 +958,7 @@ MozQuic::HandshakeComplete(uint32_t code,
   mConnectionState = CLIENT_STATE_CONNECTED;
   MaybeSendAck();
   if (mConnEventCB) {
-    mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, nullptr);
+    mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, this);
   }
 }
 
@@ -996,7 +996,7 @@ MozQuic::Client1RTT()
       fprintf(stderr,"CLIENT_STATE_CONNECTED 1\n");
       mConnectionState = CLIENT_STATE_CONNECTED;
       if (mConnEventCB) {
-        mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, nullptr);
+        mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, this);
       }
       return MaybeSendAck();
     }
@@ -1024,7 +1024,7 @@ MozQuic::Server1RTT()
     if (mNSSHelper->IsHandshakeComplete()) {
       fprintf(stderr,"SERVER_STATE_CONNECTED 2\n");
       if (mConnEventCB) {
-        mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, nullptr);
+        mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, this);
       }
       mConnectionState = SERVER_STATE_CONNECTED;
       return MaybeSendAck();
