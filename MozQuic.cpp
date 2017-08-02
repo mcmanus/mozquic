@@ -104,10 +104,10 @@ MozQuic::CheckPeer(uint32_t deadline)
 
   unsigned char plainPkt[kMozQuicMTU];
   unsigned char cipherPkt[kMozQuicMTU];
-  uint32_t used;
+  uint32_t used = 0;
 
-  CreateShortPacketHeader(plainPkt, kMozQuicMTU, used);
-  assert(used == 13);
+  CreateShortPacketHeader(plainPkt, kMozQuicMTU - 16, used);
+  uint32_t headerLen = used;
   plainPkt[used] = FRAME_TYPE_PING;
   used++;
 
@@ -120,13 +120,13 @@ MozQuic::CheckPeer(uint32_t deadline)
     used += usedByAck;
   }
   
-  // 13 bytes of aead, 1 ping frame byte. result is 16 longer for aead tag
+  // 11-13 bytes of aead, 1 ping frame byte. result is 16 longer for aead tag
   uint32_t written = 0;
-  memcpy(cipherPkt, plainPkt, 13);
-  uint32_t rv = mNSSHelper->EncryptBlock(plainPkt, 13, plainPkt + 13, used - 13,
-                                         mNextTransmitPacketNumber, cipherPkt + 13, kMozQuicMTU - 13, written);
+  memcpy(cipherPkt, plainPkt, headerLen);
+  uint32_t rv = mNSSHelper->EncryptBlock(plainPkt, headerLen, plainPkt + headerLen, used - headerLen,
+                                         mNextTransmitPacketNumber, cipherPkt + headerLen, kMozQuicMTU - headerLen, written);
   mNextTransmitPacketNumber++;
-  Transmit(cipherPkt, written + 13, nullptr);
+  Transmit(cipherPkt, written + headerLen, nullptr);
 
   return MOZQUIC_OK;
 }
@@ -166,8 +166,9 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   // what if not kp 0 TODO
   // todo when transport params allow truncate id, the connid might go
   // short header with connid kp = 0, 4 bytes of packetnumber
-  uint32_t used;
+  uint32_t used, pktHeaderLen;
   CreateShortPacketHeader(plainPkt, kMozQuicMTU - 16, used);
+  pktHeaderLen = used;
 
   plainPkt[used] = FRAME_TYPE_CLOSE;
   used++;
@@ -187,16 +188,15 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
     used += reasonLen;
   }
 
-  // 13 bytes of aead, 7 + reasonLen of data. result is 16 longer for aead tag
+  // 11-13 bytes of aead, 1 ping frame byte. result is 16 longer for aead tag
   uint32_t written = 0;
-  memcpy(cipherPkt, plainPkt, 13);
-  uint32_t rv = mNSSHelper->EncryptBlock(plainPkt, 13, plainPkt + 13, 7 + reasonLen,
-                                         mNextTransmitPacketNumber, cipherPkt + 13, kMozQuicMTU - 13, written);
-  fprintf(stderr,"encrypt rv=%d inputlen=%d (+ %d of aead) outputlen=%d pktheaderLen =%d\n",
-          rv, 7 + reasonLen, 13, written, 13);
-  mNextTransmitPacketNumber++;
-  Transmit(cipherPkt, written + 13, nullptr);
-
+  memcpy(cipherPkt, plainPkt, pktHeaderLen);
+  uint32_t rv = mNSSHelper->EncryptBlock(plainPkt, pktHeaderLen, plainPkt + pktHeaderLen, 7 + reasonLen,
+                                         mNextTransmitPacketNumber, cipherPkt + pktHeaderLen, kMozQuicMTU - pktHeaderLen, written);
+  if (!rv) {
+    mNextTransmitPacketNumber++;
+    Transmit(cipherPkt, written + pktHeaderLen, nullptr);
+  }
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
 }
 
@@ -418,14 +418,18 @@ MozQuic::Intake()
       if (pktSize < tmpShortHeader.mHeaderSize) {
         return rv;
       }
-      fprintf(stderr,"SHORTFORM PACKET RECVD id=%lx size=%d\n", tmpShortHeader.mConnectionID, pktSize);
       session = FindSession(tmpShortHeader.mConnectionID);
       if (!session) {
-        fprintf(stderr,"no session found for encoded packet\n");
+        fprintf(stderr,"no session found for encoded packet id=%lx size=%d\n",
+                tmpShortHeader.mConnectionID, pktSize);
         rv = MOZQUIC_ERR_GENERAL;
         continue;
       }
       ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber);
+      assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
+      fprintf(stderr,"SHORTFORM PACKET[%d] RECVD id=%lx pkt# %lx hdrsize %d\n",
+              pktSize, shortHeader.mConnectionID, shortHeader.mPacketNumber,
+              shortHeader.mHeaderSize);
       rv = session->ProcessGeneral(pkt, pktSize,
                                    shortHeader.mHeaderSize, shortHeader.mPacketNumber, sendAck);
       if (rv == MOZQUIC_OK) {
@@ -1643,6 +1647,7 @@ MozQuic::FlushStream0(bool forceAck)
     if (code != MOZQUIC_OK) {
       return code;
     }
+
     fprintf(stderr,"TRANSMIT0 %lX len=%d total0=%d\n",
             mNextTransmitPacketNumber, finalLen,
             mNextTransmitPacketNumber - mOriginalTransmitPacketNumber);
@@ -1962,21 +1967,35 @@ int
 MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
                                  uint32_t &used)
 {
-  used = 0;
-  // section 5.2 of transport
-  // short form header:
-  // 0 c=1 k=0 type=3
-  // 13 bytes.
-  pkt[0] = 0x43;
+  // need to decide if we want 2 or 4 byte packet numbers. 1 is pretty much
+  // always too short as it doesn't allow a useful window
+  // if (nextNumber - lowestUnacked) > 16000 then use 4.
+  uint8_t pnSizeType = 2; // 2 bytes
+  if (!mUnAckedData.empty() &&
+      ((mNextTransmitPacketNumber - mUnAckedData.front()->mPacketNumber) > 16000)) {
+    pnSizeType = 3; // 4 bytes
+  }
+
+  // section 5.2 of transport short form header:
+  // (0 c=1 k=0) | type [2 or 3]
+  pkt[0] = 0x40 | pnSizeType;
 
   // todo store a network order version of this
   uint64_t tmp64 = PR_htonll(mConnectionID);
   memcpy(pkt + 1, &tmp64, 8);
+  used = 9;
+  
+  if (pnSizeType == 2) {
+    uint16_t tmp16 = htons(mNextTransmitPacketNumber & 0xffff);
+    memcpy(pkt + used, &tmp16, 2);
+    used += 2;
+  } else {
+    assert(pnSizeType == 3);
+    uint32_t tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
+    memcpy(pkt + used, &tmp32, 4);
+    used += 4;
+  }
 
-  uint32_t tmp32 = htonl(mNextTransmitPacketNumber  & 0xffffffff);
-  memcpy(pkt + 9, &tmp32, 4);
-
-  used = 13;
   return MOZQUIC_OK;
 }
 

@@ -182,6 +182,7 @@ private:
   // certain amount of time the retransmitted packet is just forgotten (as
   // it won't be retransmitted again - that happens to the dup'd
   // incarnation)
+  // mUnackedData is sorted by the packet number it was sent in.
   std::list<std::unique_ptr<MozQuicStreamChunk>> mUnWrittenData;
   std::list<std::unique_ptr<MozQuicStreamChunk>> mUnAckedData;
 
