@@ -718,27 +718,48 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
     fprintf(stderr,"creating ack of %lX (%d extra) into pn=%lX [%d prev transmits]\n",
             iter->mPacketNumber, iter->mExtra, pktNumOfAck, iter->mTransmits.size());
     if (newFrame) {
+      uint64_t ackRange = 
+        1 + mAckList.front().mPacketNumber - (mAckList.back().mPacketNumber - mAckList.back().mExtra);
+      // type 1 is 16 bit, type 2 is 32 bit;
+      uint8_t pnSizeType = (ackRange < 16000) ? 1 : 2;
+  
       newFrame = false;
-      pkt[0] = 0xb9; // ack with 32 bit num and 16 bit run encoding and numblocks
-      numBlocks = pkt + 1;
+
+      // ack with numblocks, 16/32 bit largest and 16 bit run
+      pkt[0] = 0xb0 | (pnSizeType << 2) | 0x01;
+      used += 1;
+      numBlocks = pkt + used;
       *numBlocks = 0;
-      numTS = pkt + 2;
+      used += 1;
+      numTS = pkt + used;
       *numTS = 0;
+      used += 1;
       largestAcked = iter->mPacketNumber;
-      uint32_t packet32 = largestAcked & 0xffffffff;
-      packet32 = htonl(packet32);
-      memcpy(pkt + 3, &packet32, 4);
+      if (pnSizeType == 1) {
+        uint16_t packet16 = largestAcked & 0xffff;
+        packet16 = htons(packet16);
+        memcpy(pkt + used, &packet16, 2);
+        used += 2;
+      } else {
+        assert (pnSizeType == 2);
+        uint32_t packet32 = largestAcked & 0xffffffff;
+        packet32 = htonl(packet32);
+        memcpy(pkt + used, &packet32, 4);
+        used += 4;
+      }
+
       // timestamp is microseconds (10^-6) as 16 bit fixed point #
       assert(iter->mReceiveTime.size());
       uint64_t delay64 = (Timestamp() - *(iter->mReceiveTime.begin())) * 1000;
       uint16_t delay = htons(ufloat16_encode(delay64));
-      memcpy(pkt + 7, &delay, 2);
+      memcpy(pkt + used, &delay, 2);
+      used += 2;
       uint16_t extra = htons(iter->mExtra);
-      memcpy(pkt + 9, &extra, 2); // first ack block len
+      memcpy(pkt + used, &extra, 2); // first ack block len
+      used += 2;
       lowAcked = iter->mPacketNumber - iter->mExtra;
-      pkt += 11;
-      used += 11;
-      avail -= 11;
+      pkt += used;
+      avail -= used;
     } else {
       assert(lowAcked > iter->mPacketNumber);
       uint64_t gap = lowAcked - iter->mPacketNumber - 1;
