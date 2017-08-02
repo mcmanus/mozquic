@@ -2085,7 +2085,7 @@ MozQuic::FrameHeaderData::FrameHeaderData(unsigned char *pkt, uint32_t pktSize, 
     }
     u.mAck.mNumTS = framePtr[0];
     framePtr++;
-    u.mAck.mLargestAcked = DecodePacketNumber(framePtr, ackedLen, session->mNextRecvPacketNumber);
+    u.mAck.mLargestAcked = DecodePacketNumber(framePtr, ackedLen, session->mNextTransmitPacketNumber);
     framePtr += ackedLen;
 
     memcpy(&u.mAck.mAckDelay, framePtr, 2);
