@@ -427,7 +427,7 @@ MozQuic::Intake()
       }
       ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber);
       assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
-      fprintf(stderr,"SHORTFORM PACKET[%d] RECVD id=%lx pkt# %lx hdrsize %d\n",
+      fprintf(stderr,"SHORTFORM PACKET[%d] id=%lx pkt# %lx hdrsize %d\n",
               pktSize, shortHeader.mConnectionID, shortHeader.mPacketNumber,
               shortHeader.mHeaderSize);
       rv = session->ProcessGeneral(pkt, pktSize,
@@ -442,9 +442,9 @@ MozQuic::Intake()
       }
       LongHeaderData longHeader(pkt, pktSize);
 
-      fprintf(stderr,"LONG PACKET RECVD pktnum=%lX version=%X len=%d connid=%lx\n",
-              longHeader.mPacketNumber, longHeader.mVersion, pktSize, longHeader.mConnectionID);
-
+      fprintf(stderr,"LONGFORM PACKET[%d] id=%lx pkt# %lx type %d version %X\n",
+              pktSize, longHeader.mConnectionID, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
+ 
       if (!(VersionOK(longHeader.mVersion) ||
             (mIsClient && longHeader.mType == PACKET_TYPE_VERSION_NEGOTIATION && longHeader.mVersion == mVersion))) {
         // todo this could really be an amplifier
