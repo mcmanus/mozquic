@@ -1,0 +1,14 @@
+{
+    "Cases" : [
+        {
+            "Name" : "basic",
+            "ClientArgs": [],
+            "ServerArgs": ["-send-close"]
+        },
+        {
+            "Name" : "basic2",
+            "ClientArgs": [],
+            "ServerArgs": ["-send-close"]
+        }
+        ]
+}

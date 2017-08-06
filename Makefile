@@ -24,17 +24,23 @@ OBJS += MozQuic.o
 OBJS += MozQuicStream.o
 OBJS += NSSHelper.o
 
-all: client server
+all: client server qdrive-client qdrive-server
 
 -include $(OBJS:.o=.d)
 
 client: $(OBJS) sample/client.o
 	$(CC) -o client $(OBJS) sample/client.o $(LDFLAGS)
 
+qdrive-client: $(OBJS) sample/qdrive-client.o
+	$(CC) -o qdrive-client $(OBJS) sample/qdrive-client.o $(LDFLAGS)
+
 server: $(OBJS) sample/server.o
 	$(CC) -o server $(OBJS) sample/server.o $(LDFLAGS)
 
+qdrive-server: $(OBJS) sample/qdrive-server.o
+	$(CC) -o qdrive-server $(OBJS) sample/qdrive-server.o $(LDFLAGS)
+
 .PHONY: clean
 clean:
-	rm -f $(OBJS) client server sample/client.o sample/server.o *.d
+	rm -f $(OBJS) client server qdrive-client qdrive-server *.d sample/*.o
 

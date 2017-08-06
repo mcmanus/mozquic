@@ -135,6 +135,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
         fprintf(stderr,"server terminating connection\n");
         close_connection(param);
         free(data);
+        exit(0);
       } else if (data->state == 3) {
         fprintf(stderr,"server closing based on fin\n");
         close_connection(param);
@@ -184,6 +185,15 @@ int main(int argc, char **argv)
   struct mozquic_config_t config;
   mozquic_connection_t *c;
 
+  if (has_arg(argc, argv, "-quiet", &argVal)) {
+    fclose(stderr);
+  }
+
+  if (has_arg(argc, argv, "-qdrive", &argVal)) {
+    fprintf(stdout,"%d\n", SERVER_PORT);
+    fflush(stdout);
+  }
+  
   send_close = has_arg(argc, argv, "-send-close", &argVal);
   
   char *cdir = getenv ("MOZQUIC_NSS_CONFIG");

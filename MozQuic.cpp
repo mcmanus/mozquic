@@ -1362,6 +1362,12 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
     } else if (result.mType == FRAME_TYPE_STREAM) {
       sendAck = true;
 
+      fprintf(stderr,"recv stream %d len=%d offset=%d fin=%d\n",
+              result.u.mStream.mStreamID,
+              result.u.mStream.mDataLen,
+              result.u.mStream.mOffset,
+              result.u.mStream.mFinBit);
+
       // todo, ultimately the stream chunk could hold references to
       // the packet buffer and ptr into it for zero copy
       
@@ -1376,20 +1382,22 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
       if (!result.u.mStream.mStreamID) {
         mStream0->Supply(tmp);
       } else {
+        
+        assert(!fromCleartext);
+        if (fromCleartext) {
+          RaiseError(MOZQUIC_ERR_GENERAL, (char *) "cleartext non 0 stream id\n");
+          return MOZQUIC_ERR_GENERAL;
+        }
         int rv = FindStream(result.u.mStream.mStreamID, tmp);
         if (rv != MOZQUIC_OK) {
           return rv;
         }
       }
       ptr += result.u.mStream.mDataLen;
-      fprintf(stderr,"process stream %d len=%d offset=%d\n",
-              result.u.mStream.mStreamID,
-              result.u.mStream.mDataLen,
-              result.u.mStream.mOffset);
     } else if (result.mType == FRAME_TYPE_ACK) {
       if (fromCleartext && (mConnectionState == SERVER_STATE_LISTEN)) {
         // acks are not allowed processing client_initial
-        fprintf(stderr, "acks are not allowed processing client initial\n");
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "acks are not allowed in client initial\n");
         return MOZQUIC_ERR_GENERAL;
       }
 
@@ -1407,7 +1415,7 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
       ptr += timestampSectionLen;
     } else if (result.mType == FRAME_TYPE_CLOSE) {
       if (fromCleartext) {
-        fprintf(stderr, "close frames not allowed in cleartext\n");
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "close frames not allowed in cleartext\n");
         return MOZQUIC_ERR_GENERAL;
       }
       fprintf(stderr,"RECVD CLOSE\n");
@@ -1635,7 +1643,8 @@ MozQuic::FlushStream0(bool forceAck)
   memcpy(pkt + 13, &tmp32, 4);
 
   unsigned char *framePtr = pkt + 17;
-  CreateStreamAndAckFrames(framePtr, endpkt - 8); // last 8 are for checksum
+  CreateStreamAndAckFrames(framePtr, endpkt - 8, true); // last 8 are for checksum
+  bool sentStream = (framePtr != (pkt + 17));
 
   // then padding as needed up to mtu on client_initial
   uint32_t finalLen;
@@ -1674,30 +1683,32 @@ MozQuic::FlushStream0(bool forceAck)
             mNextTransmitPacketNumber - mOriginalTransmitPacketNumber);
 
     mNextTransmitPacketNumber++;
-    // each member of the list needs to 
-  }
-
-  if (!mUnWrittenData.empty()) {
-    return FlushStream0(false);
+  
+    if (sentStream && !mUnWrittenData.empty()) {
+      return FlushStream0(false);
+    }
   }
   return MOZQUIC_OK;
 }
 
 uint32_t
-MozQuic::CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpkt)
+MozQuic::CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpkt, bool justZero)
 {
   auto iter = mUnWrittenData.begin();
   while (iter != mUnWrittenData.end()) {
+    if (justZero && (*iter)->mStreamID) {
+      iter++;
+      continue;
+    }
+    
     uint32_t room = endpkt - framePtr; // the last 8 are for checksum // todo only on plaintext
     if (room < 1) {
       break; // this is only for type, we will do a second check later.
     }
 
     // 11fssood -> 11000001 -> 0xC1. Fill in fin, offset-len and id-len below dynamically
+    auto typeBytePtr = framePtr;
     framePtr[0] = 0xc1;
-    if ((*iter)->mFin) {
-      framePtr[0] |= FRAME_FIN_BIT;
-    }
 
     // Determine streamId size
     uint32_t tmp32 = (*iter)->mStreamID;
@@ -1763,10 +1774,15 @@ MozQuic::CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpk
     }
     assert(room >= (*iter)->mLen);
 
+    // set the len and fin bits after any potential split
     uint16_t tmp16 = (*iter)->mLen;
     tmp16 = htons(tmp16);
     memcpy(framePtr, &tmp16, 2);
     framePtr += 2;
+
+    if ((*iter)->mFin) {
+      *typeBytePtr = *typeBytePtr | FRAME_FIN_BIT;
+    }
 
     memcpy(framePtr, (*iter)->mData.get(), (*iter)->mLen);
     fprintf(stderr,"writing a stream %d frame %d @ offset %d [fin=%d] in packet %lX\n",
@@ -1813,7 +1829,7 @@ MozQuic::FlushStream(bool forceAck)
   CreateShortPacketHeader(plainPkt, kMozQuicMTU - 16, pktHeaderLen);
 
   unsigned char *framePtr = plainPkt + pktHeaderLen;
-  CreateStreamAndAckFrames(framePtr, endpkt);
+  CreateStreamAndAckFrames(framePtr, endpkt, false);
 
   uint32_t room = endpkt - framePtr;
   uint32_t used;
@@ -1874,9 +1890,6 @@ MozQuic::DoWriter(std::unique_ptr<MozQuicStreamChunk> &p)
   // this data gets queued to unwritten and framed and
   // transmitted after prioritization by flush()
   assert (mConnectionState != STATE_UNINITIALIZED);
-  assert ((mConnectionState == CLIENT_STATE_CONNECTED) ||
-          (mConnectionState == SERVER_STATE_CONNECTED) ||
-          (p->mStreamID == 0)); //todo add 0rtt state.
 
   mUnWrittenData.push_back(std::move(p));
 

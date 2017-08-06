@@ -32,8 +32,6 @@ and key for foo.example.com that is signed by a CA defined by CA.cert.der.
 #include <stdlib.h>
 #include "../MozQuic.h"
 
-mozquic_connection_t *only_child = NULL;
-
 static uint8_t recvFin = 0;
 
 static int connEventCB(void *closure, uint32_t event, void *param)
@@ -68,7 +66,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
   } else if (event == MOZQUIC_EVENT_CLOSE_CONNECTION ||
              event == MOZQUIC_EVENT_ERROR) {
     mozquic_destroy_connection(param);
-    exit(0);
+    exit(event == MOZQUIC_EVENT_ERROR ? 2 : 0);
   } else {
     fprintf(stderr,"unhandled event %X\n", event);
   }
@@ -131,6 +129,10 @@ int main(int argc, char **argv)
   char *argVal;
   struct mozquic_config_t config;
   mozquic_connection_t *c;
+
+  if (has_arg(argc, argv, "-quiet", &argVal)) {
+    fclose(stderr);
+  }
 
   char *cdir = getenv ("MOZQUIC_NSS_CONFIG");
   if (mozquic_nss_config(cdir) != MOZQUIC_OK) {
