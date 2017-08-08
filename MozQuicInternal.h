@@ -119,7 +119,7 @@ private:
   uint32_t Flush();
   uint32_t FlushStream0(bool forceAck);
   uint32_t FlushStream(bool forceAck);
-  uint32_t CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpkt);
+  uint32_t CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpkt, bool justZero);
 
   int Client1RTT();
   int Server1RTT();
