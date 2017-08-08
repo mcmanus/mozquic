@@ -1383,7 +1383,6 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
         mStream0->Supply(tmp);
       } else {
         
-        assert(!fromCleartext);
         if (fromCleartext) {
           RaiseError(MOZQUIC_ERR_GENERAL, (char *) "cleartext non 0 stream id\n");
           return MOZQUIC_ERR_GENERAL;

@@ -56,7 +56,7 @@ static void test1(mozquic_connection_t *c)
   srandom(time(NULL));
   for (int i = 0; i < 3; i++) {
     testState.test1_char[i] = 'a' + (random() % 26);
-    testState.test1_iters[i] = (random() % 9)  * 1024 + 1024;
+    testState.test1_iters[i] = (random() % 10) * 1024;
     char buf[1024];
     snprintf(buf, 1024, "GET %d %c\n", testState.test1_iters[i] / 1024, testState.test1_char[i]);
     mozquic_start_new_stream(testState.test1_stream + i, c, buf, strlen(buf), 0);

@@ -148,11 +148,12 @@ static int test1Event(void *closure, uint32_t event, void *param)
         int tosend = testState.test1_iters[idx] * 1024;
         fprintf(stderr,"QDRIVE SERVER %p expect %d\n", stream, tosend);
         assert(tosend < 10240);
-        while (tosend > 0) {
+        do {
           int actual = (tosend > 3000) ? 3000 : tosend;
           tosend -= actual;
           mozquic_send(stream, buf, actual, !tosend);
-        }
+        } while (tosend > 0);
+
         testState.test_state++;
         break;
       }
