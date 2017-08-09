@@ -1427,6 +1427,7 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
       }
     } else {
       sendAck = true;
+      fprintf(stderr,"unexpected frame type %d cleartext=%d\n", result.mType, fromCleartext);
       RaiseError(MOZQUIC_ERR_GENERAL, (char *) "unexpected frame type");
       return MOZQUIC_ERR_GENERAL;
     }
