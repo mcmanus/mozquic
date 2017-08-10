@@ -369,10 +369,12 @@ NSSHelper::GetKeyParamsFromCipherSuite(uint16_t cipherSuite,
     secretSize = 32;
     packetProtectionMech = CKM_NSS_CHACHA20_POLY1305;
     importMechanism1 = CKM_NSS_HKDF_SHA256;
-    importMechanism2 = CKK_NSS_CHACHA20;
+    importMechanism2 = CKM_NSS_CHACHA20_KEY_GEN;
+//    importMechanism2 = CKK_NSS_CHACHA20;
   } else {
     assert(false);
   }
+
 }
 
 void
@@ -634,6 +636,8 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   mFD = PR_CreateIOLayerStub(nssHelperIdentity, &nssHelperMethods);
   mFD->secret = (struct PRFilePrivate *)this;
   mFD = SSL_ImportFD(nullptr, mFD);
+  SSL_CipherPrefSet(mFD, TLS_AES_128_GCM_SHA256, 0);
+  SSL_CipherPrefSet(mFD, TLS_AES_256_GCM_SHA384, 0);
   SSL_OptionSet(mFD, SSL_SECURITY, true);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, true);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, false);
