@@ -722,7 +722,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
         1 + mAckList.front().mPacketNumber - (mAckList.back().mPacketNumber - mAckList.back().mExtra);
       // type 1 is 16 bit, type 2 is 32 bit;
       uint8_t pnSizeType = (ackRange < 16000) ? 1 : 2;
-  
+
       newFrame = false;
 
       // ack with numblocks, 16/32 bit largest and 16 bit run
@@ -1427,9 +1427,12 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
       }
     } else {
       sendAck = true;
-      fprintf(stderr,"unexpected frame type %d cleartext=%d\n", result.mType, fromCleartext);
-      RaiseError(MOZQUIC_ERR_GENERAL, (char *) "unexpected frame type");
-      return MOZQUIC_ERR_GENERAL;
+      if (fromCleartext) {
+        fprintf(stderr,"unexpected frame type %d cleartext=%d\n", result.mType, fromCleartext);
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "unexpected frame type");
+        return MOZQUIC_ERR_GENERAL;
+      }
+      continue;
     }
     assert(pkt + ptr <= endpkt);
   }
