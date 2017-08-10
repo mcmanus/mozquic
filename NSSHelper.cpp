@@ -26,12 +26,12 @@ fail complie;
     nss -21 branch
     https://github.com/nss-dev/nss/tree/NSS_TLS13_DRAFT19_BRANCH
 
-    known cset 5e6ccfb82ff48e83ae1555fe3c16a27cdee0892a 
+    known cset 5e6ccfb82ff48e83ae1555fe3c16a27cdee0892a
 */
 
 // todo runtime enforce too
 
-extern "C" 
+extern "C"
 {
 // All of this hkdf code is copied from NSS
 
@@ -61,7 +61,7 @@ ssl_EncodeUintX(PRUint64 value, unsigned int bytes, PRUint8 *to)
   memcpy(to, ((unsigned char *)(&encoded)) + (sizeof(encoded) - bytes), bytes);
   return to + bytes;
 }
-  
+
 static SECStatus
 tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
                       const PRUint8 *handshakeHash, unsigned int handshakeHashLen,
@@ -149,7 +149,7 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
 abort:
     return SECFailure;
 }
-  
+
 static SECStatus
 tls13_HkdfExpandLabelRaw(PK11SymKey *prk, SSLHashType baseHash,
                          const PRUint8 *handshakeHash, unsigned int handshakeHashLen,
@@ -250,7 +250,7 @@ NSSHelper::MakeKeyFromRaw(unsigned char *initialSecret,
 
   // iv length is max(8, n_min) - n_min is aead specific, but is 12 for everything currently known
   if (tls13_HkdfExpandLabelRaw(secretSKey, hashType,
-                               (const unsigned char *)"", 0, "iv", 2, outIV, 12) != SECSuccess) {                                 
+                               (const unsigned char *)"", 0, "iv", 2, outIV, 12) != SECSuccess) {
     goto failure;
   }
 
@@ -296,7 +296,7 @@ NSSHelper::MakeKeyFromNSS(PRFileDesc *fd, const char *label,
                                false, (const unsigned char *)"", 0, initialSecret, secretSize) != SECSuccess) {
     return MOZQUIC_ERR_CRYPTO;
   }
-  
+
   return MakeKeyFromRaw(initialSecret, secretSize, hashType, importMechanism1,
                         importMechanism2, outIV, outKey);
 }
@@ -327,8 +327,8 @@ NSSHelper::HandshakeSecret(unsigned int ciphersuite,
 
   GetKeyParamsFromCipherSuite(nssSuite, secretSize, hashType, mPacketProtectionMech,
                               importMechanism1, importMechanism2);
-      
-  bool didHandshakeFail = 
+
+  bool didHandshakeFail =
     MakeKeyFromRaw(mExternalSendSecret, secretSize, hashType, importMechanism1,
                    importMechanism2, mPacketProtectionSenderIV0, &mPacketProtectionSenderKey0) != MOZQUIC_OK;
   memset(mExternalSendSecret, 0, sizeof(mExternalSendSecret));
@@ -338,7 +338,7 @@ NSSHelper::HandshakeSecret(unsigned int ciphersuite,
     MakeKeyFromRaw(mExternalRecvSecret, secretSize, hashType, importMechanism1,
                    importMechanism2, mPacketProtectionReceiverIV0, &mPacketProtectionReceiverKey0) != MOZQUIC_OK;
   memset(mExternalSendSecret, 0, sizeof(mExternalRecvSecret));
-  
+
   mHandshakeComplete = true;
   if (didHandshakeFail) {
     mHandshakeFailed = true;
@@ -435,7 +435,7 @@ NSSHelper::HandshakeCallback(PRFileDesc *fd, void *client_data)
       didHandshakeFail = true;
     }
   }
-  
+
   self->mHandshakeComplete = true;
   if (didHandshakeFail) {
     self->mHandshakeFailed = true;
@@ -648,7 +648,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   SSL_SendAdditionalKeyShares(mFD, 2);
   SSLNamedGroup groups[] = {  ssl_grp_ec_secp256r1,
                               ssl_grp_ec_curve25519,
-                              ssl_grp_ec_secp384r1 
+                              ssl_grp_ec_secp384r1
   };
   SECStatus rv = SSL_NamedGroupConfig(mFD, groups, PR_ARRAY_SIZE(groups));
 

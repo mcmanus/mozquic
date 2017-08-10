@@ -144,7 +144,7 @@ int mozquic_set_event_callback_closure(mozquic_connection_t *conn,
   self->SetClosure(closure);
   return MOZQUIC_OK;
 }
-  
+
 int mozquic_IO(mozquic_connection_t *conn)
 {
   mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
@@ -178,7 +178,7 @@ void mozquic_handshake_complete(mozquic_connection_t *conn, uint32_t errCode,
   self->HandshakeComplete(errCode, keyInfo);
 }
 
-int mozquic_nss_config(char *dir) 
+int mozquic_nss_config(char *dir)
 {
   if (mozQuicInit) {
     return MOZQUIC_ERR_GENERAL;
