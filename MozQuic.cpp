@@ -1653,7 +1653,10 @@ MozQuic::FlushStream0(bool forceAck)
   uint32_t finalLen;
 
   if ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) {
-    finalLen = kMozQuicMTU;
+    finalLen = (framePtr - pkt) + 8;
+    if (finalLen < kMinClientInitial) {
+      finalLen = kMinClientInitial;
+    }
   } else {
     uint32_t room = endpkt - framePtr - 8; // the last 8 are for checksum
     uint32_t used;

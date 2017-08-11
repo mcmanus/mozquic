@@ -48,7 +48,7 @@ class MozQuicStreamAck;
 class MozQuic final : public MozQuicWriter
 {
 public:
-  static const uint32_t kMozQuicMTU = 1252; // todo pmtud and assumes v4
+  static const uint32_t kMozQuicMTU = 1200; // todo pmtud
   static const uint32_t kMinClientInitial = 1200; // an assumption
   static const uint32_t kMozQuicMSS = 16384;
 
