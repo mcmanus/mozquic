@@ -439,8 +439,6 @@ failure:
   self->mHandshakeFailed = true;
 }
 
-// todo - if nss helper didn't drive tls, need an api to push secrets into this class
-// e.g. firefox
 uint32_t
 NSSHelper::BlockOperation(bool encrypt,
                           unsigned char *aadData, uint32_t aadLen,
@@ -506,8 +504,6 @@ NSSHelper::BlockOperation(bool encrypt,
   return rv;
 }
 
-// todo - if nss helper didn't drive tls, need an api to push secrets into this class
-// e.g. firefox
 uint32_t
 NSSHelper::EncryptBlock(unsigned char *aadData, uint32_t aadLen,
                         unsigned char *plaintext, uint32_t plaintextLen,
@@ -518,8 +514,6 @@ NSSHelper::EncryptBlock(unsigned char *aadData, uint32_t aadLen,
                         packetNumber, out, outAvail, written);
 }
 
-// todo - if nss helper didn't drive tls, need an api to push secrets into this class
-// e.g. firefox
 uint32_t
 NSSHelper::DecryptBlock(unsigned char *aadData, uint32_t aadLen,
                         unsigned char *ciphertext, uint32_t ciphertextLen,
@@ -751,7 +745,7 @@ NSSHelper::DriveHandshake()
   if (mHandshakeComplete) {
     return MOZQUIC_OK;
   }
-  assert(mNSSReady);// todo
+
   if (!mNSSReady) {
     return MOZQUIC_ERR_GENERAL;
   }

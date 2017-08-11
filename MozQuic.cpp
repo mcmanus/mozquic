@@ -680,10 +680,7 @@ MozQuic::MaybeSendAck()
   return MOZQUIC_OK;
 }
 
-// todo this will work generically other than
-// a] assuming 32 bit largest and
-// b] always chosing 16 bit run len (though we can live with that)
-//
+
 // To clarify.. an ack frame for 15,14,13,11,10,8,2,1
 // numblocks=3
 // largest=15, first ack block length = 2 // 15, 14, 13
@@ -696,10 +693,8 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
 {
   used = 0;
 
-  // todo for protected ack timestamps needs to be added.
   // build as many ack frames as will fit
-  // use 32bit pkt no, 16bit run length
-  // for protected, probably need to be more clever
+  // always 16bit run length
   bool newFrame = true;
   uint8_t *numBlocks = nullptr;
   uint8_t *numTS = nullptr;
@@ -1071,9 +1066,8 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
   unsigned char *framePtr = pkt + 17;
 
   if (mConnectionState != CLIENT_STATE_1RTT) {
-    // todo this isn't really strong enough (mvp)
-    // any packet recvd on this conn would invalidate
-    return MOZQUIC_ERR_VERSION;
+    // todo don't allow this after a single server cleartext
+    return MOZQUIC_OK;
   }
 
   if ((header.mVersion != mVersion) ||
@@ -1557,9 +1551,6 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  // todo - its not legal to send this across two packets, but it could
-  // be dup'd or retrans'd..  should not do accept, it should find the session
-
   mVersion = header.mVersion;
 
   // Check whether this is an dup.
@@ -1709,7 +1700,7 @@ MozQuic::CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpk
       continue;
     }
 
-    uint32_t room = endpkt - framePtr; // the last 8 are for checksum // todo only on plaintext
+    uint32_t room = endpkt - framePtr;
     if (room < 1) {
       break; // this is only for type, we will do a second check later.
     }
