@@ -107,7 +107,7 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
    *  Where:
    *  - HkdfLabel.length is Length
    *  - HkdfLabel.hash_value is HashValue.
-   *  - HkdfLabel.label is "TLS 1.3, " + Label
+   *  - HkdfLabel.label is "tls13 " + Label
    *
    */
   infoLen = 2 + 1 + kLabelPrefixLen + labelLen + 1 + handshakeHashLen;
