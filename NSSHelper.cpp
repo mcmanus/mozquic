@@ -451,7 +451,7 @@ failure:
 // e.g. firefox
 uint32_t
 NSSHelper::BlockOperation(bool encrypt,
-                          unsigned char *aeadData, uint32_t aeadLen,
+                          unsigned char *aadData, uint32_t aadLen,
                           unsigned char *data, uint32_t dataLen,
                           uint64_t packetNumber,
                           unsigned char *out, uint32_t outAvail, uint32_t &written)
@@ -476,14 +476,15 @@ NSSHelper::BlockOperation(bool encrypt,
     nonce[i + 4] ^= tmp[i];
   }
 
+
   if (mPacketProtectionMech == CKM_AES_GCM) {
     params = (unsigned char *) &gcmParams;
     paramsLength = sizeof(gcmParams);
     memset(&gcmParams, 0, sizeof(gcmParams));
     gcmParams.pIv = nonce;
     gcmParams.ulIvLen = sizeof(nonce);
-    gcmParams.pAAD = aeadData;
-    gcmParams.ulAADLen = aeadLen;
+    gcmParams.pAAD = aadData;
+    gcmParams.ulAADLen = aadLen;
     gcmParams.ulTagBits = 128;
   } else {
     assert (mPacketProtectionMech == CKM_NSS_CHACHA20_POLY1305);
@@ -492,8 +493,8 @@ NSSHelper::BlockOperation(bool encrypt,
     memset(&polyParams, 0, sizeof(polyParams));
     polyParams.pNonce = nonce;
     polyParams.ulNonceLen = sizeof(nonce);
-    polyParams.pAAD = aeadData;
-    polyParams.ulAADLen = aeadLen;
+    polyParams.pAAD = aadData;
+    polyParams.ulAADLen = aadLen;
     polyParams.ulTagLen = 16;
   }
 
@@ -516,24 +517,24 @@ NSSHelper::BlockOperation(bool encrypt,
 // todo - if nss helper didn't drive tls, need an api to push secrets into this class
 // e.g. firefox
 uint32_t
-NSSHelper::EncryptBlock(unsigned char *aeadData, uint32_t aeadLen,
+NSSHelper::EncryptBlock(unsigned char *aadData, uint32_t aadLen,
                         unsigned char *plaintext, uint32_t plaintextLen,
                         uint64_t packetNumber, unsigned char *out,
                         uint32_t outAvail, uint32_t &written)
 {
-  return BlockOperation(true, aeadData, aeadLen, plaintext, plaintextLen,
+  return BlockOperation(true, aadData, aadLen, plaintext, plaintextLen,
                         packetNumber, out, outAvail, written);
 }
 
 // todo - if nss helper didn't drive tls, need an api to push secrets into this class
 // e.g. firefox
 uint32_t
-NSSHelper::DecryptBlock(unsigned char *aeadData, uint32_t aeadLen,
+NSSHelper::DecryptBlock(unsigned char *aadData, uint32_t aadLen,
                         unsigned char *ciphertext, uint32_t ciphertextLen,
                         uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                         uint32_t &written)
 {
-  return BlockOperation(false, aeadData, aeadLen, ciphertext, ciphertextLen,
+  return BlockOperation(false, aadData, aadLen, ciphertext, ciphertextLen,
                         packetNumber, out, outAvail, written);
 }
 
