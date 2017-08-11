@@ -64,7 +64,6 @@ ssl_EncodeUintX(PRUint64 value, unsigned int bytes, PRUint8 *to)
   
 static SECStatus
 tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
-                      const PRUint8 *handshakeHash, unsigned int handshakeHashLen,
                       const char *label, unsigned int labelLen,
                       CK_MECHANISM_TYPE algorithm, unsigned int keySize,
                       PK11SymKey **keyp)
@@ -80,15 +79,6 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
   PK11SymKey *derived;
   const char *kLabelPrefix = "tls13 ";
   const unsigned int kLabelPrefixLen = strlen(kLabelPrefix);
-
-  if (handshakeHash) {
-    if (handshakeHashLen > 255) {
-      PORT_Assert(0);
-      return SECFailure;
-    }
-  } else {
-    PORT_Assert(!handshakeHashLen);
-  }
 
   /*
    *  [draft-ietf-tls-tls13-11] Section 7.1:
@@ -110,7 +100,7 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
    *  - HkdfLabel.label is "TLS 1.3, " + Label
    *
    */
-  infoLen = 2 + 1 + kLabelPrefixLen + labelLen + 1 + handshakeHashLen;
+  infoLen = 2 + 1 + kLabelPrefixLen + labelLen + 1;
   if (infoLen > sizeof(info)) {
     PORT_Assert(0);
     goto abort;
@@ -122,11 +112,7 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
   ptr += kLabelPrefixLen;
   PORT_Memcpy(ptr, label, labelLen);
   ptr += labelLen;
-  ptr = ssl_EncodeUintX(handshakeHashLen, 1, ptr);
-  if (handshakeHash) {
-    PORT_Memcpy(ptr, handshakeHash, handshakeHashLen);
-    ptr += handshakeHashLen;
-  }
+  ptr = ssl_EncodeUintX(0, 1, ptr); // Hash is always empty for QUIC.
   PORT_Assert((ptr - info) == infoLen);
 
   params.bExtract = CK_FALSE;
@@ -152,7 +138,6 @@ abort:
   
 static SECStatus
 tls13_HkdfExpandLabelRaw(PK11SymKey *prk, SSLHashType baseHash,
-                         const PRUint8 *handshakeHash, unsigned int handshakeHashLen,
                          const char *label, unsigned int labelLen,
                          unsigned char *output, unsigned int outputLen)
 {
@@ -160,8 +145,7 @@ tls13_HkdfExpandLabelRaw(PK11SymKey *prk, SSLHashType baseHash,
   SECItem *rawkey;
   SECStatus rv;
 
-  rv = tls13_HkdfExpandLabel(prk, baseHash, handshakeHash, handshakeHashLen,
-                             label, labelLen,
+  rv = tls13_HkdfExpandLabel(prk, baseHash, label, labelLen,
                              kTlsHkdfInfo[baseHash].pkcs11Mech, outputLen,
                              &derived);
   if (rv != SECSuccess || !derived) {
@@ -243,14 +227,14 @@ NSSHelper::MakeKeyFromRaw(unsigned char *initialSecret,
   }
 
   if (tls13_HkdfExpandLabelRaw(secretSKey, hashType,
-                               (const unsigned char *)"", 0, "key", 3,
+                               "key", 3,
                                ppKey, sizeof(ppKey)) != SECSuccess) {
     goto failure;
   }
 
   // iv length is max(8, n_min) - n_min is aead specific, but is 12 for everything currently known
   if (tls13_HkdfExpandLabelRaw(secretSKey, hashType,
-                               (const unsigned char *)"", 0, "iv", 2, outIV, 12) != SECSuccess) {                                 
+                               "iv", 2, outIV, 12) != SECSuccess) {
     goto failure;
   }
 
