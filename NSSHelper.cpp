@@ -564,6 +564,12 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   mFD = PR_CreateIOLayerStub(nssHelperIdentity, &nssHelperMethods);
   mFD->secret = (struct PRFilePrivate *)this;
   mFD = SSL_ImportFD(nullptr, mFD);
+
+  // To disable any of the usual cipher suites..
+  // SSL_CipherPrefSet(mFD, TLS_AES_128_GCM_SHA256, 0);
+  // SSL_CipherPrefSet(mFD, TLS_AES_256_GCM_SHA384, 0);
+  // SSL_CipherPrefSet(mFD, TLS_CHACHA20_POLY1305_SHA256, 0);
+
   SSL_OptionSet(mFD, SSL_SECURITY, true);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, false);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, true);
@@ -627,6 +633,12 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   mFD = PR_CreateIOLayerStub(nssHelperIdentity, &nssHelperMethods);
   mFD->secret = (struct PRFilePrivate *)this;
   mFD = SSL_ImportFD(nullptr, mFD);
+
+  // To disable any of the usual cipher suites..
+  // SSL_CipherPrefSet(mFD, TLS_AES_128_GCM_SHA256, 0);
+  // SSL_CipherPrefSet(mFD, TLS_AES_256_GCM_SHA384, 0);
+  // SSL_CipherPrefSet(mFD, TLS_CHACHA20_POLY1305_SHA256, 0);
+
   SSL_OptionSet(mFD, SSL_SECURITY, true);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, true);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, false);

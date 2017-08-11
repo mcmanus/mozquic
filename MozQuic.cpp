@@ -1856,6 +1856,10 @@ MozQuic::FlushStream(bool forceAck)
                                          cipherPkt + pktHeaderLen, kMozQuicMTU - pktHeaderLen, written);
   fprintf(stderr,"encrypt[%lX] rv=%d inputlen=%d (+%d of aead) outputlen=%d pktheaderLen =%d\n",
           mNextTransmitPacketNumber, rv, finalLen - pktHeaderLen, pktHeaderLen, written, pktHeaderLen);
+  if (rv != MOZQUIC_OK) {
+    RaiseError(MOZQUIC_ERR_CRYPTO, (char *) "unexpected encrypt fail");
+    return MOZQUIC_ERR_CRYPTO;
+  }
 
   uint32_t code = Transmit(cipherPkt, written + pktHeaderLen, nullptr);
   if (code != MOZQUIC_OK) {
