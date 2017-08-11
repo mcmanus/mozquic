@@ -7,7 +7,7 @@ NSS_ROOT ?= $(realpath $(firstword $(wildcard $(CURDIR)/../nss $(CURDIR)/nss)))
 NSS_PLATFORM ?= $(realpath $(NSS_ROOT)/../dist/$(shell cat $(NSS_ROOT)/../dist/latest))
 NSS_INCLUDE ?= $(realpath $(NSS_ROOT)/../dist/public/nss)
 NSS_LIBDIR ?= $(realpath $(NSS_PLATFORM)/lib)
-NSPR_INCLUDE ?= $(NSS_PLATFORM)/include/nspr
+NSPR_INCLUDE ?= $(NSS_PLATFORM)/include
 
 CC = clang
 CXX = clang++
