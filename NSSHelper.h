@@ -13,7 +13,7 @@ namespace mozquic {
 
 class MozQuic;
 
-class NSSHelper final 
+class NSSHelper final
 {
 public:
   static int Init(char *dir);
@@ -67,7 +67,7 @@ private:
                                           CK_MECHANISM_TYPE &packetMechanism,
                                           CK_MECHANISM_TYPE &importMechanism1,
                                           CK_MECHANISM_TYPE &importMechanism2);
-  
+
   MozQuic             *mQuicSession;
   PRFileDesc          *mFD;
   bool                 mNSSReady;
