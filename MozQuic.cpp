@@ -245,19 +245,20 @@ MozQuic::StartClient()
 
   if (mFD == MOZQUIC_SOCKET_BAD) {
     // the application did not pass in its own fd
-    mFD = socket(AF_INET, SOCK_DGRAM, 0); // todo blocking getaddrinfo
-    fcntl(mFD, F_SETFL, fcntl(mFD, F_GETFL, 0) | O_NONBLOCK);
     struct addrinfo *outAddr;
+    // todo blocking getaddrinfo
     if (getaddrinfo(mOriginName.get(), nullptr, nullptr, &outAddr) != 0) {
       return MOZQUIC_ERR_GENERAL;
     }
 
     if (outAddr->ai_family == AF_INET) {
+      mFD = socket(AF_INET, SOCK_DGRAM, 0);
       ((struct sockaddr_in *) outAddr->ai_addr)->sin_port = htons(mOriginPort);
       if ((ntohl(((struct sockaddr_in *) outAddr->ai_addr)->sin_addr.s_addr) & 0xff000000) == 0x7f000000) {
         mIsLoopback = true;
       }
     } else if (outAddr->ai_family == AF_INET6) {
+      mFD = socket(AF_INET6, SOCK_DGRAM, 0);
       ((struct sockaddr_in6 *) outAddr->ai_addr)->sin6_port = htons(mOriginPort);
       const void *ptr1 = &in6addr_loopback.s6_addr;
       const void *ptr2 = &((struct sockaddr_in6 *) outAddr->ai_addr)->sin6_addr.s6_addr;
@@ -266,7 +267,8 @@ MozQuic::StartClient()
       }
     }
 
-    connect(mFD, outAddr->ai_addr, outAddr->ai_addrlen);
+    fcntl(mFD, F_SETFL, fcntl(mFD, F_GETFL, 0) | O_NONBLOCK);
+    int r = connect(mFD, outAddr->ai_addr, outAddr->ai_addrlen);
     freeaddrinfo(outAddr);
   }
   mTimestampConnBegin = Timestamp();
@@ -920,8 +922,8 @@ MozQuic::Transmit(unsigned char *pkt, uint32_t len, struct sockaddr_in *explicit
   }
 
   int rv;
-  struct sockaddr_in *peer = explicitPeer ? explicitPeer : &mPeer;
   if (mIsChild || explicitPeer) {
+    struct sockaddr_in *peer = explicitPeer ? explicitPeer : &mPeer;
     rv = sendto(mFD, pkt, len, 0,
                 (struct sockaddr *)peer, sizeof(struct sockaddr_in));
   } else {
