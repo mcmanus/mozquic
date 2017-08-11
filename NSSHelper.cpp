@@ -228,7 +228,7 @@ NSSHelper::MakeKeyFromRaw(unsigned char *initialSecret,
   }
 
   if (tls13_HkdfExpandLabelRaw(secretSKey, hashType,
-                               key, 3, ppKey, keySize) != SECSuccess) {
+                               "key", 3, ppKey, keySize) != SECSuccess) {
     goto failure;
   }
 
