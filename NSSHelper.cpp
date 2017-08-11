@@ -64,7 +64,6 @@ ssl_EncodeUintX(PRUint64 value, unsigned int bytes, PRUint8 *to)
   
 static SECStatus
 tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
-                      const PRUint8 *handshakeHash, unsigned int handshakeHashLen,
                       const char *label, unsigned int labelLen,
                       CK_MECHANISM_TYPE algorithm, unsigned int keySize,
                       PK11SymKey **keyp)
@@ -80,15 +79,6 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
   PK11SymKey *derived;
   const char *kLabelPrefix = "tls13 ";
   const unsigned int kLabelPrefixLen = strlen(kLabelPrefix);
-
-  if (handshakeHash) {
-    if (handshakeHashLen > 255) {
-      PORT_Assert(0);
-      return SECFailure;
-    }
-  } else {
-    PORT_Assert(!handshakeHashLen);
-  }
 
   /*
    *  [draft-ietf-tls-tls13-11] Section 7.1:
@@ -107,10 +97,10 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
    *  Where:
    *  - HkdfLabel.length is Length
    *  - HkdfLabel.hash_value is HashValue.
-   *  - HkdfLabel.label is "TLS 1.3, " + Label
+   *  - HkdfLabel.label is "tls13 " + Label
    *
    */
-  infoLen = 2 + 1 + kLabelPrefixLen + labelLen + 1 + handshakeHashLen;
+  infoLen = 2 + 1 + kLabelPrefixLen + labelLen + 1;
   if (infoLen > sizeof(info)) {
     PORT_Assert(0);
     goto abort;
@@ -122,11 +112,7 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
   ptr += kLabelPrefixLen;
   PORT_Memcpy(ptr, label, labelLen);
   ptr += labelLen;
-  ptr = ssl_EncodeUintX(handshakeHashLen, 1, ptr);
-  if (handshakeHash) {
-    PORT_Memcpy(ptr, handshakeHash, handshakeHashLen);
-    ptr += handshakeHashLen;
-  }
+  ptr = ssl_EncodeUintX(0, 1, ptr); // Hash is always empty for QUIC.
   PORT_Assert((ptr - info) == infoLen);
 
   params.bExtract = CK_FALSE;
@@ -152,7 +138,6 @@ abort:
   
 static SECStatus
 tls13_HkdfExpandLabelRaw(PK11SymKey *prk, SSLHashType baseHash,
-                         const PRUint8 *handshakeHash, unsigned int handshakeHashLen,
                          const char *label, unsigned int labelLen,
                          unsigned char *output, unsigned int outputLen)
 {
@@ -160,8 +145,7 @@ tls13_HkdfExpandLabelRaw(PK11SymKey *prk, SSLHashType baseHash,
   SECItem *rawkey;
   SECStatus rv;
 
-  rv = tls13_HkdfExpandLabel(prk, baseHash, handshakeHash, handshakeHashLen,
-                             label, labelLen,
+  rv = tls13_HkdfExpandLabel(prk, baseHash, label, labelLen,
                              kTlsHkdfInfo[baseHash].pkcs11Mech, outputLen,
                              &derived);
   if (rv != SECSuccess || !derived) {
@@ -244,13 +228,13 @@ NSSHelper::MakeKeyFromRaw(unsigned char *initialSecret,
   }
 
   if (tls13_HkdfExpandLabelRaw(secretSKey, hashType,
-                               (const unsigned char *)"", 0, key, 3, ppKey, keySize) != SECSuccess) {
+                               key, 3, ppKey, keySize) != SECSuccess) {
     goto failure;
   }
 
   // iv length is max(8, n_min) - n_min is aead specific, but is 12 for everything currently known
   if (tls13_HkdfExpandLabelRaw(secretSKey, hashType,
-                               (const unsigned char *)"", 0, "iv", 2, outIV, 12) != SECSuccess) {                                 
+                               "iv", 2, outIV, 12) != SECSuccess) {
     goto failure;
   }
 
@@ -457,7 +441,7 @@ failure:
 // e.g. firefox
 uint32_t
 NSSHelper::BlockOperation(bool encrypt,
-                          unsigned char *aeadData, uint32_t aeadLen,
+                          unsigned char *aadData, uint32_t aadLen,
                           unsigned char *data, uint32_t dataLen,
                           uint64_t packetNumber,
                           unsigned char *out, uint32_t outAvail, uint32_t &written)
@@ -482,14 +466,15 @@ NSSHelper::BlockOperation(bool encrypt,
     nonce[i + 4] ^= tmp[i];
   }
 
+
   if (mPacketProtectionMech == CKM_AES_GCM) {
     params = (unsigned char *) &gcmParams;
     paramsLength = sizeof(gcmParams);
     memset(&gcmParams, 0, sizeof(gcmParams));
     gcmParams.pIv = nonce;
     gcmParams.ulIvLen = sizeof(nonce);
-    gcmParams.pAAD = aeadData;
-    gcmParams.ulAADLen = aeadLen;
+    gcmParams.pAAD = aadData;
+    gcmParams.ulAADLen = aadLen;
     gcmParams.ulTagBits = 128;
   } else {
     assert (mPacketProtectionMech == CKM_NSS_CHACHA20_POLY1305);
@@ -498,8 +483,8 @@ NSSHelper::BlockOperation(bool encrypt,
     memset(&polyParams, 0, sizeof(polyParams));
     polyParams.pNonce = nonce;
     polyParams.ulNonceLen = sizeof(nonce);
-    polyParams.pAAD = aeadData;
-    polyParams.ulAADLen = aeadLen;
+    polyParams.pAAD = aadData;
+    polyParams.ulAADLen = aadLen;
     polyParams.ulTagLen = 16;
   }
 
@@ -522,24 +507,24 @@ NSSHelper::BlockOperation(bool encrypt,
 // todo - if nss helper didn't drive tls, need an api to push secrets into this class
 // e.g. firefox
 uint32_t
-NSSHelper::EncryptBlock(unsigned char *aeadData, uint32_t aeadLen,
+NSSHelper::EncryptBlock(unsigned char *aadData, uint32_t aadLen,
                         unsigned char *plaintext, uint32_t plaintextLen,
                         uint64_t packetNumber, unsigned char *out,
                         uint32_t outAvail, uint32_t &written)
 {
-  return BlockOperation(true, aeadData, aeadLen, plaintext, plaintextLen,
+  return BlockOperation(true, aadData, aadLen, plaintext, plaintextLen,
                         packetNumber, out, outAvail, written);
 }
 
 // todo - if nss helper didn't drive tls, need an api to push secrets into this class
 // e.g. firefox
 uint32_t
-NSSHelper::DecryptBlock(unsigned char *aeadData, uint32_t aeadLen,
+NSSHelper::DecryptBlock(unsigned char *aadData, uint32_t aadLen,
                         unsigned char *ciphertext, uint32_t ciphertextLen,
                         uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                         uint32_t &written)
 {
-  return BlockOperation(false, aeadData, aeadLen, ciphertext, ciphertextLen,
+  return BlockOperation(false, aadData, aadLen, ciphertext, ciphertextLen,
                         packetNumber, out, outAvail, written);
 }
 
