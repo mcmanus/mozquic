@@ -53,15 +53,16 @@ private:
                           uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                           uint32_t &written);
   uint32_t MakeKeyFromNSS(PRFileDesc *fd, const char *label,
-                          unsigned int secretSize, SSLHashType hashType,
+                          unsigned int secretSize, unsigned int keySize, SSLHashType hashType,
                           CK_MECHANISM_TYPE importMechanism1, CK_MECHANISM_TYPE importMechanism2,
                           unsigned char *outIV, PK11SymKey **outKey);
   uint32_t MakeKeyFromRaw(unsigned char *initialSecret,
-                          unsigned int secretSize, SSLHashType hashType,
+                          unsigned int secretSize, unsigned int keySize, SSLHashType hashType,
                           CK_MECHANISM_TYPE importMechanism1, CK_MECHANISM_TYPE importMechanism2,
                           unsigned char *outIV, PK11SymKey **outKey);
   static void GetKeyParamsFromCipherSuite(uint16_t cipherSuite,
                                           unsigned int &secretSize,
+                                          unsigned int &keySize,
                                           SSLHashType &hashType,
                                           CK_MECHANISM_TYPE &packetMechanism,
                                           CK_MECHANISM_TYPE &importMechanism1,
