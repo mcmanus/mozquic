@@ -1286,7 +1286,11 @@ MozQuic::ProcessGeneral(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
     return rv;
   }
   mDecodedOK = true;
-  mPingDeadline = 0;
+  if (mPingDeadline && mConnEventCB) {
+    mPingDeadline = 0;
+    mConnEventCB(mClosure, MOZQUIC_EVENT_PING_OK, nullptr);
+  }
+
   return ProcessGeneralDecoded(out, written, sendAck, false);
 }
 
