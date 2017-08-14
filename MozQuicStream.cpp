@@ -122,7 +122,7 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
       std::unique_ptr<MozQuicStreamChunk> x(std::move(d));
       return MOZQUIC_OK;
     }
-    
+
     // check for dup
     // if i offset && len == d offset && len drop it
     if ((d->mOffset == (*i)->mOffset) && (d->mLen == (*i)->mLen)) {
@@ -133,7 +133,7 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
     }
 
     // check for full append to the right (later seq [d is after i])
-    // if i offset + len <= d.offset then append after 
+    // if i offset + len <= d.offset then append after
     if (((*i)->mOffset + (*i)->mLen) <= d->mOffset) {
       mAvailable.insert(i.base(), std::move(d));
       return MOZQUIC_OK;
@@ -145,7 +145,7 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
       i++;
       continue;
     }
-  
+
     // d overlaps with i. Form a new chunk with any portion that
     // exists to the right and append that (if it exists), and then
     // adjust the current chunk to only cover data to the left (not
@@ -178,7 +178,7 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
     // todo log
     i++;
   }
-  
+
   mAvailable.push_front(std::move(d));
   return MOZQUIC_OK;
 }
@@ -197,10 +197,10 @@ MozQuicStreamIn::Empty()
   if ((*i)->mOffset > mOffset) {
     return true;
   }
-  
+
   return false;
 }
-    
+
 MozQuicStreamOut::MozQuicStreamOut(uint32_t id, MozQuicWriter *w)
   : mWriter(w)
   , mStreamID(id)

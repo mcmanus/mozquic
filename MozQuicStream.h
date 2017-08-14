@@ -44,13 +44,13 @@ public:
   enum keyPhase mTransmitKeyPhase;
 };
 
-class MozQuicWriter 
+class MozQuicWriter
 {
 public:
   // the caller owns the unique_ptr if it returns 0
   virtual uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) = 0;
 };
-  
+
 class MozQuicStreamOut
 {
 public:
@@ -88,7 +88,7 @@ private:
   uint64_t mFinOffset;
   bool     mFinRecvd;
   bool     mFinGivenToApp;
-  
+
   std::list<std::unique_ptr<MozQuicStreamChunk>> mAvailable;
 };
 

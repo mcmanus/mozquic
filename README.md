@@ -10,28 +10,24 @@ based on tls -21
 
 == Build Notes
 
+```
 setenv MOZQUIC_BUILD /home/mcmanus/src/mozquic
+```
 
 # These are for runtime
+```
 setenv LD_LIBRARY_PATH $MOZQUIC_BUILD/dist/`cat $MOZQUIC_BUILD/dist/latest`/lib
 setenv MOZQUIC_NSS_CONFIG $MOZQUIC_BUILD/mozquic/sample/nss-config/
+```
 
 # These are used to build mozquic standalone
-setenv MOZQUIC_NSS_ROOT $MOZQUIC_BUILD/
-setenv MOZQUIC_NSS_PLATFORM Debug
-
-
-mkdir mozquic
-cd mozquic
+```
 git clone git@github.com:mcmanus/mozquic.git
-git clone git@github.com:nss-dev/nss.git
+git clone -b NSS_TLS13_DRAFT19_BRANCH git@github.com:nss-dev/nss.git
 hg clone https://hg.mozilla.org/projects/nspr
-setenv USE_64 1
-cd nss
-git checkout NSS_TLS13_DRAFT19_BRANCH
-make nss_build_all
-cd ../mozquic
+nss/build.sh
+cd mozquic
 make
 ls client server
-
+```
 
