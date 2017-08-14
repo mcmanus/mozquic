@@ -9,8 +9,9 @@
 #include <stdlib.h>
 #include "../MozQuic.h"
 #include "assert.h"
+#include "netinet/ip.h"
 
-// -qdrive -addr localhost:port -qdrive-test1
+// -qdrive -qdrive-test1
 
 #define SERVER_NAME "foo.example.com"
 
@@ -205,18 +206,20 @@ int main(int argc, char **argv)
   
   memset(&config, 0, sizeof(config));
 
-  if (has_arg(argc, argv, "-addr", &argVal)) {
-    config.originName = strdup(argVal);
-    t = strchr(config.originName, ':');
-    if (t) {
-      *t = 0;
-      config.originPort = atoi(t + 1);
+  {
+    struct sockaddr_in sin;
+    socklen_t slen;
+    int tfd = socket(AF_INET, SOCK_DGRAM, 0);
+    memset (&sin, 0, sizeof (sin));
+    sin.sin_family = AF_INET;
+    slen = sizeof(sin);
+    if (!bind(tfd, (const struct sockaddr *)&sin, sizeof (sin)) &&
+        !getsockname(tfd, (struct sockaddr *) &sin,  &slen)) {
+      config.originPort = ntohs(sin.sin_port);
     }
+    close(tfd);
   }
-  if (!config.originPort) {
-    fprintf(stderr,"-addr hostname:port required\n");
-    test_assert(0);
-  }
+  test_assert(config.originPort);
 
   if (has_arg(argc, argv, "-qdrive", &argVal)) {
     fprintf(stdout,"%d\n", config.originPort);
@@ -240,7 +243,7 @@ int main(int argc, char **argv)
     test_assert(0);
   }
 
-  mozquic_start_server(c);
+  test_assert (mozquic_start_server(c) == MOZQUIC_OK);
 
   do {
     usleep (1000); // this is for handleio todo

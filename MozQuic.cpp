@@ -319,9 +319,8 @@ MozQuic::Bind()
   memset (&sin, 0, sizeof (sin));
   sin.sin_family = AF_INET;
   sin.sin_port = htons(mOriginPort);
-  bind(mFD, (const sockaddr *)&sin, sizeof (sin)); // todo err check
-  listen(mFD, 1000); // todo err
-  return MOZQUIC_OK;
+  int rv = bind(mFD, (const sockaddr *)&sin, sizeof (sin));
+  return (rv != -1) ? MOZQUIC_OK : MOZQUIC_ERR_IO;
 }
 
 MozQuic *
