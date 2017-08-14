@@ -31,3 +31,7 @@ make
 ls client server
 ```
 
+# This is useful for running the regression tests
+```
+go run qdrive/main.go -shims mozquic/tests/qdrive/mozquic.json -cases mozquic/tests/qdrive/mozquic.cases.json -verbose
+```

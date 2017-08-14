@@ -1,0 +1,14 @@
+{
+    "Cases" : [
+        {
+            "Name" : "test0",
+            "ClientArgs": ["-qdrive-test0"],
+            "ServerArgs": ["-qdrive-test0"]
+        },
+        {
+            "Name" : "test1",
+            "ClientArgs": ["-qdrive-test1"],
+            "ServerArgs": ["-qdrive-test1"]
+        }
+    ]
+}
