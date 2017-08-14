@@ -6,6 +6,7 @@
 // -qdrive -addr localhost:port -qdrive-test1
 
 #if 0
+  -qdrive-test0 connects, client sends ping, gets ack, exits (without sending close), 500ms later server sends ack, times out and exits
   -qdrive-test1 connects, sends "GET N [CHAR]\n" and expects N * 1024 CHAR in response on 3 different streams followed by stream fin and client generated close. N < 10
 
   -ignorePKI option will allow handshake with untrusted cert. (localhost always implies ignorePKI)
@@ -26,15 +27,19 @@ and key for foo.example.com that is signed by a CA defined by CA.cert.der.
 
 mozquic_connection_t *c;
 
-struct closure
+struct closure0
 {
-  int test;
+  int test_state;
+} testState0;
+
+struct closure1
+{
   int test_state;
   unsigned char test1_char[3];
   int test1_iters[3];
   mozquic_stream_t *test1_stream[3];
   int test1_fin[3];
-} testState;
+} testState1;
 
 static void test_assert(int test_assertion) 
 {
@@ -47,29 +52,55 @@ static void test_assert(int test_assertion)
   }
 }
 
+static int test0Event(void *closure, uint32_t event, void *param)
+{
+  test_assert(closure == &testState0);
+  test_assert(event != MOZQUIC_EVENT_CLOSE_CONNECTION);
+  test_assert(event != MOZQUIC_EVENT_ERROR);
+
+  if (event == MOZQUIC_EVENT_CONNECTED) {
+    test_assert(testState0.test_state == 0);
+    testState0.test_state = 1;
+    return MOZQUIC_OK;
+  }
+  
+  if (testState0.test_state == 1) {
+    testState0.test_state = 2;
+    test_assert(mozquic_check_peer(c, 200) == MOZQUIC_OK);
+    return MOZQUIC_OK;
+  }
+  if (testState0.test_state == 2 && event == MOZQUIC_EVENT_PING_OK) {
+    testState0.test_state = 3;
+    // do not destroy connection
+    test_assert(1);
+    exit (0);
+  }
+  
+  return MOZQUIC_OK;
+}
+
 static void test1(mozquic_connection_t *c)
 {
-  memset(&testState, 0, sizeof(testState));
-  testState.test = 1;
-  testState.test_state = 0;
+  memset(&testState1, 0, sizeof(testState1));
+  testState1.test_state = 0;
   
   srandom(time(NULL));
   for (int i = 0; i < 3; i++) {
-    testState.test1_char[i] = 'a' + (random() % 26);
-    testState.test1_iters[i] = (random() % 10) * 1024;
+    testState1.test1_char[i] = 'a' + (random() % 26);
+    testState1.test1_iters[i] = (random() % 10) * 1024;
     char buf[1024];
-    snprintf(buf, 1024, "GET %d %c\n", testState.test1_iters[i] / 1024, testState.test1_char[i]);
-    mozquic_start_new_stream(testState.test1_stream + i, c, buf, strlen(buf), 0);
+    snprintf(buf, 1024, "GET %d %c\n", testState1.test1_iters[i] / 1024, testState1.test1_char[i]);
+    mozquic_start_new_stream(testState1.test1_stream + i, c, buf, strlen(buf), 0);
     
-    fprintf(stderr,"QDRIVE CLIENT %p expect %d\n", testState.test1_stream[i],
-            testState.test1_iters[i]);
+    fprintf(stderr,"QDRIVE CLIENT %p expect %d\n", testState1.test1_stream[i],
+            testState1.test1_iters[i]);
   }
 }
 
 static int test1FindIdx(mozquic_stream_t *t)
 {
   for (int i = 0; i < 3; i++) {
-    if (testState.test1_stream[i] == t) {
+    if (testState1.test1_stream[i] == t) {
       return i;
     }
   }
@@ -80,23 +111,23 @@ static int test1FindIdx(mozquic_stream_t *t)
 
 static int test1Event(void *closure, uint32_t event, void *param)
 {
-  test_assert(closure == &testState);
+  test_assert(closure == &testState1);
   test_assert(event != MOZQUIC_EVENT_CLOSE_CONNECTION);
   test_assert(event != MOZQUIC_EVENT_ERROR);
   test_assert(event != MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION);
   test_assert(event != MOZQUIC_EVENT_STREAM_RESET);
   
   if (event == MOZQUIC_EVENT_CONNECTED) {
-    test_assert(testState.test_state == 0);
+    test_assert(testState1.test_state == 0);
     test1(param);
-    testState.test_state = 1;
+    testState1.test_state = 1;
     return MOZQUIC_OK;
   }
   if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
     mozquic_stream_t *stream = param;
-    test_assert(testState.test_state == 1);
+    test_assert(testState1.test_state == 1);
     int idx = test1FindIdx(stream);
-    test_assert(!testState.test1_fin[idx]);
+    test_assert(!testState1.test1_fin[idx]);
 
     char buf[500];
     uint32_t read = 0;
@@ -104,28 +135,28 @@ static int test1Event(void *closure, uint32_t event, void *param)
     do {
       uint32_t code = mozquic_recv(stream, buf, 500, &read, &fin);
       fprintf(stderr,"QDRIVE CLIENT RECV %d fin %d %p expect %d\n",
-              read, fin, stream, testState.test1_iters[idx]);
+              read, fin, stream, testState1.test1_iters[idx]);
       test_assert(code == MOZQUIC_OK);
-      test_assert(testState.test1_iters[idx] >= read);
-      testState.test1_iters[idx] -= read;
+      test_assert(testState1.test1_iters[idx] >= read);
+      testState1.test1_iters[idx] -= read;
       for (int i = 0; i < read; i++) {
-        test_assert(testState.test1_char[idx] == buf[i]);
+        test_assert(testState1.test1_char[idx] == buf[i]);
       }
       if (fin) {
-        test_assert(testState.test1_iters[idx] == 0);
+        test_assert(testState1.test1_iters[idx] == 0);
         mozquic_end_stream(stream);
-        testState.test1_fin[idx] = 1;
-        if ((testState.test1_fin[0]) &&
-            (testState.test1_fin[1]) &&
-            (testState.test1_fin[2])) {
-          testState.test_state = 2;
+        testState1.test1_fin[idx] = 1;
+        if ((testState1.test1_fin[0]) &&
+            (testState1.test1_fin[1]) &&
+            (testState1.test1_fin[2])) {
+          testState1.test_state = 2;
         }
       }
     } while (!fin && read > 0);
     return MOZQUIC_OK;
   }
 
-  if (testState.test_state == 2) {
+  if (testState1.test_state == 2) {
     mozquic_destroy_connection (c);
     exit(0);
   }
@@ -194,15 +225,18 @@ int main(int argc, char **argv)
   config.preferMilestoneVersion = 1;
   config.tolerateBadALPN = 1;
 
-  testState.test_state = 0;
+  testState1.test_state = 0;
 
   mozquic_new_connection(&c, &config);
 
-  if (has_arg(argc, argv, "-qdrive-test1", &argVal)) {
-    testState.test = 1;
-    testState.test_state = 0;
+  if (has_arg(argc, argv, "-qdrive-test0", &argVal)) {
+    testState0.test_state = 0;
+    mozquic_set_event_callback(c, test0Event);
+    mozquic_set_event_callback_closure(c, &testState0);
+  } else if (has_arg(argc, argv, "-qdrive-test1", &argVal)) {
+    testState1.test_state = 0;
     mozquic_set_event_callback(c, test1Event);
-    mozquic_set_event_callback_closure(c, &testState);
+    mozquic_set_event_callback_closure(c, &testState1);
   } else {
     fprintf(stderr,"need to specify a test\n");
     test_assert(0);

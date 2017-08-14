@@ -1,10 +1,10 @@
 {
     "Client" : {
-        "Path" : "rr",
-        "Args" : [ "mozquic/qdrive-client", "-qdrive" ]
+        "Path" : "mozquic/qdrive-client",
+        "Args" : [ "-qdrive" ]
     },
     "Server" : {
-        "Path" : "rr",
-        "Args" : [ "mozquic/qdrive-server", "-qdrive" ]
+        "Path" : "mozquic/qdrive-server",
+        "Args" : [ "-qdrive" ]
     }
 }
