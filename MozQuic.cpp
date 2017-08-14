@@ -1540,7 +1540,7 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
 
   *childSession = nullptr;
   if (mConnectionState != SERVER_STATE_LISTEN) {
-    return MOZQUIC_OK;
+    return MOZQUIC_ERR_GENERAL ;
   }
   if (mIsClient) {
     return MOZQUIC_ERR_GENERAL;
