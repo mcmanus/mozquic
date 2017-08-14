@@ -53,11 +53,11 @@ extern "C" {
     MOZQUIC_AES_256_GCM_SHA384 = 2,
     MOZQUIC_CHACHA20_POLY1305_SHA256 = 3,
   };
-  
+
   typedef void mozquic_connection_t;
   typedef void mozquic_stream_t;
 
-  struct mozquic_config_t 
+  struct mozquic_config_t
   {
     const char *originName;
     int originPort;
@@ -129,19 +129,19 @@ extern "C" {
   // the mozquic application may either delegate TLS handling to the lib
   // or may imlement the TLS API : mozquic_handshake_input/output and then
   // mozquic_handshake_complete(ERRORCODE)
-  struct mozquic_handshake_info 
+  struct mozquic_handshake_info
   {
     // this is going to form an ABI, so revisit this before v1 release
     // it should probably take the form of having the lib caller do hkdf
 
     // ciphersuite one of MOZQUIC_AES_128_GCM_SHA256, MOZQUIC_AES_256_GCM_SHA384,
     // MOZQUIC_CHACHA20_POLY1305_SHA256
-        
+
     unsigned int ciphersuite;
     unsigned char sendSecret[48];
     unsigned char recvSecret[48];
   };
-    
+
   void mozquic_handshake_output(mozquic_connection_t *session,
                                 unsigned char *data, uint32_t data_len);
   void mozquic_handshake_complete(mozquic_connection_t *session, uint32_t err,

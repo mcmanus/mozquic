@@ -34,7 +34,7 @@ enum connectionState
   CLIENT_STATE_CLOSED,  // todo more shutdown states
 
   SERVER_STATE_BREAK,
- 
+
   SERVER_STATE_LISTEN,
   SERVER_STATE_0RTT,
   SERVER_STATE_1RTT,
@@ -44,18 +44,18 @@ enum connectionState
 
 class MozQuicStreamPair;
 class MozQuicStreamAck;
-  
+
 class MozQuic final : public MozQuicWriter
 {
 public:
-  static const uint32_t kMozQuicMTU = 1252; // todo pmtud and assumes v4
+  static const uint32_t kMozQuicMTU = 1200; // todo pmtud
   static const uint32_t kMinClientInitial = 1200; // an assumption
   static const uint32_t kMozQuicMSS = 16384;
 
   static const uint32_t kRetransmitThresh = 500;
   static const uint32_t kForgetUnAckedThresh = 4000; // ms
   static const uint32_t kForgetInitialConnectionIDsThresh = 4000; // ms
- 
+
   MozQuic(bool handleIO);
   MozQuic();
   ~MozQuic();
@@ -119,7 +119,7 @@ private:
   uint32_t Flush();
   uint32_t FlushStream0(bool forceAck);
   uint32_t FlushStream(bool forceAck);
-  uint32_t CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpkt);
+  uint32_t CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpkt, bool justZero);
 
   int Client1RTT();
   int Server1RTT();
@@ -168,7 +168,7 @@ private:
 
   void *mClosure;
   int  (*mConnEventCB)(void *, uint32_t, void *);
- 
+
   std::unique_ptr<MozQuicStreamPair> mStream0;
   std::unique_ptr<NSSHelper>         mNSSHelper;
 
@@ -234,7 +234,7 @@ public:
     FRAME_MASK_STREAM            = 0xc0,
     FRAME_TYPE_STREAM            = 0xc0, // 11.. ....
   };
- 
+
   enum FrameTypeLengths {
     FRAME_TYPE_PADDING_LENGTH           = 1,
     FRAME_TYPE_RST_STREAM_LENGTH        = 17,
@@ -362,7 +362,7 @@ public:
   // pair.first is packet number of transmitted ack
   // pair.second is transmission time
   std::vector<std::pair<uint64_t, uint64_t>> mTransmits;
-  
+
   bool Transmitted() { return !mTransmits.empty(); }
 };
 
