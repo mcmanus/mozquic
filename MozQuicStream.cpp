@@ -32,11 +32,24 @@ MozQuicStreamPair::Done()
   return mOut.Done() && mIn.Done();
 }
 
+uint32_t
+MozQuicStreamPair::Supply(std::unique_ptr<MozQuicStreamChunk> &p) {
+  if (p->mRst) {
+    if (!mOut.Done() && !mIn.Done()) {
+      RstStream(MozQuic::ERROR_NO_ERROR);
+    }
+    mOut.mPeerRst = true;
+    mMozQuic->ScrubUnWritten(p->mStreamID);
+  }
+  return mIn.Supply(p);
+}
+
 MozQuicStreamIn::MozQuicStreamIn(uint32_t id)
   : mOffset(0)
   , mFinOffset(0)
   , mFinRecvd(false)
-  , mFinGivenToApp(false)
+  , mRstRecvd(false)
+  , mEndGivenToApp(false)
 {
 }
 
@@ -49,21 +62,23 @@ uint32_t
 MozQuicStreamIn::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin)
 {
   amt = 0;
+  fin = false;
   if (mFinRecvd && mFinOffset == mOffset) {
     fin = true;
-    mFinGivenToApp = true;
-    return MOZQUIC_OK;
+    mEndGivenToApp = true;
+    return mRstRecvd ? MOZQUIC_ERR_IO : MOZQUIC_OK;
   }
-  fin = false;
-  if (mAvailable.empty()) {
+  if (Empty()) {
     return MOZQUIC_OK;
   }
 
   auto i = mAvailable.begin();
   if ((*i)->mOffset > mOffset) {
-    // no data yet
-    return MOZQUIC_OK;
+    assert (mRstRecvd);
+    mEndGivenToApp = true;
+    return MOZQUIC_ERR_IO;
   }
+
   uint64_t skip = mOffset - (*i)->mOffset;
   const unsigned char *src = (*i)->mData.get() + skip;
   assert((*i)->mLen > skip);
@@ -76,7 +91,7 @@ MozQuicStreamIn::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool
   mOffset += copyLen;
   if (mFinRecvd && mFinOffset == mOffset) {
     fin = true;
-    mFinGivenToApp = true;
+    mEndGivenToApp = true;
   }
   assert(mOffset <= (*i)->mOffset + (*i)->mLen);
   if (mOffset == (*i)->mOffset + (*i)->mLen) {
@@ -91,6 +106,18 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
 {
   // new frame segment goes into a linked list ordered by seqno
   // any overlapping data is dropped
+
+  if (mRstRecvd) {
+    d.reset(); // drop it
+    return MOZQUIC_OK;
+  }
+
+  if (d->mRst && !mFinRecvd) {
+    mFinRecvd = true;
+    mRstRecvd = true;
+    assert(d->mLen == 0);
+    mFinOffset = d->mOffset;
+  }
 
   if (d->mFin && !mFinRecvd) {
     mFinRecvd = true;
@@ -186,6 +213,10 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
 bool
 MozQuicStreamIn::Empty()
 {
+  if (mRstRecvd) {
+    return false;
+  }
+
   if (mFinRecvd && mFinOffset == mOffset) {
     return false;
   }
@@ -206,6 +237,7 @@ MozQuicStreamOut::MozQuicStreamOut(uint32_t id, MozQuicWriter *w)
   , mStreamID(id)
   , mOffset(0)
   , mFin(false)
+  , mPeerRst(false)
 {
 }
 
@@ -216,6 +248,10 @@ MozQuicStreamOut::~MozQuicStreamOut()
 uint32_t
 MozQuicStreamOut::Write(const unsigned char *data, uint32_t len, bool fin)
 {
+  if (mPeerRst) {
+    return MOZQUIC_ERR_IO;
+  }
+  
   if (mFin) {
     return MOZQUIC_ERR_ALREADY_FINISHED;
   }
@@ -238,6 +274,19 @@ MozQuicStreamOut::EndStream()
   return mWriter->DoWriter(tmp);
 }
 
+int
+MozQuicStreamOut::RstStream(uint32_t code)
+{
+  if (mFin) {
+    return MOZQUIC_ERR_ALREADY_FINISHED;
+  }
+  mFin = true;
+
+  std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(mStreamID, mOffset, nullptr, 0, 0));
+  tmp->MakeStreamRst(code);
+  return mWriter->DoWriter(tmp);
+}
+
 MozQuicStreamChunk::MozQuicStreamChunk(uint32_t id, uint64_t offset,
                                        const unsigned char *data, uint32_t len,
                                        bool fin)
@@ -246,6 +295,8 @@ MozQuicStreamChunk::MozQuicStreamChunk(uint32_t id, uint64_t offset,
   , mStreamID(id)
   , mOffset(offset)
   , mFin(fin)
+  , mRst(false)
+  , mRstCode(0)
   , mTransmitTime(0)
   , mTransmitCount(1)
   , mRetransmitted(false)
@@ -264,6 +315,8 @@ MozQuicStreamChunk::MozQuicStreamChunk(MozQuicStreamChunk &orig)
   , mStreamID(orig.mStreamID)
   , mOffset(orig.mOffset)
   , mFin(orig.mFin)
+  , mRst(orig.mRst)
+  , mRstCode(orig.mRstCode)
   , mTransmitTime(0)
   , mTransmitCount(orig.mTransmitCount + 1)
   , mRetransmitted(false)

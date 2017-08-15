@@ -1387,6 +1387,12 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
               result.u.mStream.mOffset,
               result.u.mStream.mFinBit);
 
+      if (!result.u.mStream.mStreamID && result.u.mStream.mFinBit) {
+        // todo need to respond with a connection error PROTOCOL_VIOLATION 12.2
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "fin not allowed on stream 0\n");
+        return MOZQUIC_ERR_GENERAL;
+      }
+
       // todo, ultimately the stream chunk could hold references to
       // the packet buffer and ptr into it for zero copy
 
@@ -1443,6 +1449,32 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
         mConnEventCB(mClosure, MOZQUIC_EVENT_CLOSE_CONNECTION, this);
       } else {
         fprintf(stderr,"No Event callback\n");
+      }
+    } else if (result.mType == FRAME_TYPE_RST_STREAM) {
+      if (fromCleartext) {
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed in cleartext\n");
+        return MOZQUIC_ERR_GENERAL;
+      }
+      sendAck = true;
+      fprintf(stderr,"recvd rst_stream id=%X err=%X, offset=%ld\n",
+              result.u.mRstStream.mStreamID, result.u.mRstStream.mErrorCode,
+              result.u.mRstStream.mFinalOffset);
+
+      if (!result.u.mRstStream.mStreamID) {
+        // todo need to respond with a connection error PROTOCOL_VIOLATION 12.2
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed on stream 0\n");
+        return MOZQUIC_ERR_GENERAL;
+      }
+
+      std::unique_ptr<MozQuicStreamChunk>
+        tmp(new MozQuicStreamChunk(result.u.mRstStream.mStreamID,
+                                   result.u.mRstStream.mFinalOffset, nullptr,
+                                   0, 0));
+      tmp->MakeStreamRst(result.u.mRstStream.mErrorCode);
+
+      int rv = FindStream(result.u.mStream.mStreamID, tmp);
+      if (rv != MOZQUIC_OK) {
+        return rv;
       }
     } else {
       sendAck = true;
@@ -1662,7 +1694,7 @@ MozQuic::FlushStream0(bool forceAck)
   memcpy(pkt + 13, &tmp32, 4);
 
   unsigned char *framePtr = pkt + 17;
-  CreateStreamAndAckFrames(framePtr, endpkt - 8, true); // last 8 are for checksum
+  CreateStreamFrames(framePtr, endpkt - 8, true); // last 8 are for checksum
   bool sentStream = (framePtr != (pkt + 17));
 
   // then padding as needed up to mtu on client_initial
@@ -1713,8 +1745,59 @@ MozQuic::FlushStream0(bool forceAck)
   return MOZQUIC_OK;
 }
 
+static bool CreateStreamRst(unsigned char *&framePtr, unsigned char *endpkt,
+                            MozQuicStreamChunk *chunk)
+{
+  fprintf(stderr,"generating stream reset %d\n", chunk->mOffset);
+  assert(chunk->mRst);
+  assert(chunk->mStreamID);
+  assert(!chunk->mLen);
+  uint32_t room = endpkt - framePtr;
+  if (room < 17) {
+    return false;
+  }
+  framePtr[0] = MozQuic::FRAME_TYPE_RST_STREAM;
+  uint32_t tmp32 = htonl(chunk->mStreamID);
+  memcpy(framePtr + 1, &tmp32, 4);
+  tmp32 = htonl(chunk->mRstCode);
+  memcpy(framePtr + 5, &tmp32, 4);
+  uint64_t tmp64 = PR_htonll(chunk->mOffset);
+  memcpy(framePtr + 9, &tmp64, 8);
+  framePtr += 17;
+  return true;
+}
+
 uint32_t
-MozQuic::CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpkt, bool justZero)
+MozQuic::ScrubUnWritten(uint32_t streamID)
+{
+  auto iter = mUnWrittenData.begin();
+  while (iter != mUnWrittenData.end()) {
+    auto chunk = (*iter).get();
+    if (chunk->mStreamID == streamID && !chunk->mRst) {
+      iter = mUnWrittenData.erase(iter);
+      fprintf(stderr,"scrubbing chunk %p of unwritten id %d\n",
+              chunk, streamID);
+    } else {
+      iter++;
+    }
+  }
+
+  auto iter2 = mUnAckedData.begin();
+  while (iter2 != mUnAckedData.end()) {
+    auto chunk = (*iter2).get();
+    if (chunk->mStreamID == streamID && !chunk->mRst) {
+      iter2 = mUnAckedData.erase(iter2);
+      fprintf(stderr,"scrubbing chunk %p of unacked id %d\n",
+              chunk, streamID);
+    } else {
+      iter2++;
+    }
+  }
+  return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::CreateStreamFrames(unsigned char *&framePtr, unsigned char *endpkt, bool justZero)
 {
   auto iter = mUnWrittenData.begin();
   while (iter != mUnWrittenData.end()) {
@@ -1722,95 +1805,99 @@ MozQuic::CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpk
       iter++;
       continue;
     }
-
-    uint32_t room = endpkt - framePtr;
-    if (room < 1) {
-      break; // this is only for type, we will do a second check later.
-    }
-
-    // 11fssood -> 11000001 -> 0xC1. Fill in fin, offset-len and id-len below dynamically
-    auto typeBytePtr = framePtr;
-    framePtr[0] = 0xc1;
-
-    // Determine streamId size without varSize becuase we use 24 bit value
-    uint32_t tmp32 = (*iter)->mStreamID;
-    tmp32 = htonl(tmp32);
-    uint8_t idLen = 4;
-    for (int i=0; (i < 3) && (((uint8_t*)(&tmp32))[i] == 0); i++) {
-      idLen--;
-    }
-
-    // determine offset size
-    uint64_t offsetValue = PR_htonll((*iter)->mOffset);
-    uint8_t offsetSizeType = varSize((*iter)->mOffset);
-    uint8_t offsetLen;
-    if (offsetSizeType == 0) {
-      // 0, 16, 32, 64 instead of usual 8, 16, 32, 64
-      if ((*iter)->mOffset) {
-        offsetSizeType = 1;
-        offsetLen = 2;
-      } else {
-        offsetLen = 0;
+    if ((*iter)->mRst) {
+      if (!CreateStreamRst(framePtr, endpkt, (*iter).get())) {
+        break;
       }
     } else {
-      offsetLen = 1 << offsetSizeType;
+      uint32_t room = endpkt - framePtr;
+      if (room < 1) {
+        break; // this is only for type, we will do a second check later.
+      }
+
+      // 11fssood -> 11000001 -> 0xC1. Fill in fin, offset-len and id-len below dynamically
+      auto typeBytePtr = framePtr;
+      framePtr[0] = 0xc1;
+
+      // Determine streamId size without varSize becuase we use 24 bit value
+      uint32_t tmp32 = (*iter)->mStreamID;
+      tmp32 = htonl(tmp32);
+      uint8_t idLen = 4;
+      for (int i=0; (i < 3) && (((uint8_t*)(&tmp32))[i] == 0); i++) {
+        idLen--;
+      }
+
+      // determine offset size
+      uint64_t offsetValue = PR_htonll((*iter)->mOffset);
+      uint8_t offsetSizeType = varSize((*iter)->mOffset);
+      uint8_t offsetLen;
+      if (offsetSizeType == 0) {
+        // 0, 16, 32, 64 instead of usual 8, 16, 32, 64
+        if ((*iter)->mOffset) {
+          offsetSizeType = 1;
+          offsetLen = 2;
+        } else {
+          offsetLen = 0;
+        }
+      } else {
+        offsetLen = 1 << offsetSizeType;
+      }
+
+      // 1(type) + idLen + offsetLen + 2(len) + 1(data)
+      if (room < (4 + idLen + offsetLen)) {
+        break;
+      }
+
+      // adjust the frame type:
+      framePtr[0] |= (idLen - 1) << 3;
+      assert(!(offsetSizeType & ~0x3));
+      framePtr[0] |= (offsetSizeType << 1);
+      framePtr++;
+
+      // Set streamId
+      memcpy(framePtr, ((uint8_t*)(&tmp32)) + (4 - idLen), idLen);
+      framePtr += idLen;
+
+      // Set offset
+      if (offsetLen) {
+        memcpy(framePtr, ((uint8_t*)(&offsetValue)) + (8 - offsetLen), offsetLen);
+        framePtr += offsetLen;
+      }
+
+      room -= (3 + idLen + offsetLen); //  1(type) + idLen + offsetLen + 2(len)
+      if (room < (*iter)->mLen) {
+        // we need to split this chunk. its too big
+        // todo iterate on them all instead of doing this n^2
+        // as there is a copy involved
+        std::unique_ptr<MozQuicStreamChunk>
+          tmp(new MozQuicStreamChunk((*iter)->mStreamID,
+                                     (*iter)->mOffset + room,
+                                     (*iter)->mData.get() + room,
+                                     (*iter)->mLen - room,
+                                     (*iter)->mFin));
+        (*iter)->mLen = room;
+        (*iter)->mFin = false;
+        auto iterReg = iter++;
+        mUnWrittenData.insert(iter, std::move(tmp));
+        iter = iterReg;
+      }
+      assert(room >= (*iter)->mLen);
+
+      // set the len and fin bits after any potential split
+      uint16_t tmp16 = (*iter)->mLen;
+      tmp16 = htons(tmp16);
+      memcpy(framePtr, &tmp16, 2);
+      framePtr += 2;
+
+      if ((*iter)->mFin) {
+        *typeBytePtr = *typeBytePtr | FRAME_FIN_BIT;
+      }
+
+      memcpy(framePtr, (*iter)->mData.get(), (*iter)->mLen);
+      fprintf(stderr,"writing a stream %d frame %d @ offset %d [fin=%d] in packet %lX\n",
+              (*iter)->mStreamID, (*iter)->mLen, (*iter)->mOffset, (*iter)->mFin, mNextTransmitPacketNumber);
+      framePtr += (*iter)->mLen;
     }
-
-    // 1(type) + idLen + offsetLen + 2(len) + 1(data)
-    if (room < (4 + idLen + offsetLen)) {
-      break;
-    }
-
-    // adjust the frame type:
-    framePtr[0] |= (idLen - 1) << 3;
-    assert(!(offsetSizeType & ~0x3));
-    framePtr[0] |= (offsetSizeType << 1);
-    framePtr++;
-
-    // Set streamId
-    memcpy(framePtr, ((uint8_t*)(&tmp32)) + (4 - idLen), idLen);
-    framePtr += idLen;
-
-    // Set offset
-    if (offsetLen) {
-      memcpy(framePtr, ((uint8_t*)(&offsetValue)) + (8 - offsetLen), offsetLen);
-      framePtr += offsetLen;
-    }
-
-    room -= (3 + idLen + offsetLen); //  1(type) + idLen + offsetLen + 2(len)
-
-    if (room < (*iter)->mLen) {
-      // we need to split this chunk. its too big
-      // todo iterate on them all instead of doing this n^2
-      // as there is a copy involved
-      std::unique_ptr<MozQuicStreamChunk>
-        tmp(new MozQuicStreamChunk((*iter)->mStreamID,
-                                   (*iter)->mOffset + room,
-                                   (*iter)->mData.get() + room,
-                                   (*iter)->mLen - room,
-                                   (*iter)->mFin));
-      (*iter)->mLen = room;
-      (*iter)->mFin = false;
-      auto iterReg = iter++;
-      mUnWrittenData.insert(iter, std::move(tmp));
-      iter = iterReg;
-    }
-    assert(room >= (*iter)->mLen);
-
-    // set the len and fin bits after any potential split
-    uint16_t tmp16 = (*iter)->mLen;
-    tmp16 = htons(tmp16);
-    memcpy(framePtr, &tmp16, 2);
-    framePtr += 2;
-
-    if ((*iter)->mFin) {
-      *typeBytePtr = *typeBytePtr | FRAME_FIN_BIT;
-    }
-
-    memcpy(framePtr, (*iter)->mData.get(), (*iter)->mLen);
-    fprintf(stderr,"writing a stream %d frame %d @ offset %d [fin=%d] in packet %lX\n",
-            (*iter)->mStreamID, (*iter)->mLen, (*iter)->mOffset, (*iter)->mFin, mNextTransmitPacketNumber);
-    framePtr += (*iter)->mLen;
 
     (*iter)->mPacketNumber = mNextTransmitPacketNumber;
     (*iter)->mTransmitTime = Timestamp();
@@ -1852,7 +1939,7 @@ MozQuic::FlushStream(bool forceAck)
   CreateShortPacketHeader(plainPkt, kMozQuicMTU - 16, pktHeaderLen);
 
   unsigned char *framePtr = plainPkt + pktHeaderLen;
-  CreateStreamAndAckFrames(framePtr, endpkt, false);
+  CreateStreamFrames(framePtr, endpkt, false);
 
   uint32_t room = endpkt - framePtr;
   uint32_t used;
@@ -2187,11 +2274,11 @@ MozQuic::FrameHeaderData::FrameHeaderData(unsigned char *pkt, uint32_t pktSize, 
 
       mType = FRAME_TYPE_RST_STREAM;
 
-      memcpy(&u.mRstStream.mErrorCode, framePtr, 4);
-      u.mRstStream.mErrorCode = ntohl(u.mRstStream.mErrorCode);
-      framePtr += 4;
       memcpy(&u.mRstStream.mStreamID, framePtr, 4);
       u.mRstStream.mStreamID = ntohl(u.mRstStream.mStreamID);
+      framePtr += 4;
+      memcpy(&u.mRstStream.mErrorCode, framePtr, 4);
+      u.mRstStream.mErrorCode = ntohl(u.mRstStream.mErrorCode);
       framePtr += 4;
       memcpy(&u.mRstStream.mFinalOffset, framePtr, 8);
       u.mRstStream.mFinalOffset = PR_ntohll(u.mRstStream.mFinalOffset);

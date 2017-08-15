@@ -9,6 +9,11 @@
             "Name" : "test1",
             "ClientArgs": ["-qdrive-test1"],
             "ServerArgs": ["-qdrive-test1"]
+        },
+        {
+            "Name" : "rstStream",
+            "ClientArgs": ["-qdrive-test2"],
+            "ServerArgs": ["-qdrive-test2"]
         }
     ]
 }

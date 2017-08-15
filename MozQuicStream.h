@@ -28,6 +28,8 @@ public:
   // This form of ctor steals the data pointer. used for retransmit
   MozQuicStreamChunk(MozQuicStreamChunk &);
 
+  void MakeStreamRst(uint32_t code) { mRst = true; mRstCode = code;}
+    
   ~MozQuicStreamChunk();
 
   std::unique_ptr<const unsigned char []>mData;
@@ -35,6 +37,8 @@ public:
   uint32_t mStreamID;
   uint64_t mOffset;
   bool     mFin;
+  bool     mRst;
+  uint32_t mRstCode;
 
   // when unacked these are set
   uint64_t mPacketNumber;
@@ -58,9 +62,10 @@ public:
   ~MozQuicStreamOut();
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
   int EndStream();
+  int RstStream(uint32_t code);
   bool Done()
   {
-    return mFin;
+    return mFin || mPeerRst;
   }
 
 private:
@@ -68,6 +73,8 @@ private:
   uint32_t mStreamID;
   uint64_t mOffset;
   bool mFin;
+public:
+  bool mPeerRst;
 };
 
 class MozQuicStreamIn
@@ -80,14 +87,15 @@ public:
   bool     Empty();
 
   bool Done() {
-    return (mOffset == mFinOffset) && mFinGivenToApp;
+    return mEndGivenToApp;
   }
 
 private:
   uint64_t mOffset;
   uint64_t mFinOffset;
   bool     mFinRecvd;
-  bool     mFinGivenToApp;
+  bool     mRstRecvd;
+  bool     mEndGivenToApp;
 
   std::list<std::unique_ptr<MozQuicStreamChunk>> mAvailable;
 };
@@ -100,9 +108,7 @@ public:
   MozQuicStreamPair(uint32_t id, MozQuicWriter *, MozQuic *);
   ~MozQuicStreamPair();
 
-  uint32_t Supply(std::unique_ptr<MozQuicStreamChunk> &p) {
-    return mIn.Supply(p);
-  }
+  uint32_t Supply(std::unique_ptr<MozQuicStreamChunk> &p);
 
   // todo it would be nice to have a zero copy interface
   uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin) {
@@ -119,6 +125,10 @@ public:
 
   int EndStream() {
     return mOut.EndStream();
+  }
+
+  int RstStream(uint32_t code) {
+    return mOut.RstStream(code);
   }
 
   bool Done(); // All data and fin bit given to an application and all data are transmitted and acked.

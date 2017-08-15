@@ -47,6 +47,7 @@ class MozQuicStreamAck;
 
 class MozQuic final : public MozQuicWriter
 {
+friend class MozQuicStreamPair;
 public:
   static const uint32_t kMozQuicMTU = 1200; // todo pmtud
   static const uint32_t kMinClientInitial = 1200; // an assumption
@@ -119,7 +120,8 @@ private:
   uint32_t Flush();
   uint32_t FlushStream0(bool forceAck);
   uint32_t FlushStream(bool forceAck);
-  uint32_t CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpkt, bool justZero);
+  uint32_t CreateStreamFrames(unsigned char *&framePtr, unsigned char *endpkt, bool justZero);
+  uint32_t ScrubUnWritten(uint32_t id);
 
   int Client1RTT();
   int Server1RTT();
@@ -262,6 +264,12 @@ public:
     PACKET_TYPE_PUBLIC_RESET           = 9,
   };
 
+  enum errorType {
+    ERROR_NO_ERROR         = 0x80000000,
+    ERROR_INTERNAL         = 0x80000001,
+    ERROR_CANCELLED        = 0x80000002,
+  };
+    
 private:
   class LongHeaderData
   {

@@ -115,6 +115,16 @@ int mozquic_end_stream(mozquic_stream_t *stream)
   return rv;
 }
 
+int mozquic_reset_stream(mozquic_stream_t *stream)
+{
+  mozquic::MozQuicStreamPair *self(reinterpret_cast<mozquic::MozQuicStreamPair *>(stream));
+  int rv = self->RstStream(mozquic::MozQuic::ERROR_CANCELLED);
+  if (self->Done()) {
+    self->mMozQuic->DeleteStream(self->mStreamID);
+  }
+  return rv;
+}
+
 int mozquic_recv(mozquic_stream_t *stream, void *data, uint32_t avail,
                  uint32_t *amount, int *fin)
 {

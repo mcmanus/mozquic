@@ -18,7 +18,10 @@
 #if 0
 
   -qdrive-test0 connects, client sends ping, gets ack, exits (without sending close), 500ms later server sends ack, times out and exits
+
   -qdrive-test1 connects, sends "GET N [CHAR]" and expects N CHAR in response on 3 different streams followed by stream fin and client generated close
+
+  -qdrive-test2 connects, recvs 10KB, resests stream, waits for client generated close
 
   About Certificate Verifcation::
 The sample/nss-config directory is a sample that can be passed
@@ -204,6 +207,54 @@ static int test1Event(void *closure, uint32_t event, void *param)
     return MOZQUIC_OK;
   }
 
+  return MOZQUIC_OK;
+}
+
+struct closure2
+{
+  int test_state;
+  int rx;
+  mozquic_connection_t *child;
+} testState2;
+
+static int test2Event(void *closure, uint32_t event, void *param)
+{
+  test_assert(closure == &testState2);
+  test_assert(event != MOZQUIC_EVENT_ERROR);
+
+  if (event == MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION) {
+    test_assert(testState2.test_state == 0);
+    testState2.test_state = 1;
+    testState2.rx = 0;
+    testState2.child = (mozquic_connection_t *) param;
+    mozquic_set_event_callback(testState2.child, test2Event);
+    mozquic_set_event_callback_closure(testState2.child, &testState2);
+
+    return MOZQUIC_OK;
+  }
+
+  if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
+    test_assert(testState2.test_state == 1 || testState2.test_state == 2);
+    mozquic_stream_t *stream = param;
+    char buf[1024];
+    uint32_t read = 0;
+    int fin = 0;
+    uint32_t code = mozquic_recv(stream, buf, 1024, &read, &fin);
+    test_assert(code == MOZQUIC_OK);
+    test_assert(!fin);
+    testState2.rx += read;
+    if (testState2.test_state == 1 && testState2.rx >= 10240) {
+      testState2.test_state = 2;
+      test_assert(mozquic_reset_stream(stream) == MOZQUIC_OK);
+    }
+  }
+
+  if (event == MOZQUIC_EVENT_CLOSE_CONNECTION) {
+    test_assert (testState2.test_state == 2);
+    mozquic_destroy_connection(testState2.child);
+    exit (0);
+    return MOZQUIC_OK;
+  }
 
   return MOZQUIC_OK;
 }
@@ -276,6 +327,10 @@ int main(int argc, char **argv)
     testState1.test_state = 0;
     mozquic_set_event_callback(c, test1Event);
     mozquic_set_event_callback_closure(c, &testState1);
+  } else if (has_arg(argc, argv, "-qdrive-test2", &argVal)) {
+    testState2.test_state = 0;
+    mozquic_set_event_callback(c, test2Event);
+    mozquic_set_event_callback_closure(c, &testState2);
   } else {
     fprintf(stderr,"need to specify a test\n");
     test_assert(0);
