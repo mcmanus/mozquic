@@ -679,6 +679,11 @@ MozQuic::MaybeSendAck()
   return MOZQUIC_OK;
 }
 
+static uint8_t varSize(uint64_t input)
+{
+  // returns 0->3 depending on magnitude of input
+  return (input < 0x100) ? 0 : (input < 0x10000) ? 1 : (input < 0x100000000UL) ? 2 : 3;
+}
 
 // To clarify.. an ack frame for 15,14,13,11,10,8,2,1
 // numblocks=3
@@ -702,22 +707,22 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
   for (auto iter = mAckList.begin(); iter != mAckList.end(); ) {
     // list  ordered as 7/2, 2/1.. (with gap @4 @3)
     // i.e. highest num first
-    if (avail < (newFrame ? 11 : 3)) {
-      return MOZQUIC_OK;
-    }
     if ((kp <= keyPhaseUnprotected) && iter->mPhase >= keyPhase0Rtt) {
       fprintf(stderr,"skip ack generation of %lX wrong kp need %d\n", iter->mPacketNumber, kp);
       ++iter;
       continue;
     }
-
-    fprintf(stderr,"creating ack of %lX (%d extra) into pn=%lX [%d prev transmits]\n",
-            iter->mPacketNumber, iter->mExtra, pktNumOfAck, iter->mTransmits.size());
+    
+    largestAcked = iter->mPacketNumber;
     if (newFrame) {
-      uint64_t ackRange =
-        1 + mAckList.front().mPacketNumber - (mAckList.back().mPacketNumber - mAckList.back().mExtra);
-      // type 1 is 16 bit, type 2 is 32 bit;
-      uint8_t pnSizeType = (ackRange < 16000) ? 1 : 2;
+      uint32_t need = 7;
+      uint8_t pnSizeType = varSize(largestAcked);
+      need += 1 << pnSizeType;
+      if (avail < need) {
+        fprintf(stderr,"Cannot create new ack frame due to lack of space in packet %d of %d\n",
+                avail, need);
+        return MOZQUIC_OK; // ok to return as we haven't written any of the frame
+      }
 
       newFrame = false;
 
@@ -730,18 +735,25 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       numTS = pkt + used;
       *numTS = 0;
       used += 1;
-      largestAcked = iter->mPacketNumber;
-      if (pnSizeType == 1) {
+      if (pnSizeType == 0) {
+        pkt[used] = largestAcked & 0xff;
+        used += 1;
+      } else if (pnSizeType == 1) {
         uint16_t packet16 = largestAcked & 0xffff;
         packet16 = htons(packet16);
         memcpy(pkt + used, &packet16, 2);
         used += 2;
-      } else {
-        assert (pnSizeType == 2);
+      } else if (pnSizeType == 2) {
         uint32_t packet32 = largestAcked & 0xffffffff;
         packet32 = htonl(packet32);
         memcpy(pkt + used, &packet32, 4);
         used += 4;
+      } else {
+        assert (pnSizeType == 3);
+        uint32_t packet64 = largestAcked;
+        packet64 = PR_htonll(packet64);
+        memcpy(pkt + used, &packet64, 8);
+        used += 8;
       }
 
       // timestamp is microseconds (10^-6) as 16 bit fixed point #
@@ -758,6 +770,11 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       avail -= used;
     } else {
       assert(lowAcked > iter->mPacketNumber);
+      if (avail < 3) {
+        fprintf(stderr,"Cannot create new ack frame due to lack of space in packet %d of %d\n",
+                avail, 3);
+        break; // do not return as we have a partially written frame
+      }
       uint64_t gap = lowAcked - iter->mPacketNumber - 1;
 
       while (gap > 255) {
@@ -788,6 +805,9 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       avail -= 3;
     }
 
+    fprintf(stderr,"created ack of %lX (%d extra) into pn=%lX [%d prev transmits]\n",
+            iter->mPacketNumber, iter->mExtra, pktNumOfAck, iter->mTransmits.size());
+
     iter->mTransmits.push_back(std::pair<uint64_t, uint64_t>(pktNumOfAck, Timestamp()));
     ++iter;
     if (*numBlocks == 0xff) {
@@ -808,7 +828,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       for (auto pIter = iter->mReceiveTime.begin();
            pIter != iter->mReceiveTime.end(); pIter++) {
         if (avail < (newFrame ? 5 : 3)) {
-          return MOZQUIC_OK;
+          break;
         }
 
         if (newFrame) {
@@ -1712,7 +1732,7 @@ MozQuic::CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpk
     auto typeBytePtr = framePtr;
     framePtr[0] = 0xc1;
 
-    // Determine streamId size
+    // Determine streamId size without varSize becuase we use 24 bit value
     uint32_t tmp32 = (*iter)->mStreamID;
     tmp32 = htonl(tmp32);
     uint8_t idLen = 4;
@@ -1722,12 +1742,18 @@ MozQuic::CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpk
 
     // determine offset size
     uint64_t offsetValue = PR_htonll((*iter)->mOffset);
-    uint8_t offsetLen = 8;
-    for (int i=0; (i < 8) && (((uint8_t*)(&offsetValue))[i] == 0);) {
-      i++;
-      if ( (i == 4) || (i == 6) || (i == 8)) {
-        offsetLen = 8 - i;
+    uint8_t offsetSizeType = varSize((*iter)->mOffset);
+    uint8_t offsetLen;
+    if (offsetSizeType == 0) {
+      // 0, 16, 32, 64 instead of usual 8, 16, 32, 64
+      if ((*iter)->mOffset) {
+        offsetSizeType = 1;
+        offsetLen = 2;
+      } else {
+        offsetLen = 0;
       }
+    } else {
+      offsetLen = 1 << offsetSizeType;
     }
 
     // 1(type) + idLen + offsetLen + 2(len) + 1(data)
@@ -1737,13 +1763,8 @@ MozQuic::CreateStreamAndAckFrames(unsigned char *&framePtr, unsigned char *endpk
 
     // adjust the frame type:
     framePtr[0] |= (idLen - 1) << 3;
-    if (offsetLen == 2) {
-      framePtr[0] |= 0x02;
-    } else if (offsetLen == 4) {
-      framePtr[0] |= 0x04;
-    } else if (offsetLen == 8) {
-      framePtr[0] |= 0x06;
-    }
+    assert(!(offsetSizeType & ~0x3));
+    framePtr[0] |= (offsetSizeType << 1);
     framePtr++;
 
     // Set streamId
@@ -2125,7 +2146,12 @@ MozQuic::FrameHeaderData::FrameHeaderData(unsigned char *pkt, uint32_t pktSize, 
     }
     u.mAck.mNumTS = framePtr[0];
     framePtr++;
-    u.mAck.mLargestAcked = DecodePacketNumber(framePtr, ackedLen, session->mNextTransmitPacketNumber);
+
+    u.mAck.mLargestAcked = 0;
+    assert(sizeof(u.mAck.mLargestAcked) == 8);
+    assert(ackedLen <= 8);
+    memcpy(((char *)&u.mAck.mLargestAcked) + (8 - ackedLen), framePtr, ackedLen);
+    u.mAck.mLargestAcked = PR_ntohll(u.mAck.mLargestAcked);
     framePtr += ackedLen;
 
     memcpy(&u.mAck.mAckDelay, framePtr, 2);
