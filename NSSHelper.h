@@ -34,6 +34,15 @@ public:
                         uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                         uint32_t &written);
 
+  bool SetLocalTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // local data to send
+  bool SetRemoteTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // remote data recvd
+  void GetRemoteTransportExtensionInfo(unsigned char * &_output, uint16_t &actual) {
+    _output = mRemoteTransportExtensionInfo;
+    actual = mRemoteTransportExtensionLen;
+  }
+
+  static const uint32_t kTransportParametersID = 26;
+
 private:
   static PRStatus NSPRGetPeerName(PRFileDesc *aFD, PRNetAddr*addr);
   static PRStatus NSPRGetSocketOption(PRFileDesc *aFD, PRSocketOptionData *aOpt);
@@ -48,6 +57,11 @@ private:
   static void HandshakeCallback(PRFileDesc *fd, void *client_data);
   static SECStatus BadCertificate(void *client_data, PRFileDesc *fd);
 
+  static PRBool TransportExtensionWriter(PRFileDesc *fd, SSLHandshakeType m, PRUint8 *data,
+                                         unsigned int *len, unsigned int maxlen, void *arg);
+  static SECStatus TransportExtensionHandler(PRFileDesc *fd, SSLHandshakeType m, const PRUint8 *data,
+                                             unsigned int len, SSLAlertDescription *alert, void *arg);
+  
   uint32_t BlockOperation(bool encrypt, unsigned char *aeadData, uint32_t aeadLen,
                           unsigned char *plaintext, uint32_t plaintextLen,
                           uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
@@ -79,6 +93,11 @@ private:
   unsigned char       mExternalSendSecret[48];
   unsigned char       mExternalRecvSecret[48];
   unsigned int        mExternalCipherSuite;
+
+  unsigned char       mLocalTransportExtensionInfo[2048];
+  uint16_t            mLocalTransportExtensionLen;
+  unsigned char       mRemoteTransportExtensionInfo[2048];
+  uint16_t            mRemoteTransportExtensionLen;
 
   CK_MECHANISM_TYPE   mPacketProtectionMech;
   PK11SymKey         *mPacketProtectionSenderKey0;

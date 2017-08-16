@@ -119,9 +119,7 @@ public:
     return mIn.Empty();
   }
 
-  uint32_t Write(const unsigned char *data, uint32_t len, bool fin) {
-    return mOut.Write(data, len, fin);
-  }
+  uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
 
   int EndStream() {
     return mOut.EndStream();

@@ -14,6 +14,11 @@
             "Name" : "rstStream",
             "ClientArgs": ["-qdrive-test2"],
             "ServerArgs": ["-qdrive-test2"]
+        },
+	{
+            "Name" : "invalidTransportParameter",
+            "ClientArgs": ["-qdrive-test3"],
+            "ServerArgs": ["-qdrive-test3"]
         }
     ]
 }

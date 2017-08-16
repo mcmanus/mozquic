@@ -8,6 +8,7 @@
 #include "NSSHelper.h"
 #include "nss.h"
 #include "ssl.h"
+#include "sslexp.h"
 #include "sslproto.h"
 #include "cert.h"
 #include "certdb.h"
@@ -546,6 +547,8 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   , mIsClient(false)
   , mTolerateBadALPN(tolerateBadALPN)
   , mExternalCipherSuite(0)
+  , mLocalTransportExtensionLen(0)
+  , mRemoteTransportExtensionLen(0)
   , mPacketProtectionSenderKey0(nullptr)
   , mPacketProtectionReceiverKey0(nullptr)
 {
@@ -604,6 +607,20 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
     }
   }
 
+  SSLExtensionSupport supportTransportParameters;
+  if (SSL_GetExtensionSupport(kTransportParametersID, &supportTransportParameters) == SECSuccess &&
+      supportTransportParameters != ssl_ext_native_only &&
+      SSL_InstallExtensionHooks(mFD, kTransportParametersID,
+                                TransportExtensionWriter, this,
+                                TransportExtensionHandler, this) == SECSuccess) {
+    PRNetAddr addr;
+    memset(&addr,0,sizeof(addr));
+    addr.raw.family = PR_AF_INET;
+    PR_Connect(mFD, &addr, 0);
+  } else {
+    fprintf(stderr,"Transport ExtensionSupport not possible. not connecting\n");
+  }
+    
   PR_Connect(mFD, &addr, 0);
   // if you Read() from the helper, it pulls through the tls layer from the mozquic::stream0 buffer where
   // peer data lke the client hello is stored.. if you Write() to the helper something
@@ -619,6 +636,9 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   , mHandshakeFailed(false)
   , mIsClient(true)
   , mTolerateBadALPN(tolerateBadALPN)
+  , mExternalCipherSuite(0)
+  , mLocalTransportExtensionLen(0)
+  , mRemoteTransportExtensionLen(0)
   , mPacketProtectionSenderKey0(nullptr)
   , mPacketProtectionReceiverKey0(nullptr)
 {
@@ -673,10 +693,19 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
 
   SSL_SetURL(mFD, originKey);
 
-  PRNetAddr addr;
-  memset(&addr,0,sizeof(addr));
-  addr.raw.family = PR_AF_INET;
-  PR_Connect(mFD, &addr, 0);
+  SSLExtensionSupport supportTransportParameters;
+  if (SSL_GetExtensionSupport(kTransportParametersID, &supportTransportParameters) == SECSuccess &&
+      supportTransportParameters != ssl_ext_native_only &&
+      SSL_InstallExtensionHooks(mFD, kTransportParametersID,
+                                TransportExtensionWriter, this,
+                                TransportExtensionHandler, this) == SECSuccess) {
+    PRNetAddr addr;
+    memset(&addr,0,sizeof(addr));
+    addr.raw.family = PR_AF_INET;
+    PR_Connect(mFD, &addr, 0);
+  } else {
+    fprintf(stderr,"Transport ExtensionSupport not possible. not connecting\n");
+  }
 }
 
 int
@@ -767,6 +796,65 @@ NSSHelper::DriveHandshake()
   }
 
   return MOZQUIC_ERR_GENERAL;
+}
+
+PRBool
+NSSHelper::TransportExtensionWriter(PRFileDesc *fd, SSLHandshakeType m,
+                                    PRUint8 *data, unsigned int *len, unsigned int maxlen, void *arg)
+{
+  NSSHelper *helper = reinterpret_cast<NSSHelper *>(arg);
+  if (m != ssl_hs_client_hello && m != ssl_hs_encrypted_extensions) {
+    return PR_FALSE;
+  }
+  if (maxlen < helper->mLocalTransportExtensionLen) {
+    return PR_FALSE;
+  }
+  
+  fprintf(stderr,"transport extension sent %d bytes long.\n", helper->mLocalTransportExtensionLen);
+  memcpy(data, helper->mLocalTransportExtensionInfo, helper->mLocalTransportExtensionLen);
+  *len = helper->mLocalTransportExtensionLen;
+  return PR_TRUE;
+}
+
+SECStatus
+NSSHelper::TransportExtensionHandler(PRFileDesc *fd, SSLHandshakeType m, const PRUint8 *data,
+                                     unsigned int len, SSLAlertDescription *alert, void *arg)
+{
+  NSSHelper *helper = reinterpret_cast<NSSHelper *>(arg);
+  if (!helper->mIsClient && m != ssl_hs_client_hello) {
+    return SECSuccess;
+  }
+  if (helper->mIsClient && m != ssl_hs_encrypted_extensions) {
+    return SECSuccess;
+  }
+  
+  fprintf(stderr,"transport extension read %d bytes long.\n", len);
+  helper->SetRemoteTransportExtensionInfo(data, len);
+  return SECSuccess;
+}
+
+bool
+NSSHelper::SetLocalTransportExtensionInfo(const unsigned char *data, uint16_t datalen)
+{
+  if (datalen > sizeof(mLocalTransportExtensionInfo)) {
+    return false;
+  }
+
+  memcpy(mLocalTransportExtensionInfo, data, datalen);
+  mLocalTransportExtensionLen = datalen;
+  return true;
+}
+
+bool
+NSSHelper::SetRemoteTransportExtensionInfo(const unsigned char *data, uint16_t datalen)
+{
+  if (datalen > sizeof(mRemoteTransportExtensionInfo)) {
+    return false;
+  }
+
+  memcpy(mRemoteTransportExtensionInfo, data, datalen);
+  mRemoteTransportExtensionLen = datalen;
+  return true;
 }
 
 NSSHelper::~NSSHelper()

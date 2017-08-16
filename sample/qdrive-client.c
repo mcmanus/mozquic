@@ -11,6 +11,8 @@
   -qdrive-test1 connects, sends "GET N [CHAR]\n" and expects N * 1024 CHAR in response on 3 different streams followed by stream fin and client generated close. N < 10
 
   -qdrive-test2 connects, sends until stream is reset closes connection
+
+  -qdrive-test3 connects with greased version negotiation.. expects server to send a version neg list different than the one actually used, generates close based on that failure
                                                                                                                                                                      
   -ignorePKI option will allow handshake with untrusted cert. (localhost always implies ignorePKI)
 
@@ -208,6 +210,32 @@ static int test2Event(void *closure, uint32_t event, void *param)
   return MOZQUIC_OK;
 }
 
+struct closure3
+{
+  int test_state;
+} testState3;
+
+static int test3Event(void *closure, uint32_t event, void *param)
+{
+  test_assert(closure == &testState3);
+  test_assert(event != MOZQUIC_EVENT_CLOSE_CONNECTION);
+  test_assert(event != MOZQUIC_EVENT_CONNECTED);
+
+  if (event == MOZQUIC_EVENT_ERROR) {
+    test_assert(testState3.test_state == 0);
+    testState3.test_state = 1;
+    return MOZQUIC_OK;
+  }
+
+  if (testState3.test_state == 1) {
+    mozquic_destroy_connection(c);
+    fprintf(stderr,"exit ok\n");
+    exit(0);
+  }
+  
+  return MOZQUIC_OK;
+}
+
 int
 has_arg(int argc, char **argv, char *test, char **value)
 {
@@ -265,12 +293,12 @@ int main(int argc, char **argv)
   // normally they must either be linked to the root store OR on localhost
   config.ignorePKI = has_arg(argc, argv, "-ignorePKI", &argVal);
 
-  config.greaseVersionNegotiation = 0;
-  config.preferMilestoneVersion = 1;
   config.tolerateBadALPN = 1;
 
-  testState1.test_state = 0;
-
+  if (has_arg(argc, argv, "-qdrive-test3", &argVal)) {
+    config.greaseVersionNegotiation = 1;
+  }
+  config.greaseVersionNegotiation = 1;
   mozquic_new_connection(&c, &config);
 
   if (has_arg(argc, argv, "-qdrive-test0", &argVal)) {
@@ -285,6 +313,10 @@ int main(int argc, char **argv)
     testState2.test_state = 0;
     mozquic_set_event_callback(c, test2Event);
     mozquic_set_event_callback_closure(c, &testState2);
+  } else if (has_arg(argc, argv, "-qdrive-test3", &argVal)) {
+    testState3.test_state = 0;
+    mozquic_set_event_callback(c, test3Event);
+    mozquic_set_event_callback_closure(c, &testState3);
   } else {
     fprintf(stderr,"need to specify a test\n");
     test_assert(0);
@@ -302,7 +334,6 @@ int main(int argc, char **argv)
     uint32_t code = mozquic_IO(c);
     if (code != MOZQUIC_OK) {
       fprintf(stderr,"IO reported failure\n");
-      break;
     }
   } while (1);
 

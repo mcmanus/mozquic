@@ -212,7 +212,9 @@ int main(int argc, char **argv)
   fprintf(stderr,"server using certificate for %s on port %d\n", config.originName, config.originPort);
 
   config.tolerateBadALPN = 1;
+  config.tolerateNoTransportParams = 1;
   config.handleIO = 0; // todo mvp
+  config.sabotageVN = 1;
 
   mozquic_new_connection(&c, &config);
   mozquic_set_event_callback(c, connEventCB);

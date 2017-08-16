@@ -23,7 +23,9 @@
 
   -qdrive-test2 connects, recvs 10KB, resests stream, waits for client generated close
 
-  About Certificate Verifcation::
+  -qdrive-test3 client connects with greased version negotiation, server sends a broken version neg list (Reordered), client gener
+
+    About Certificate Verifcation::
 The sample/nss-config directory is a sample that can be passed
 to mozquic_nss_config(). It contains a NSS database with a cert
 and key for foo.example.com that is signed by a CA defined by CA.cert.der.
@@ -259,6 +261,36 @@ static int test2Event(void *closure, uint32_t event, void *param)
   return MOZQUIC_OK;
 }
 
+struct closure3
+{
+  int test_state;
+  mozquic_connection_t *child;
+} testState3;
+
+static int test3Event(void *closure, uint32_t event, void *param)
+{
+  test_assert(closure == &testState3);
+  test_assert(event != MOZQUIC_EVENT_ERROR);
+
+  if (event == MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION) {
+    test_assert(testState3.test_state == 0);
+    testState3.test_state = 1;
+    testState3.child = (mozquic_connection_t *) param;
+    mozquic_set_event_callback(testState3.child, test3Event);
+    mozquic_set_event_callback_closure(testState3.child, &testState3);
+    return MOZQUIC_OK;
+  }
+
+  if (event == MOZQUIC_EVENT_CLOSE_CONNECTION) {
+    test_assert (testState3.test_state == 1);
+    mozquic_destroy_connection(testState3.child);
+    exit (0);
+    return MOZQUIC_OK;
+  }
+
+  return MOZQUIC_OK;
+}
+
 int
 has_arg(int argc, char **argv, char *test, char **value)
 {
@@ -317,6 +349,9 @@ int main(int argc, char **argv)
 
   config.tolerateBadALPN = 1;
   config.handleIO = 0; // todo mvp
+  if (has_arg(argc, argv, "-qdrive-test3", &argVal)) {
+    config.sabotageVN = 1;
+  }
 
   mozquic_new_connection(&c, &config);
   if (has_arg(argc, argv, "-qdrive-test0", &argVal)) {
@@ -331,6 +366,10 @@ int main(int argc, char **argv)
     testState2.test_state = 0;
     mozquic_set_event_callback(c, test2Event);
     mozquic_set_event_callback_closure(c, &testState2);
+  } else if (has_arg(argc, argv, "-qdrive-test3", &argVal)) {
+    testState3.test_state = 0;
+    mozquic_set_event_callback(c, test3Event);
+    mozquic_set_event_callback_closure(c, &testState3);
   } else {
     fprintf(stderr,"need to specify a test\n");
     test_assert(0);

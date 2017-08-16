@@ -44,6 +44,15 @@ MozQuicStreamPair::Supply(std::unique_ptr<MozQuicStreamChunk> &p) {
   return mIn.Supply(p);
 }
 
+uint32_t
+MozQuicStreamPair::Write(const unsigned char *data, uint32_t len, bool fin)
+{
+  if (!mMozQuic->IsOpen()) {
+    return MOZQUIC_ERR_IO;
+  }
+  return mOut.Write(data, len, fin);
+}
+
 MozQuicStreamIn::MozQuicStreamIn(uint32_t id)
   : mOffset(0)
   , mFinOffset(0)

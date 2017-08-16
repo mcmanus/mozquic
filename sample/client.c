@@ -156,8 +156,7 @@ int main(int argc, char **argv)
   // normally they must either be linked to the root store OR on localhost
   config.ignorePKI = has_arg(argc, argv, "-ignorePKI", &argVal);
 
-  config.greaseVersionNegotiation = 0;
-  config.preferMilestoneVersion = 1;
+  config.greaseVersionNegotiation = 1;
   config.tolerateBadALPN = 1;
 
   mozquic_new_connection(&c, &config);

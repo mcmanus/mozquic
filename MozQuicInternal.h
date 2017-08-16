@@ -15,6 +15,7 @@
 #include "MozQuicStream.h"
 #include "NSSHelper.h"
 #include "prnetdb.h"
+#include "MozQuic.h"
 
 namespace mozquic {
 
@@ -57,6 +58,11 @@ public:
   static const uint32_t kForgetUnAckedThresh = 4000; // ms
   static const uint32_t kForgetInitialConnectionIDsThresh = 4000; // ms
 
+  static const uint32_t kMaxStreamDataDefault = 0xffffffff;
+  static const uint32_t kMaxDataDefault = 0xffffffff;
+  static const uint32_t kMaxStreamIDDefault = 0xffffffff;
+  static const uint16_t kIdleTimeoutDefault = 600;
+
   MozQuic(bool handleIO);
   MozQuic();
   ~MozQuic();
@@ -76,9 +82,10 @@ public:
   void SetFD(mozquic_socket_t fd) { mFD = fd; }
   int  GetFD() { return mFD; }
   void GreaseVersionNegotiation();
-  void PreferMilestoneVersion();
   void SetIgnorePKI() { mIgnorePKI = true; }
   void SetTolerateBadALPN() { mTolerateBadALPN = true; }
+  void SetTolerateNoTransportParams() { mTolerateNoTransportParams = true; }
+  void SetSabotageVN() { mSabotageVN = true; }
   void SetAppHandlesSendRecv() { mAppHandlesSendRecv = true; }
   bool IgnorePKI();
   void DeleteStream(uint32_t streamID);
@@ -86,6 +93,13 @@ public:
   uint32_t CheckPeer(uint32_t);
 
   uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) override;
+
+  bool IsOpen() {
+    return (mConnectionState == CLIENT_STATE_0RTT || mConnectionState == CLIENT_STATE_1RTT ||
+            mConnectionState == CLIENT_STATE_CONNECTED || mConnectionState == SERVER_STATE_0RTT ||
+            mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_CONNECTED);
+  }
+
 private:
   class LongHeaderData;
   class FrameHeaderData;
@@ -114,6 +128,8 @@ private:
   MozQuic *FindSession(uint64_t cid);
   void RemoveSession(uint64_t cid);
   void Shutdown(uint32_t, const char *);
+  uint32_t ClientConnected();
+  uint32_t ServerConnected();
 
   uint64_t Timestamp();
   uint32_t Intake();
@@ -141,16 +157,21 @@ private:
   bool mIsClient;
   bool mIsChild;
   bool mReceivedServerClearText;
+  bool mSetupTransportExtension;
   bool mIgnorePKI;
   bool mTolerateBadALPN;
+  bool mTolerateNoTransportParams;
+  bool mSabotageVN;
   bool mAppHandlesSendRecv;
   bool mIsLoopback;
   enum connectionState mConnectionState;
   int mOriginPort;
   std::unique_ptr<char []> mOriginName;
   struct sockaddr_in mPeer; // todo not a v4 world
+  unsigned char mServerResetToken[16];
 
   uint32_t mVersion;
+  uint32_t mClientOriginalOfferedVersion;
 
   // todo mvp lifecycle.. stuff never comes out of here
   std::unordered_map<uint64_t, MozQuic *> mConnectionHash;
@@ -210,6 +231,11 @@ private:
   uint64_t mPingDeadline;
   bool     mDecodedOK;
 
+  uint32_t mPeerMaxStreamData;
+  uint32_t mPeerMaxData;
+  uint32_t mPeerMaxStreamID;
+  uint16_t mPeerIdleTimeout;
+  
   // need other frame 2 list
 public: // callbacks from nsshelper
   int32_t NSSInput(void *buf, int32_t amount);
@@ -265,9 +291,19 @@ public:
   };
 
   enum errorType {
-    ERROR_NO_ERROR         = 0x80000000,
-    ERROR_INTERNAL         = 0x80000001,
-    ERROR_CANCELLED        = 0x80000002,
+    ERROR_NO_ERROR            = 0x80000000,
+    ERROR_INTERNAL            = 0x80000001,
+    ERROR_CANCELLED           = 0x80000002,
+    STREAM_ID_ERROR           = 0x80000004,
+    STREAM_STATE_ERROR        = 0x80000005,
+    FINAL_OFFSET_ERROR        = 0x80000006,
+    FRAME_FORMAT_ERROR        = 0x80000007,
+    ERROR_TRANSPORT_PARAMETER = 0x80000008,
+    ERROR_VERSION_NEGOTIATION = 0x80000009,
+    PROTOCOL_VIOLATION        = 0x8000000A,
+    QUIC_RECEIVED_RST         = 0x80000035,
+
+    // FRAME_ERROR 0x8000001XX
   };
     
 private:

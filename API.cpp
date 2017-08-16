@@ -49,11 +49,14 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   if (inConfig->tolerateBadALPN) {
     q->SetTolerateBadALPN();
   }
+  if (inConfig->tolerateNoTransportParams) {
+    q->SetTolerateNoTransportParams();
+  }
+  if (inConfig->sabotageVN) {
+    q->SetSabotageVN();
+  }
   if (inConfig->appHandlesSendRecv) {
     q->SetAppHandlesSendRecv();
-  }
-  if (inConfig->preferMilestoneVersion) {
-    q->PreferMilestoneVersion();
   }
   if (inConfig->ignorePKI) {
     q->SetIgnorePKI();

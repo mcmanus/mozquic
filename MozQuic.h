@@ -64,14 +64,16 @@ extern "C" {
     int originPort;
     int handleIO; // true if library should schedule read and write events
     void *closure;
+    unsigned int appHandlesSendRecv; // flag to control TRANSMIT/RECV/TLSINPUT events
+    int  (*connection_event_callback)(void *, uint32_t event, void *aParam);
 
+    // these are just for testing early implementations - they will go away
+    // they will go into a testing API of some sort
     unsigned int greaseVersionNegotiation; // flag
-    unsigned int preferMilestoneVersion; // flag
     unsigned int ignorePKI; // flag
     unsigned int tolerateBadALPN; // flag
-    unsigned int appHandlesSendRecv; // flag to control TRANSMIT/RECV/TLSINPUT events
-
-    int  (*connection_event_callback)(void *, uint32_t event, void *aParam);
+    unsigned int tolerateNoTransportParams; // flag
+    unsigned int sabotageVN; // flag
   };
 
   // this is a hack. it will be come a 'crypto config' and allow server key/cert and
