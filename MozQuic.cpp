@@ -36,6 +36,8 @@ static const uint32_t VersionNegotiationList[] = {
   kMozQuicVersionGreaseS, kMozQuicIetfID5, kMozQuicVersion1,
 };
 
+const char *MozQuic::kAlpn = "hq-05";
+
 static const uint32_t kFNV64Size = 8;
 
 #define FRAME_FIN_BIT 0x20

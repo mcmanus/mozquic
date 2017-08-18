@@ -50,6 +50,8 @@ class MozQuic final : public MozQuicWriter
 {
 friend class MozQuicStreamPair;
 public:
+  static const char *kAlpn;
+
   static const uint32_t kMozQuicMTU = 1200; // todo pmtud
   static const uint32_t kMinClientInitial = 1200; // an assumption
   static const uint32_t kMozQuicMSS = 16384;

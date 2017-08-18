@@ -389,8 +389,8 @@ NSSHelper::HandshakeCallback(PRFileDesc *fd, void *client_data)
 
   if (!self->mTolerateBadALPN &&
       (SSL_GetNextProto(fd, &state, buf, &bufLen, 256) != SECSuccess ||
-       bufLen != strlen(mozquic_alpn) ||
-       memcmp(mozquic_alpn, buf, bufLen))) {
+       bufLen != strlen(MozQuic::kAlpn) ||
+       memcmp(MozQuic::kAlpn, buf, bufLen))) {
     fprintf(stderr,"alpn fail\n");
     goto failure;
   } else {
@@ -587,11 +587,11 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   mNSSReady = true;
 
   unsigned char buffer[256];
-  assert(strlen(mozquic_alpn) < 256);
-  buffer[0] = strlen(mozquic_alpn);
-  memcpy(buffer + 1, mozquic_alpn, strlen(mozquic_alpn));
+  assert(strlen(MozQuic::kAlpn) < 256);
+  buffer[0] = strlen(MozQuic::kAlpn);
+  memcpy(buffer + 1, MozQuic::kAlpn, strlen(MozQuic::kAlpn));
   if (SSL_SetNextProtoNego(mFD,
-                           buffer, strlen(mozquic_alpn) + 1) != SECSuccess) {
+                           buffer, strlen(MozQuic::kAlpn) + 1) != SECSuccess) {
     mNSSReady = false;
   }
 
@@ -683,11 +683,11 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   mNSSReady = true;
 
   unsigned char buffer[256];
-  assert(strlen(mozquic_alpn) < 256);
-  buffer[0] = strlen(mozquic_alpn);
-  memcpy(buffer + 1, mozquic_alpn, strlen(mozquic_alpn));
+  assert(strlen(MozQuic::kAlpn) < 256);
+  buffer[0] = strlen(MozQuic::kAlpn);
+  memcpy(buffer + 1, MozQuic::kAlpn, strlen(MozQuic::kAlpn));
   if (SSL_SetNextProtoNego(mFD,
-                           buffer, strlen(mozquic_alpn) + 1) != SECSuccess) {
+                           buffer, strlen(MozQuic::kAlpn) + 1) != SECSuccess) {
     mNSSReady = false;
   }
 
