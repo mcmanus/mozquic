@@ -124,8 +124,21 @@ private:
   uint32_t ProcessGeneralDecoded(unsigned char *, uint32_t size, bool &, bool fromClearText);
   uint32_t ProcessGeneral(unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   bool IntegrityCheck(unsigned char *, uint32_t size);
-  void ProcessAck(class FrameHeaderData &result, unsigned char *framePtr, bool fromCleartext);
+  void ProcessAck(class FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext);
 
+  uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
+                             const unsigned char *pkt, const unsigned char *endpkt,
+                             uint32_t &_ptr);
+  uint32_t HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
+                          const unsigned char *pkt, const unsigned char *endpkt,
+                          uint32_t &_ptr);
+  uint32_t HandleCloseFrame(FrameHeaderData *result, bool fromCleartext,
+                            const unsigned char *pkt, const unsigned char *endpkt,
+                            uint32_t &_ptr);
+  uint32_t HandleResetFrame(FrameHeaderData *result, bool fromCleartext,
+                            const unsigned char *pkt, const unsigned char *endpkt,
+                            uint32_t &_ptr);
+  
   bool ServerState() { return mConnectionState > SERVER_STATE_BREAK; }
   MozQuic *FindSession(uint64_t cid);
   void RemoveSession(uint64_t cid);
@@ -152,7 +165,7 @@ private:
 
   MozQuic *Accept(struct sockaddr_in *peer, uint64_t aConnectionID);
 
-  int FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d);
+  uint32_t FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d);
 
   mozquic_socket_t mFD;
   bool mHandleIO;

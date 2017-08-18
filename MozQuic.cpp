@@ -1343,20 +1343,20 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
 }
 
 void
-MozQuic::ProcessAck(FrameHeaderData &result, unsigned char *framePtr, bool fromCleartext)
+MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext)
 {
   // frameptr points to the beginning of the ackblock section
   // we have already runtime tested that there is enough data there
   // to read the ackblocks and the tsblocks
-  assert (result.mType == FRAME_TYPE_ACK);
+  assert (ackMetaInfo->mType == FRAME_TYPE_ACK);
   uint16_t numRanges = 0;
 
   std::array<std::pair<uint64_t, uint64_t>, 257> ackStack;
 
-  uint64_t largestAcked = result.u.mAck.mLargestAcked;
+  uint64_t largestAcked = ackMetaInfo->u.mAck.mLargestAcked;
   do {
     uint64_t extra = 0;
-    const uint8_t blockLengthLen = result.u.mAck.mAckBlockLengthLen;
+    const uint8_t blockLengthLen = ackMetaInfo->u.mAck.mAckBlockLengthLen;
     memcpy(((char *)&extra) + (8 - blockLengthLen), framePtr, blockLengthLen);
     extra = PR_ntohll(extra);
     framePtr += blockLengthLen;
@@ -1373,7 +1373,7 @@ MozQuic::ProcessAck(FrameHeaderData &result, unsigned char *framePtr, bool fromC
 
     largestAcked--;
     largestAcked -= extra;
-    if (numRanges++ == result.u.mAck.mNumBlocks) {
+    if (numRanges++ == ackMetaInfo->u.mAck.mNumBlocks) {
       break;
     }
     uint8_t gap = *framePtr;
@@ -1438,9 +1438,9 @@ MozQuic::ProcessAck(FrameHeaderData &result, unsigned char *framePtr, bool fromC
     } // haveackfor iteration
   } //ranges iteration
 
-  uint32_t pktID = result.u.mAck.mLargestAcked;
+  uint32_t pktID = ackMetaInfo->u.mAck.mLargestAcked;
   uint64_t timestamp;
-  for(int i = 0; i < result.u.mAck.mNumTS; i++) {
+  for(int i = 0; i < ackMetaInfo->u.mAck.mNumTS; i++) {
     assert(pktID > framePtr[0]);
     pktID = pktID - framePtr[0];
     if (!i) {
@@ -1488,7 +1488,7 @@ MozQuic::ProcessGeneral(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
   return ProcessGeneralDecoded(out, written, sendAck, false);
 }
 
-int
+uint32_t
 MozQuic::FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d)
 {
   // Open a new stream and implicitly open all streams with ID smaller than
@@ -1522,13 +1522,130 @@ MozQuic::DeleteStream(uint32_t streamID)
 }
 
 uint32_t
+MozQuic::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
+                           const unsigned char *pkt, const unsigned char *endpkt,
+                           uint32_t &_ptr)
+{
+  fprintf(stderr,"recv stream %d len=%d offset=%d fin=%d\n",
+          result->u.mStream.mStreamID,
+          result->u.mStream.mDataLen,
+          result->u.mStream.mOffset,
+          result->u.mStream.mFinBit);
+
+  if (!result->u.mStream.mStreamID && result->u.mStream.mFinBit) {
+    // todo need to respond with a connection error PROTOCOL_VIOLATION 12.2
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "fin not allowed on stream 0\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  // todo, ultimately the stream chunk could hold references to
+  // the packet buffer and _ptr into it for zero copy
+
+  // parser checked for this, but jic
+  assert(pkt + _ptr + result->u.mStream.mDataLen <= endpkt);
+  std::unique_ptr<MozQuicStreamChunk>
+    tmp(new MozQuicStreamChunk(result->u.mStream.mStreamID,
+                               result->u.mStream.mOffset,
+                               pkt + _ptr,
+                               result->u.mStream.mDataLen,
+                               result->u.mStream.mFinBit));
+  if (!result->u.mStream.mStreamID) {
+    mStream0->Supply(tmp);
+  } else {
+    if (fromCleartext) {
+      RaiseError(MOZQUIC_ERR_GENERAL, (char *) "cleartext non 0 stream id\n");
+      return MOZQUIC_ERR_GENERAL;
+    }
+    uint32_t rv = FindStream(result->u.mStream.mStreamID, tmp);
+    if (rv != MOZQUIC_OK) {
+      return rv;
+    }
+  }
+  _ptr += result->u.mStream.mDataLen;
+  return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
+                        const unsigned char *pkt, const unsigned char *endpkt,
+                        uint32_t &_ptr)
+{
+  if (fromCleartext && (mConnectionState == SERVER_STATE_LISTEN)) {
+    // acks are not allowed processing client_initial
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "acks are not allowed in client initial\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  // _ptr now points at ack block section
+  uint32_t ackBlockSectionLen =
+    result->u.mAck.mAckBlockLengthLen +
+    (result->u.mAck.mNumBlocks * (result->u.mAck.mAckBlockLengthLen + 1));
+  uint32_t timestampSectionLen = result->u.mAck.mNumTS * 3;
+  if (timestampSectionLen) {
+    timestampSectionLen += 2; // the first one is longer
+  }
+  assert(pkt + _ptr + ackBlockSectionLen + timestampSectionLen <= endpkt);
+  ProcessAck(result, pkt + _ptr, fromCleartext);
+  _ptr += ackBlockSectionLen;
+  _ptr += timestampSectionLen;
+  return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::HandleCloseFrame(FrameHeaderData *result, bool fromCleartext,
+                          const unsigned char *pkt, const unsigned char *endpkt,
+                          uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "close frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+  fprintf(stderr,"RECVD CLOSE\n");
+  mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
+  if (mConnEventCB) {
+    mConnEventCB(mClosure, MOZQUIC_EVENT_CLOSE_CONNECTION, this);
+  } else {
+    fprintf(stderr,"No Event callback\n");
+  }
+  return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::HandleResetFrame(FrameHeaderData *result, bool fromCleartext,
+                          const unsigned char *pkt, const unsigned char *endpkt,
+                          uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+  fprintf(stderr,"recvd rst_stream id=%X err=%X, offset=%ld\n",
+          result->u.mRstStream.mStreamID, result->u.mRstStream.mErrorCode,
+          result->u.mRstStream.mFinalOffset);
+
+  if (!result->u.mRstStream.mStreamID) {
+    // todo need to respond with a connection error PROTOCOL_VIOLATION 12.2
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed on stream 0\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  std::unique_ptr<MozQuicStreamChunk>
+    tmp(new MozQuicStreamChunk(result->u.mRstStream.mStreamID,
+                               result->u.mRstStream.mFinalOffset, nullptr,
+                               0, 0));
+  tmp->MakeStreamRst(result->u.mRstStream.mErrorCode);
+
+  return FindStream(result->u.mStream.mStreamID, tmp);
+}
+
+uint32_t
 MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
                                bool &sendAck, bool fromCleartext)
 {
   // used by both client and server
   unsigned char *endpkt = pkt + pktSize;
   uint32_t ptr = 0;
-
+  uint32_t rv;
   assert(pktSize <= kMozQuicMSS);
   sendAck = false;
 
@@ -1541,9 +1658,11 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
       return result.mValid;
     }
     ptr += result.mFrameLen;
-    if (result.mType == FRAME_TYPE_PADDING) {
-      continue;
-    } else if (result.mType == FRAME_TYPE_PING) {
+    switch(result.mType) {
+    case FRAME_TYPE_PADDING:
+      break;
+
+    case FRAME_TYPE_PING:
       // basically padding with an ack
       if (fromCleartext) {
         fprintf(stderr, "ping frames not allowed in cleartext\n");
@@ -1551,113 +1670,47 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
       }
       fprintf(stderr,"recvd ping\n");
       sendAck = true;
-      continue;
-    } else if (result.mType == FRAME_TYPE_STREAM) {
+      break;
+
+    case FRAME_TYPE_STREAM:
       sendAck = true;
-
-      fprintf(stderr,"recv stream %d len=%d offset=%d fin=%d\n",
-              result.u.mStream.mStreamID,
-              result.u.mStream.mDataLen,
-              result.u.mStream.mOffset,
-              result.u.mStream.mFinBit);
-
-      if (!result.u.mStream.mStreamID && result.u.mStream.mFinBit) {
-        // todo need to respond with a connection error PROTOCOL_VIOLATION 12.2
-        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "fin not allowed on stream 0\n");
-        return MOZQUIC_ERR_GENERAL;
-      }
-
-      // todo, ultimately the stream chunk could hold references to
-      // the packet buffer and ptr into it for zero copy
-
-      // parser checked for this, but jic
-      assert(pkt + ptr + result.u.mStream.mDataLen <= endpkt);
-      std::unique_ptr<MozQuicStreamChunk>
-        tmp(new MozQuicStreamChunk(result.u.mStream.mStreamID,
-                                   result.u.mStream.mOffset,
-                                   pkt + ptr,
-                                   result.u.mStream.mDataLen,
-                                   result.u.mStream.mFinBit));
-      if (!result.u.mStream.mStreamID) {
-        mStream0->Supply(tmp);
-      } else {
-
-        if (fromCleartext) {
-          RaiseError(MOZQUIC_ERR_GENERAL, (char *) "cleartext non 0 stream id\n");
-          return MOZQUIC_ERR_GENERAL;
-        }
-        int rv = FindStream(result.u.mStream.mStreamID, tmp);
-        if (rv != MOZQUIC_OK) {
-          return rv;
-        }
-      }
-      ptr += result.u.mStream.mDataLen;
-    } else if (result.mType == FRAME_TYPE_ACK) {
-      if (fromCleartext && (mConnectionState == SERVER_STATE_LISTEN)) {
-        // acks are not allowed processing client_initial
-        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "acks are not allowed in client initial\n");
-        return MOZQUIC_ERR_GENERAL;
-      }
-
-      // ptr now points at ack block section
-      uint32_t ackBlockSectionLen =
-        result.u.mAck.mAckBlockLengthLen +
-        (result.u.mAck.mNumBlocks * (result.u.mAck.mAckBlockLengthLen + 1));
-      uint32_t timestampSectionLen = result.u.mAck.mNumTS * 3;
-      if (timestampSectionLen) {
-        timestampSectionLen += 2; // the first one is longer
-      }
-      assert(pkt + ptr + ackBlockSectionLen + timestampSectionLen <= endpkt);
-      ProcessAck(result, pkt + ptr, fromCleartext);
-      ptr += ackBlockSectionLen;
-      ptr += timestampSectionLen;
-    } else if (result.mType == FRAME_TYPE_CLOSE) {
-      if (fromCleartext) {
-        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "close frames not allowed in cleartext\n");
-        return MOZQUIC_ERR_GENERAL;
-      }
-      fprintf(stderr,"RECVD CLOSE\n");
-      sendAck = true;
-      mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
-      if (mConnEventCB) {
-        mConnEventCB(mClosure, MOZQUIC_EVENT_CLOSE_CONNECTION, this);
-      } else {
-        fprintf(stderr,"No Event callback\n");
-      }
-    } else if (result.mType == FRAME_TYPE_RST_STREAM) {
-      if (fromCleartext) {
-        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed in cleartext\n");
-        return MOZQUIC_ERR_GENERAL;
-      }
-      sendAck = true;
-      fprintf(stderr,"recvd rst_stream id=%X err=%X, offset=%ld\n",
-              result.u.mRstStream.mStreamID, result.u.mRstStream.mErrorCode,
-              result.u.mRstStream.mFinalOffset);
-
-      if (!result.u.mRstStream.mStreamID) {
-        // todo need to respond with a connection error PROTOCOL_VIOLATION 12.2
-        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed on stream 0\n");
-        return MOZQUIC_ERR_GENERAL;
-      }
-
-      std::unique_ptr<MozQuicStreamChunk>
-        tmp(new MozQuicStreamChunk(result.u.mRstStream.mStreamID,
-                                   result.u.mRstStream.mFinalOffset, nullptr,
-                                   0, 0));
-      tmp->MakeStreamRst(result.u.mRstStream.mErrorCode);
-
-      int rv = FindStream(result.u.mStream.mStreamID, tmp);
+      rv = HandleStreamFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {
         return rv;
       }
-    } else {
+      break;
+
+    case FRAME_TYPE_ACK:
+      rv = HandleAckFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
+    case FRAME_TYPE_CLOSE:
+      sendAck = true;
+      rv = HandleCloseFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
+    case FRAME_TYPE_RST_STREAM:
+      sendAck = true;
+      rv = HandleResetFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
+    default:
       sendAck = true;
       if (fromCleartext) {
         fprintf(stderr,"unexpected frame type %d cleartext=%d\n", result.mType, fromCleartext);
         RaiseError(MOZQUIC_ERR_GENERAL, (char *) "unexpected frame type");
         return MOZQUIC_ERR_GENERAL;
       }
-      continue;
+      break;
     }
     assert(pkt + ptr <= endpkt);
   }
