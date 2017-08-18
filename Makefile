@@ -14,6 +14,7 @@ CXX = clang++
 
 LDFLAGS += -L$(NSS_LIBDIR) -lnss3 -lnssutil3 -lsmime3 -lssl3 -lplds4 -lplc4 -lnspr4 -lstdc++
 CXXFLAGS += -std=c++0x -I$(NSS_INCLUDE) -I$(NSPR_INCLUDE) -Wno-format
+CFLAGS += -I$(CURDIR)
 CFLAGS += -Wno-unused-command-line-argument
 CXXFLAGS += -Wno-unused-command-line-argument
 CXXFLAGS += -g
@@ -32,21 +33,34 @@ all: client server qdrive-client qdrive-server
 
 -include $(OBJS:.o=.d)
 
+QDRIVESERVEROBJS += tests/qdrive/qdrive-common.o
+QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test000.o
+QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test001.o
+QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test002.o
+QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test003.o
+
+QDRIVECLIENTOBJS += tests/qdrive/qdrive-common.o
+QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test000.o
+QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test001.o
+QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test002.o
+QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test003.o
+
 client: $(OBJS) sample/client.o
 	$(CC) $(LDFLAGS) -o $@ $^
-
-qdrive-client: $(OBJS) sample/qdrive-client.o
-	$(CC) -o qdrive-client $(OBJS) sample/qdrive-client.o $(LDFLAGS)
 
 server: $(OBJS) sample/server.o
 	$(CC) $(LDFLAGS) -o $@ $^
 
-qdrive-server: $(OBJS) sample/qdrive-server.o
-	$(CC) -o qdrive-server $(OBJS) sample/qdrive-server.o $(LDFLAGS)
+qdrive-client: $(OBJS) $(QDRIVECLIENTOBJS) tests/qdrive/qdrive-client.o
+	$(CC) $(LDFLAGS) -o $@ $^
+
+qdrive-server: $(OBJS) $(QDRIVESERVEROBJS) tests/qdrive/qdrive-server.o
+	$(CC) $(LDFLAGS) -o $@ $^
 
 .PHONY: clean
 clean:
 	rm -f $(OBJS) client server qdrive-client qdrive-server *.d sample/*.o
+	rm -f tests/qdrive/qdrive-*.o
 
 NSS_CONFIG=$(CURDIR)/sample/nss-config
 .PHONY: run-server run-client
