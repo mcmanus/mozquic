@@ -38,12 +38,15 @@ QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test000.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test001.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test002.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test003.o
+QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test004.o
 
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-common.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test000.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test001.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test002.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test003.o
+QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test004.o
+
 
 client: $(OBJS) sample/client.o
 	$(CC) $(LDFLAGS) -o $@ $^

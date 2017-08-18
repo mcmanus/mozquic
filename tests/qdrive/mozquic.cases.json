@@ -19,6 +19,11 @@
             "Name" : "invalidTransportParameter",
             "ClientArgs": ["-qdrive-test3"],
             "ServerArgs": ["-qdrive-test3"]
+        },
+	{
+            "Name" : "clientGrease",
+            "ClientArgs": ["-qdrive-test4"],
+            "ServerArgs": ["-qdrive-test4"]
         }
     ]
 }
