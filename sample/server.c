@@ -214,7 +214,7 @@ int main(int argc, char **argv)
   config.tolerateBadALPN = 1;
   config.tolerateNoTransportParams = 1;
   config.handleIO = 0; // todo mvp
-  config.sabotageVN = 1;
+  config.sabotageVN = 0;
 
   mozquic_new_connection(&c, &config);
   mozquic_set_event_callback(c, connEventCB);
