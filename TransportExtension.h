@@ -9,16 +9,21 @@ namespace mozquic  {
 
 class TransportExtension {
 private:
+  static void Encode1ByteObject(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
+                                uint8_t object);
   static void Encode2ByteObject(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
-                               uint16_t object);
+                                uint16_t object);
   static void Encode4ByteObject(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
-                      uint32_t object);
+                                uint32_t object);
   static void Encode16ByteObject(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
                                 unsigned char *object);
   static void Encode2xLenx2Record(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
                                uint16_t object1, uint16_t object2);
   static void Encode2xLenx4Record(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
                                uint16_t object1, uint32_t object2);
+  static void Decode1ByteObject(const unsigned char *input,
+                                uint16_t &_offset, uint16_t inputSize,
+                                uint8_t &_output);
   static void Decode2ByteObject(const unsigned char *input,
                                 uint16_t &_offset, uint16_t inputSize,
                                 uint16_t &_output);

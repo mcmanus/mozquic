@@ -35,7 +35,7 @@ TransportExtension::Encode4ByteObject(unsigned char *output, uint16_t &_offset, 
 
 void
 TransportExtension::Encode2ByteObject(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
-                                   uint16_t object)
+                                      uint16_t object)
 {
   assert(_offset + sizeof(object) <= maxOutput);
   if (_offset + sizeof(object) > maxOutput) {
@@ -43,6 +43,18 @@ TransportExtension::Encode2ByteObject(unsigned char *output, uint16_t &_offset, 
   }
   object = htons(object);
   memcpy(output + _offset, &object, sizeof(object));
+  _offset += sizeof(object);
+}
+
+void
+TransportExtension::Encode1ByteObject(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
+                                      uint8_t object)
+{
+  assert(_offset + sizeof(object) <= maxOutput);
+  if (_offset + sizeof(object) > maxOutput) {
+    return;
+  }
+  output[_offset] = object;
   _offset += sizeof(object);
 }
 
@@ -99,6 +111,17 @@ TransportExtension::Decode2ByteObject(const unsigned char *input,
   uint16_t tmp16;
   memcpy(&tmp16, input + _offset, sizeof(_output));
   _output = ntohs(tmp16);
+  _offset += sizeof(_output);
+}
+
+void
+TransportExtension::Decode1ByteObject(const unsigned char *input,
+                                      uint16_t &_offset, uint16_t inputSize,
+                                      uint8_t &_output)
+{
+  assert(sizeof(_output) == 1);
+  assert(_offset + sizeof(_output) <= inputSize);
+  _output = input[_offset];
   _offset += sizeof(_output);
 }
 
@@ -205,7 +228,8 @@ TransportExtension::MakeServerTransportParameters(unsigned char *output, uint16_
                                                   unsigned char *statelessResetToken /* 16 bytes */)
 {
   assert(versionListSize > 0);
-  Encode2ByteObject(output, _offset, maxOutput, 4 * versionListSize);
+  assert ((4 * versionListSize) <= 255);
+  Encode1ByteObject(output, _offset, maxOutput, 4 * versionListSize);
   for (int i = 0; i < versionListSize; i++) {
     Encode4ByteObject(output, _offset, maxOutput, versionList[i]);
   }
@@ -233,17 +257,17 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
   if (inputSize < 6) {
     return MOZQUIC_ERR_GENERAL;
   }
-  uint16_t paramSize;
+  uint8_t versionBytes;
   uint16_t offset = 0;
-  Decode2ByteObject(input, offset, inputSize, paramSize); // number of bytes in versionList
-  if ((paramSize < 4) || (paramSize & 0x3)) { // invalid number of bytes
+  Decode1ByteObject(input, offset, inputSize, versionBytes); // number of bytes in versionList
+  if ((versionBytes < 4) || (versionBytes & 0x3)) { // invalid number of bytes
     return MOZQUIC_ERR_GENERAL;
   }
-  if (_versionListSize < paramSize / 4) { // no room for output
+  if (_versionListSize < versionBytes / 4) { // no room for output
     return MOZQUIC_ERR_GENERAL;
   }
-  _versionListSize = paramSize / 4;
-  if ((offset + paramSize) > inputSize) {
+  _versionListSize = versionBytes / 4;
+  if ((offset + versionBytes) > inputSize) {
     return MOZQUIC_ERR_GENERAL;
   }
   for (int i = 0; i < _versionListSize; i++) {
@@ -251,6 +275,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
     Decode4ByteObject(input, offset, inputSize, tmp32);
     versionList[i] = tmp32;
   }
+  uint16_t paramSize;
   Decode2ByteObject(input, offset, inputSize, paramSize); // bytes in transport parameters
   if (paramSize < 50) { // min size for all required
     return MOZQUIC_ERR_GENERAL;
