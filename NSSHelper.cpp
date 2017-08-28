@@ -446,8 +446,8 @@ NSSHelper::BlockOperation(bool encrypt,
                           unsigned char *data, uint32_t dataLen,
                           uint64_t packetNumber,
                           unsigned char *out, uint32_t outAvail, uint32_t &written)
-  // for encrypt outAvail should be at least dataLen + 16 (for tag), for decrypt out should be at
-  // least dataLen - 16 (for tag removal)
+// for encrypt outAvail should be at least dataLen + 16 (for tag), for decrypt out should be at
+// least dataLen - 16 (for tag removal)
 {
   assert(outAvail >= (dataLen + 16));
   if (!mNSSReady || !mHandshakeComplete || mHandshakeFailed ||

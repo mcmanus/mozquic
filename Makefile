@@ -27,6 +27,7 @@ OBJS += API.o
 OBJS += MozQuic.o
 OBJS += MozQuicStream.o
 OBJS += NSSHelper.o
+OBJS += PMTUD.o
 OBJS += TransportExtension.o
 
 all: client server qdrive-client qdrive-server

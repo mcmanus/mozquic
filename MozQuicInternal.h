@@ -103,7 +103,7 @@ public:
             mConnectionState == CLIENT_STATE_CONNECTED || mConnectionState == SERVER_STATE_0RTT ||
             mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_CONNECTED);
   }
-
+  
 private:
   class LongHeaderData;
   class FrameHeaderData;
@@ -113,7 +113,6 @@ private:
   void AckScoreboard(uint64_t num, enum keyPhase kp);
   int MaybeSendAck();
 
-  uint32_t Transmit(unsigned char *, uint32_t len, struct sockaddr_in *peer);
   uint32_t RetransmitTimer();
   uint32_t ClearOldInitialConnectIdsTimer();
   void Acknowledge(uint64_t packetNum, keyPhase kp);
@@ -153,7 +152,7 @@ private:
   uint32_t Flush();
   uint32_t FlushStream0(bool forceAck);
   uint32_t FlushStream(bool forceAck);
-  uint32_t CreateStreamFrames(unsigned char *&framePtr, unsigned char *endpkt, bool justZero);
+  uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt, bool justZero);
   uint32_t ScrubUnWritten(uint32_t id);
 
   int Client1RTT();
@@ -163,12 +162,19 @@ private:
   bool VersionOK(uint32_t proposed);
   uint32_t GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockaddr_in *peer);
   uint32_t ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
-  int CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
 
   MozQuic *Accept(struct sockaddr_in *peer, uint64_t aConnectionID);
 
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d);
 
+  void StartPMTUD1();
+
+  uint32_t Transmit(unsigned char *, uint32_t len, struct sockaddr_in *peer);
+  uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
+  uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,
+                             unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
+                             bool addAcks);
+  
   mozquic_socket_t mFD;
   bool mHandleIO;
   bool mIsClient;
