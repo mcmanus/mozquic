@@ -59,6 +59,7 @@ MozQuic::MozQuic(bool handleIO)
   , mOriginPort(-1)
   , mVersion(kMozQuicVersion1)
   , mClientOriginalOfferedVersion(0)
+  , mMTU(kInitialMTU)
   , mConnectionID(0)
   , mNextTransmitPacketNumber(0)
   , mOriginalTransmitPacketNumber(0)
@@ -116,16 +117,17 @@ MozQuic::CheckPeer(uint32_t deadline)
 
   mPingDeadline = Timestamp() + deadline;
 
-  unsigned char plainPkt[kMozQuicMTU];
-  unsigned char cipherPkt[kMozQuicMTU];
+  unsigned char plainPkt[kMaxMTU];
+  unsigned char cipherPkt[kMaxMTU];
   uint32_t used = 0;
+  assert(mMTU <= kMaxMTU);
 
-  CreateShortPacketHeader(plainPkt, kMozQuicMTU - 16, used);
+  CreateShortPacketHeader(plainPkt, mMTU - 16, used);
   uint32_t headerLen = used;
   plainPkt[used] = FRAME_TYPE_PING;
   used++;
 
-  uint32_t room = kMozQuicMTU - used - 16;
+  uint32_t room = mMTU - used - 16;
   uint32_t usedByAck = 0;
   if (AckPiggyBack(plainPkt + used, mNextTransmitPacketNumber, room, keyPhase1Rtt, usedByAck) == MOZQUIC_OK) {
     if (usedByAck) {
@@ -138,7 +140,7 @@ MozQuic::CheckPeer(uint32_t deadline)
   uint32_t written = 0;
   memcpy(cipherPkt, plainPkt, headerLen);
   uint32_t rv = mNSSHelper->EncryptBlock(plainPkt, headerLen, plainPkt + headerLen, used - headerLen,
-                                         mNextTransmitPacketNumber, cipherPkt + headerLen, kMozQuicMTU - headerLen, written);
+                                         mNextTransmitPacketNumber, cipherPkt + headerLen, mMTU - headerLen, written);
   mNextTransmitPacketNumber++;
   Transmit(cipherPkt, written + headerLen, nullptr);
 
@@ -171,17 +173,18 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
 
   fprintf(stderr, "sending shutdown as %lx\n", mNextTransmitPacketNumber);
 
-  unsigned char plainPkt[kMozQuicMTU];
-  unsigned char cipherPkt[kMozQuicMTU];
+  unsigned char plainPkt[kMaxMTU];
+  unsigned char cipherPkt[kMaxMTU];
   uint16_t tmp16;
   uint32_t tmp32;
+  assert(mMTU <= kMaxMTU);
 
   // todo before merge - this can't be inlined here
   // what if not kp 0 TODO
   // todo when transport params allow truncate id, the connid might go
   // short header with connid kp = 0, 4 bytes of packetnumber
   uint32_t used, pktHeaderLen;
-  CreateShortPacketHeader(plainPkt, kMozQuicMTU - 16, used);
+  CreateShortPacketHeader(plainPkt, mMTU - 16, used);
   pktHeaderLen = used;
 
   plainPkt[used] = FRAME_TYPE_CLOSE;
@@ -191,8 +194,8 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   used += 4;
 
   size_t reasonLen = strlen(reason);
-  if (reasonLen > (kMozQuicMTU - 16 - used - 2)) {
-    reasonLen = kMozQuicMTU - 16 - used - 2;
+  if (reasonLen > (mMTU - 16 - used - 2)) {
+    reasonLen = mMTU - 16 - used - 2;
   }
   tmp16 = htons(reasonLen);
   memcpy(plainPkt + used, &tmp16, 2);
@@ -206,7 +209,7 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   uint32_t written = 0;
   memcpy(cipherPkt, plainPkt, pktHeaderLen);
   uint32_t rv = mNSSHelper->EncryptBlock(plainPkt, pktHeaderLen, plainPkt + pktHeaderLen, 7 + reasonLen,
-                                         mNextTransmitPacketNumber, cipherPkt + pktHeaderLen, kMozQuicMTU - pktHeaderLen, written);
+                                         mNextTransmitPacketNumber, cipherPkt + pktHeaderLen, mMTU - pktHeaderLen, written);
   if (!rv) {
     mNextTransmitPacketNumber++;
     Transmit(cipherPkt, written + pktHeaderLen, nullptr);
@@ -1774,7 +1777,8 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
 {
   assert(!mIsChild);
   assert(!mIsClient);
-  unsigned char pkt[kMozQuicMTU];
+  assert(mMTU <= kMaxMTU);
+  unsigned char pkt[kMaxMTU];
   uint32_t tmp32;
   uint64_t tmp64;
 
@@ -1793,7 +1797,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
 
   // list of versions
   unsigned char *framePtr = pkt + 17;
-  assert (sizeof(VersionNegotiationList) <= kMozQuicMTU - 17);
+  assert (sizeof(VersionNegotiationList) <= mMTU - 17);
   for (int i = 0; i < sizeof(VersionNegotiationList) / sizeof(uint32_t); i++) {
     tmp32 = htonl(VersionNegotiationList[i]);
     memcpy (framePtr, &tmp32, sizeof(uint32_t));
@@ -1906,8 +1910,9 @@ MozQuic::FlushStream0(bool forceAck)
     return MOZQUIC_OK;
   }
 
-  unsigned char pkt[kMozQuicMTU];
-  unsigned char *endpkt = pkt + kMozQuicMTU;
+  assert(mMTU <= kMaxMTU);
+  unsigned char pkt[kMaxMTU];
+  unsigned char *endpkt = pkt + mMTU;
   uint32_t tmp32;
 
   // section 5.4.1 of transport
@@ -2166,12 +2171,13 @@ MozQuic::FlushStream(bool forceAck)
     return MOZQUIC_OK;
   }
 
-  unsigned char plainPkt[kMozQuicMTU];
-  unsigned char cipherPkt[kMozQuicMTU];
-  unsigned char *endpkt = plainPkt + kMozQuicMTU - 16; // reserve 16 for aead tag
+  assert(mMTU <= kMaxMTU);
+  unsigned char plainPkt[kMaxMTU];
+  unsigned char cipherPkt[kMaxMTU];
+  unsigned char *endpkt = plainPkt + mMTU - 16; // reserve 16 for aead tag
   uint32_t pktHeaderLen;
 
-  CreateShortPacketHeader(plainPkt, kMozQuicMTU - 16, pktHeaderLen);
+  CreateShortPacketHeader(plainPkt, mMTU - 16, pktHeaderLen);
 
   unsigned char *framePtr = plainPkt + pktHeaderLen;
   CreateStreamFrames(framePtr, endpkt, false);
@@ -2195,7 +2201,7 @@ MozQuic::FlushStream(bool forceAck)
   memcpy(cipherPkt, plainPkt, pktHeaderLen);
   uint32_t rv = mNSSHelper->EncryptBlock(plainPkt, pktHeaderLen, plainPkt + pktHeaderLen,
                                          finalLen - pktHeaderLen, mNextTransmitPacketNumber,
-                                         cipherPkt + pktHeaderLen, kMozQuicMTU - pktHeaderLen, written);
+                                         cipherPkt + pktHeaderLen, mMTU - pktHeaderLen, written);
   fprintf(stderr,"encrypt[%lX] rv=%d inputlen=%d (+%d of aead) outputlen=%d pktheaderLen =%d\n",
           mNextTransmitPacketNumber, rv, finalLen - pktHeaderLen, pktHeaderLen, written, pktHeaderLen);
   if (rv != MOZQUIC_OK) {

@@ -52,7 +52,8 @@ friend class MozQuicStreamPair;
 public:
   static const char *kAlpn;
 
-  static const uint32_t kMozQuicMTU = 1200; // todo pmtud
+  static const uint32_t kMaxMTU = 1472;
+  static const uint32_t kInitialMTU = 1200; // todo pmtud
   static const uint32_t kMinClientInitial = 1200;
   static const uint32_t kMozQuicMSS = 16384;
 
@@ -199,6 +200,7 @@ private:
   };
   std::unordered_map<uint64_t, struct InitialClientPacketInfo> mConnectionHashOriginalNew;
 
+  uint32_t mMTU;
   uint64_t mConnectionID;
   uint64_t mNextTransmitPacketNumber;
   uint64_t mOriginalTransmitPacketNumber;
@@ -250,7 +252,7 @@ private:
   uint32_t mPeerMaxData;
   uint32_t mPeerMaxStreamID;
   uint16_t mPeerIdleTimeout;
-  
+
   // need other frame 2 list
 public: // callbacks from nsshelper
   int32_t NSSInput(void *buf, int32_t amount);
