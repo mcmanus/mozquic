@@ -281,6 +281,11 @@ public:
     FRAME_TYPE_STREAM            = 0xc0, // 11.. ....
   };
 
+  enum 
+  {
+    STREAM_FIN_BIT = 0x20,
+  };
+  
   enum FrameTypeLengths {
     FRAME_TYPE_PADDING_LENGTH           = 1,
     FRAME_TYPE_RST_STREAM_LENGTH        = 17,

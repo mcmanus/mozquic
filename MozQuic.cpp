@@ -40,8 +40,6 @@ const char *MozQuic::kAlpn = "hq-05";
 
 static const uint32_t kFNV64Size = 8;
 
-#define FRAME_FIN_BIT 0x20
-
 MozQuic::MozQuic(bool handleIO)
   : mFD(MOZQUIC_SOCKET_BAD)
   , mHandleIO(handleIO)
@@ -2130,7 +2128,7 @@ MozQuic::CreateStreamFrames(unsigned char *&framePtr, unsigned char *endpkt, boo
       framePtr += 2;
 
       if ((*iter)->mFin) {
-        *typeBytePtr = *typeBytePtr | FRAME_FIN_BIT;
+        *typeBytePtr = *typeBytePtr | STREAM_FIN_BIT;
       }
 
       memcpy(framePtr, (*iter)->mData.get(), (*iter)->mLen);
@@ -2399,7 +2397,7 @@ MozQuic::FrameHeaderData::FrameHeaderData(unsigned char *pkt, uint32_t pktSize, 
   if ((type & FRAME_MASK_STREAM) == FRAME_TYPE_STREAM) {
     mType = FRAME_TYPE_STREAM;
 
-    u.mStream.mFinBit = (type & FRAME_FIN_BIT);
+    u.mStream.mFinBit = (type & STREAM_FIN_BIT);
 
     uint8_t ssBit = (type & 0x18) >> 3;
     uint8_t ooBit = (type & 0x06) >> 1;
