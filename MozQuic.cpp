@@ -278,6 +278,10 @@ MozQuic::StartClient()
     }
 
     fcntl(mFD, F_SETFL, fcntl(mFD, F_GETFL, 0) | O_NONBLOCK);
+#ifdef IP_PMTUDISC_DO
+    int val = IP_PMTUDISC_DO;
+    setsockopt(mFD, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
+#endif
     int r = connect(mFD, outAddr->ai_addr, outAddr->ai_addrlen);
     freeaddrinfo(outAddr);
   }
