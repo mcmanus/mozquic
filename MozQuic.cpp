@@ -53,6 +53,7 @@ MozQuic::MozQuic(bool handleIO)
   , mSabotageVN(false)
   , mAppHandlesSendRecv(false)
   , mIsLoopback(false)
+  , mProcessedVN(false)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mVersion(kMozQuicVersion1)
@@ -539,11 +540,19 @@ MozQuic::Intake()
       fprintf(stderr,"LONGFORM PACKET[%d] id=%lx pkt# %lx type %d version %X\n",
               pktSize, longHeader.mConnectionID, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
 
-      if (!(VersionOK(longHeader.mVersion) ||
-            (mIsClient && longHeader.mType == PACKET_TYPE_VERSION_NEGOTIATION && longHeader.mVersion == mVersion))) {
-        // todo this could really be an amplifier
-        session->GenerateVersionNegotiation(longHeader, &client);
-        continue;
+      if (!VersionOK(longHeader.mVersion)) {
+        fprintf(stderr,"unacceptable version recvd.\n");
+        if (!mIsClient) {
+          if (pktSize >= kInitialMTU) {
+            session->GenerateVersionNegotiation(longHeader, &client);
+          } else {
+            fprintf(stderr,"packet too small to be CI, ignoring\n");
+          }
+          continue;
+        } else if (longHeader.mType != PACKET_TYPE_VERSION_NEGOTIATION || longHeader.mVersion != mVersion) {
+          fprintf(stderr,"Client ignoring as this isn't VN\n");
+          continue;
+        }
       }
 
       switch (longHeader.mType) {
@@ -1308,8 +1317,18 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
   assert(mIsClient);
   unsigned char *framePtr = pkt + 17;
 
-  if (mConnectionState != CLIENT_STATE_1RTT) {
-    // todo don't allow this after a single server cleartext
+  if (!mIsClient) {
+    fprintf(stderr,"VN should only arrive at client. Ignore.\n");
+    return MOZQUIC_OK;
+  }
+
+  if (mReceivedServerClearText) {
+    fprintf(stderr,"VN not allowed after server cleartext.\n");
+    return MOZQUIC_OK;
+  }
+
+  if (mProcessedVN) {
+    fprintf(stderr,"only handle one VN per session\n");
     return MOZQUIC_OK;
   }
 
@@ -1379,6 +1398,11 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
   assert((pkt[0] & 0x7f) == PACKET_TYPE_SERVER_CLEARTEXT);
   assert(pktSize >= 17);
 
+  if (!mIsClient) {
+    fprintf(stderr,"server cleartext arrived at server. ignored.\n");
+    return MOZQUIC_OK;
+  }
+  
   if (header.mVersion != mVersion) {
     Log((char *)"wrong version");
     return MOZQUIC_ERR_GENERAL;
@@ -1839,6 +1863,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
   uint32_t tmp32;
   uint64_t tmp64;
 
+  fprintf(stderr,"sending a version negotiation packet\n");
   pkt[0] = 0x80 | PACKET_TYPE_VERSION_NEGOTIATION;
   // client connID echo'd from client
   tmp64 = PR_htonll(clientHeader.mConnectionID);
@@ -1871,8 +1896,6 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
     }
   }
 
-  // no checksum
-  fprintf(stderr,"TRANSMIT VERSION NEGOTITATION\n");
   return Transmit(pkt, framePtr - pkt, peer);
 }
 

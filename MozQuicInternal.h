@@ -189,6 +189,7 @@ private:
   bool mSabotageVN;
   bool mAppHandlesSendRecv;
   bool mIsLoopback;
+  bool mProcessedVN;
   enum connectionState mConnectionState;
   int mOriginPort;
   std::unique_ptr<char []> mOriginName;
