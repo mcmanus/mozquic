@@ -53,7 +53,7 @@ public:
   static const char *kAlpn;
 
   static const uint32_t kMaxMTU = 1472;
-  static const uint32_t kInitialMTU = 1200; // todo pmtud
+  static const uint32_t kInitialMTU = 1200;
   static const uint32_t kMinClientInitial = 1200;
   static const uint32_t kMozQuicMSS = 16384;
   static const uint32_t kTagLen = 16;
@@ -168,12 +168,14 @@ private:
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d);
 
   void StartPMTUD1();
+  void CompletePMTUD1();
+  void AbortPMTUD1();
 
   uint32_t Transmit(unsigned char *, uint32_t len, struct sockaddr_in *peer);
   uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
   uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                              unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
-                             bool addAcks);
+                             bool addAcks, uint32_t mtuOverride = 0);
   
   mozquic_socket_t mFD;
   bool mHandleIO;
@@ -252,7 +254,11 @@ private:
   // The beginning of a connection.
   uint64_t mTimestampConnBegin;
 
+  // Related to PING and PMTUD
   uint64_t mPingDeadline;
+  uint64_t mPMTUD1Deadline;
+  uint64_t mPMTUD1PacketNumber;
+
   bool     mDecodedOK;
 
   uint32_t mPeerMaxStreamData;

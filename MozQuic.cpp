@@ -70,6 +70,8 @@ MozQuic::MozQuic(bool handleIO)
   , mAlive(this)
   , mTimestampConnBegin(0)
   , mPingDeadline(0)
+  , mPMTUD1Deadline(0)
+  , mPMTUD1PacketNumber(0)
   , mDecodedOK(false)
   , mPeerMaxStreamData(kMaxStreamDataDefault)
   , mPeerMaxData(kMaxDataDefault)
@@ -170,13 +172,16 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
 uint32_t
 MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                            unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
-                           bool addAcks)
+                           bool addAcks, uint32_t MTU)
 {
   assert(headerLen >= 11);
   assert(headerLen <= 13);
 
+  if (!MTU) {
+    MTU = mMTU;
+  }
   if (addAcks) {
-    uint32_t room = mMTU - kTagLen - headerLen - dataLen;
+    uint32_t room = MTU - kTagLen - headerLen - dataLen;
     if (room > dataAllocation) {
       room = dataAllocation;
     }
@@ -199,7 +204,7 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
   memcpy(cipherPkt, header, headerLen);
   uint32_t rv = mNSSHelper->EncryptBlock(header, headerLen, data, dataLen,
                                          mNextTransmitPacketNumber, cipherPkt + headerLen,
-                                         mMTU - headerLen, written);
+                                         MTU - headerLen, written);
 
   fprintf(stderr,"encrypt[%lX] rv=%d inputlen=%d (+%d of aead) outputlen=%d\n",
           mNextTransmitPacketNumber, rv, dataLen, headerLen, written);
@@ -218,34 +223,6 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
   mNextTransmitPacketNumber++;
 
   return MOZQUIC_OK;
-}
-
-
-uint32_t
-MozQuic::CheckPeer(uint32_t deadline)
-{
-  if (mPingDeadline) {
-    return MOZQUIC_OK;
-  }
-  if ((mConnectionState != CLIENT_STATE_CONNECTED) &&
-      (mConnectionState != SERVER_STATE_CONNECTED)) {
-    fprintf(stderr,"check peer not connected\n");
-    return MOZQUIC_ERR_GENERAL;
-  }
-
-  mPingDeadline = Timestamp() + deadline;
-
-  assert(mMTU <= kMaxMTU);
-  unsigned char plainPkt[kMaxMTU];
-  uint32_t used = 0;
-
-  CreateShortPacketHeader(plainPkt, mMTU - kTagLen, used);
-  uint32_t headerLen = used;
-  plainPkt[used] = FRAME_TYPE_PING;
-  used++;
-
-  return ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, 1,
-                           mMTU - headerLen - kTagLen, true);
 }
 
 void
@@ -544,7 +521,7 @@ MozQuic::Intake()
       }
       ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber);
       assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
-      fprintf(stderr,"SHORTFORM PACKET[%d] id=%lx pkt# %lx hdrsize %d\n",
+      fprintf(stderr,"SHORTFORM PACKET[%d] id=%lx pkt# %lx hdrsize=%d\n",
               pktSize, shortHeader.mConnectionID, shortHeader.mPacketNumber,
               shortHeader.mHeaderSize);
       rv = session->ProcessGeneral(pkt, pktSize,
@@ -712,11 +689,18 @@ MozQuic::IO()
   if ((mConnectionState == SERVER_STATE_1RTT) &&
       (mNextTransmitPacketNumber - mOriginalTransmitPacketNumber) > 20) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"TimedOut Client In Handshake");
-  } else if (mPingDeadline && mConnEventCB && mPingDeadline < Timestamp()) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  if (mPingDeadline && mConnEventCB && mPingDeadline < Timestamp()) {
     fprintf(stderr,"deadline expired set at %ld now %ld\n", mPingDeadline, Timestamp());
     mPingDeadline = 0;
     mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
-  } else if (mConnEventCB) {
+  }
+  if (mPMTUD1Deadline && mPMTUD1Deadline < Timestamp()) {
+    AbortPMTUD1();
+  }
+  if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_IO, this);
   }
   return MOZQUIC_OK;
@@ -1158,7 +1142,6 @@ MozQuic::ClientConnected()
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, this);
   }
-  StartPMTUD1();
   return MaybeSendAck();
 }
 
@@ -1220,7 +1203,6 @@ MozQuic::ServerConnected()
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, this);
   }
-  StartPMTUD1();
   return MaybeSendAck();
 }
 
@@ -1457,6 +1439,13 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
   for (auto iters = numRanges; iters > 0; --iters) {
     uint64_t haveAckFor = ackStack[iters - 1].first;
     uint64_t haveAckForEnd = haveAckFor + ackStack[iters - 1].second;
+
+    if (mPMTUD1PacketNumber &&
+        (mPMTUD1PacketNumber >= haveAckFor) &&
+        (mPMTUD1PacketNumber < haveAckForEnd)) {
+      CompletePMTUD1();
+    }
+
     for (; haveAckFor < haveAckForEnd; haveAckFor++) {
 
       // skip over stuff that is too low
@@ -1551,7 +1540,10 @@ MozQuic::ProcessGeneral(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
     fprintf(stderr, "decrypt failed\n");
     return rv;
   }
-  mDecodedOK = true;
+  if (!mDecodedOK) {
+    mDecodedOK = true;
+    StartPMTUD1();
+  }
   if (mPingDeadline && mConnEventCB) {
     mPingDeadline = 0;
     mConnEventCB(mClosure, MOZQUIC_EVENT_PING_OK, nullptr);
