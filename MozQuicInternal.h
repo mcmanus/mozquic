@@ -56,6 +56,7 @@ public:
   static const uint32_t kInitialMTU = 1200; // todo pmtud
   static const uint32_t kMinClientInitial = 1200;
   static const uint32_t kMozQuicMSS = 16384;
+  static const uint32_t kTagLen = 16;
 
   static const uint32_t kRetransmitThresh = 500;
   static const uint32_t kForgetUnAckedThresh = 4000; // ms

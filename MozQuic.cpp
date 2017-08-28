@@ -122,12 +122,12 @@ MozQuic::CheckPeer(uint32_t deadline)
   uint32_t used = 0;
   assert(mMTU <= kMaxMTU);
 
-  CreateShortPacketHeader(plainPkt, mMTU - 16, used);
+  CreateShortPacketHeader(plainPkt, mMTU - kTagLen, used);
   uint32_t headerLen = used;
   plainPkt[used] = FRAME_TYPE_PING;
   used++;
 
-  uint32_t room = mMTU - used - 16;
+  uint32_t room = mMTU - used - kTagLen;
   uint32_t usedByAck = 0;
   if (AckPiggyBack(plainPkt + used, mNextTransmitPacketNumber, room, keyPhase1Rtt, usedByAck) == MOZQUIC_OK) {
     if (usedByAck) {
@@ -184,7 +184,7 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   // todo when transport params allow truncate id, the connid might go
   // short header with connid kp = 0, 4 bytes of packetnumber
   uint32_t used, pktHeaderLen;
-  CreateShortPacketHeader(plainPkt, mMTU - 16, used);
+  CreateShortPacketHeader(plainPkt, mMTU - kTagLen, used);
   pktHeaderLen = used;
 
   plainPkt[used] = FRAME_TYPE_CLOSE;
@@ -194,8 +194,8 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   used += 4;
 
   size_t reasonLen = strlen(reason);
-  if (reasonLen > (mMTU - 16 - used - 2)) {
-    reasonLen = mMTU - 16 - used - 2;
+  if (reasonLen > (mMTU - kTagLen - used - 2)) {
+    reasonLen = mMTU - kTagLen - used - 2;
   }
   tmp16 = htons(reasonLen);
   memcpy(plainPkt + used, &tmp16, 2);
@@ -2174,10 +2174,10 @@ MozQuic::FlushStream(bool forceAck)
   assert(mMTU <= kMaxMTU);
   unsigned char plainPkt[kMaxMTU];
   unsigned char cipherPkt[kMaxMTU];
-  unsigned char *endpkt = plainPkt + mMTU - 16; // reserve 16 for aead tag
+  unsigned char *endpkt = plainPkt + mMTU - kTagLen; // reserve 16 for aead tag
   uint32_t pktHeaderLen;
 
-  CreateShortPacketHeader(plainPkt, mMTU - 16, pktHeaderLen);
+  CreateShortPacketHeader(plainPkt, mMTU - kTagLen, pktHeaderLen);
 
   unsigned char *framePtr = plainPkt + pktHeaderLen;
   CreateStreamFrames(framePtr, endpkt, false);
