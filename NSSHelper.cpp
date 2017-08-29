@@ -15,6 +15,7 @@
 #include "pk11pub.h"
 #include "secmod.h"
 #include "assert.h"
+#include "sechash.h"
 
 
 #if NSS_VMAJOR < 3 || (NSS_VMINOR < 32 && NSS_VMAJOR == 3)
@@ -30,7 +31,7 @@ fail complie;
     known cset 5e6ccfb82ff48e83ae1555fe3c16a27cdee0892a
 */
 
-// todo runtime enforce too
+// todo runtime enforce too.. maybe an exp is enough to enforce
 
 extern "C"
 {
@@ -367,6 +368,55 @@ NSSHelper::GetKeyParamsFromCipherSuite(uint16_t cipherSuite,
   }
 }
 
+SSLHelloRetryRequestAction
+NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
+                       unsigned int clientTokenLen, unsigned char *retryToken,
+                       unsigned int *retryTokenLen, unsigned int retryTokMax,
+                       void *arg)
+{
+  unsigned char digest[SHA256_LENGTH];
+  assert(retryTokMax >= sizeof(digest));
+  if (retryTokMax < sizeof(digest)) {
+    return ssl_hello_retry_accept;
+  }
+
+  NSSHelper *self = reinterpret_cast<NSSHelper *>(arg);
+
+  unsigned char sourceAddressInfo[128];
+  uint32_t sourceAddressLen = sizeof(sourceAddressInfo);
+  self->mQuicSession->GetRemotePeerAddressHash(sourceAddressInfo, &sourceAddressLen);
+
+  HASHContext *hcontext = HASH_Create(HASH_AlgSHA256);
+  HASH_Begin(hcontext);
+  HASH_Update(hcontext, sourceAddressInfo, sourceAddressLen);
+  unsigned int digestLen;
+  HASH_End(hcontext, digest, &digestLen, sizeof(digest));
+  assert(digestLen == sizeof(digest));
+
+  fprintf(stderr,"HRRCallback first=%d tokenlen=%d max=%d\n", firstHello, clientTokenLen, retryTokMax);
+  fprintf(stderr,"HRRCallback %d bytes of SourceAddress into %d bytes of hash\n",
+          sourceAddressLen, digestLen);
+
+  if (!firstHello) { // verify!
+    if (clientTokenLen != sizeof(digest)) {
+      fprintf(stderr, "HRRCallback clientToken wrong size\n");
+      return ssl_hello_retry_fail;
+    }
+    if (memcmp(clientToken, digest, sizeof(digest))) {
+      fprintf(stderr, "HRRCallback clientToken wrong\n");
+      return ssl_hello_retry_fail;
+    }
+    fprintf(stderr, "HRRCallback clientToken verified!\n");
+    return ssl_hello_retry_accept;
+  }
+
+  assert(!self->mDoHRR);
+  self->mDoHRR = true;
+  memcpy(retryToken, digest, digestLen);
+  *retryTokenLen = digestLen;
+  return ssl_hello_retry_request;
+}
+
 void
 NSSHelper::HandshakeCallback(PRFileDesc *fd, void *client_data)
 {
@@ -546,6 +596,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   , mHandshakeFailed(false)
   , mIsClient(false)
   , mTolerateBadALPN(tolerateBadALPN)
+  , mDoHRR(false)
   , mExternalCipherSuite(0)
   , mLocalTransportExtensionLen(0)
   , mRemoteTransportExtensionLen(0)
@@ -583,6 +634,10 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
                            SSL_LIBRARY_VERSION_TLS_1_3};
   SSL_VersionRangeSet(mFD, &range);
   SSL_HandshakeCallback(mFD, HandshakeCallback, nullptr);
+
+  if (mQuicSession->GetForceAddressValidation()) {
+    SSL_HelloRetryRequestCallback(mFD, HRRCallback, this);
+  }
 
   mNSSReady = true;
 
@@ -664,7 +719,8 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
 
   SSL_OptionSet(mFD, SSL_ENABLE_NPN, false);
   SSL_OptionSet(mFD, SSL_ENABLE_ALPN, true);
-  SSL_SendAdditionalKeyShares(mFD, 2);
+  // todo - re-enable when NSS and HRR are ok with this https://nss-review.dev.mozaws.net/D423 issue #44
+  //  SSL_SendAdditionalKeyShares(mFD, 2);
   SSLNamedGroup groups[] = {  ssl_grp_ec_secp256r1,
                               ssl_grp_ec_curve25519,
                               ssl_grp_ec_secp384r1
@@ -794,7 +850,7 @@ NSSHelper::DriveHandshake()
   if (PR_GetError() == PR_WOULD_BLOCK_ERROR) {
     return MOZQUIC_OK;
   }
-
+  fprintf(stderr,"handshake err: %s\n", PR_ErrorToName(PR_GetError()));
   return MOZQUIC_ERR_GENERAL;
 }
 

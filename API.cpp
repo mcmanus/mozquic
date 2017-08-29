@@ -55,6 +55,9 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   if (inConfig->sabotageVN) {
     q->SetSabotageVN();
   }
+  if (inConfig->forceAddressValidation) {
+    q->SetForceAddressValidation();
+  }
   if (inConfig->appHandlesSendRecv) {
     q->SetAppHandlesSendRecv();
   }

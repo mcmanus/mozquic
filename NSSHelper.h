@@ -8,6 +8,8 @@
 #include "prio.h"
 #include "ssl.h"
 #include "pk11pub.h"
+#include "ssl.h"
+#include "sslexp.h"
 
 namespace mozquic {
 
@@ -43,6 +45,8 @@ public:
 
   static const uint32_t kTransportParametersID = 26;
 
+  bool DoHRR() {return mDoHRR;}
+
 private:
   static PRStatus NSPRGetPeerName(PRFileDesc *aFD, PRNetAddr*addr);
   static PRStatus NSPRGetSocketOption(PRFileDesc *aFD, PRSocketOptionData *aOpt);
@@ -54,6 +58,10 @@ private:
   static int32_t nssHelperRecv(PRFileDesc *fd, void *buf, int32_t amount, int flags,
                                PRIntervalTime timeout);
 
+  static SSLHelloRetryRequestAction HRRCallback(PRBool firstHello, const unsigned char *clientToken,
+                                                unsigned int clientTokenLen, unsigned char *retryToken,
+                                                unsigned int *retryTokenLen, unsigned int retryTokMax,
+                                                void *arg);
   static void HandshakeCallback(PRFileDesc *fd, void *client_data);
   static SECStatus BadCertificate(void *client_data, PRFileDesc *fd);
 
@@ -89,6 +97,8 @@ private:
   bool                 mHandshakeFailed; // complete but bad above nss
   bool                 mIsClient;
   bool                 mTolerateBadALPN;
+
+  bool                mDoHRR;
 
   unsigned char       mExternalSendSecret[48];
   unsigned char       mExternalRecvSecret[48];

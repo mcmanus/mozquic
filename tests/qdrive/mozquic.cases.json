@@ -24,6 +24,11 @@
             "Name" : "clientGrease",
             "ClientArgs": ["-qdrive-test4"],
             "ServerArgs": ["-qdrive-test4"]
+        },
+	{
+            "Name" : "addrValidationOK",
+            "ClientArgs": ["-qdrive-test5"],
+            "ServerArgs": ["-qdrive-test5"]
         }
     ]
 }

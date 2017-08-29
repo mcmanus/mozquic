@@ -73,6 +73,7 @@ extern "C" {
     unsigned int tolerateBadALPN; // flag
     unsigned int tolerateNoTransportParams; // flag
     unsigned int sabotageVN; // flag
+    unsigned int forceAddressValidation; // flag
   };
 
   // this is a hack. it will be come a 'crypto config' and allow server key/cert and

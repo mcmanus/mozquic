@@ -66,6 +66,26 @@ MozQuicStreamIn::~MozQuicStreamIn()
 {
 }
 
+uint32_t
+MozQuicStreamPair::ResetInbound()
+{
+  // this is used in a very peculiar circumstance after HRR on stream 0 only
+  assert(mStreamID == 0);
+  return mIn.ResetInbound();
+}
+
+uint32_t
+MozQuicStreamIn::ResetInbound()
+{
+  assert(Empty());
+  mOffset = 0;
+  mFinOffset = 0;
+  mFinRecvd = false;
+  mRstRecvd = false;
+  mEndGivenToApp = false;
+  return MOZQUIC_OK;
+}
+
 // returning amt = 0 is not a fin or an error on its own
 uint32_t
 MozQuicStreamIn::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin)

@@ -39,6 +39,7 @@ enum connectionState
   SERVER_STATE_LISTEN,
   SERVER_STATE_0RTT,
   SERVER_STATE_1RTT,
+  SERVER_STATE_SSR,
   SERVER_STATE_CONNECTED,
   SERVER_STATE_CLOSED,
 };
@@ -90,6 +91,10 @@ public:
   void SetTolerateBadALPN() { mTolerateBadALPN = true; }
   void SetTolerateNoTransportParams() { mTolerateNoTransportParams = true; }
   void SetSabotageVN() { mSabotageVN = true; }
+  void SetForceAddressValidation() { mForceAddressValidation = true; }
+  bool GetForceAddressValidation() {
+    return mParent ? mParent->mForceAddressValidation : mForceAddressValidation;
+  }
   void SetAppHandlesSendRecv() { mAppHandlesSendRecv = true; }
   bool IgnorePKI();
   void DeleteStream(uint32_t streamID);
@@ -103,7 +108,9 @@ public:
             mConnectionState == CLIENT_STATE_CONNECTED || mConnectionState == SERVER_STATE_0RTT ||
             mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_CONNECTED);
   }
-  
+
+  void GetRemotePeerAddressHash(unsigned char *out, uint32_t *outLen);
+
 private:
   class LongHeaderData;
   class FrameHeaderData;
@@ -162,8 +169,9 @@ private:
   bool VersionOK(uint32_t proposed);
   uint32_t GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockaddr_in *peer);
   uint32_t ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
+  uint32_t ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
 
-  MozQuic *Accept(struct sockaddr_in *peer, uint64_t aConnectionID);
+  MozQuic *Accept(struct sockaddr_in *peer, uint64_t aConnectionID, uint64_t ciNumber);
 
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d);
 
@@ -178,6 +186,7 @@ private:
                              bool addAcks, uint32_t mtuOverride = 0);
   
   mozquic_socket_t mFD;
+
   bool mHandleIO;
   bool mIsClient;
   bool mIsChild;
@@ -187,6 +196,7 @@ private:
   bool mTolerateBadALPN;
   bool mTolerateNoTransportParams;
   bool mSabotageVN;
+  bool mForceAddressValidation;
   bool mAppHandlesSendRecv;
   bool mIsLoopback;
   bool mProcessedVN;
@@ -194,7 +204,10 @@ private:
   int mOriginPort;
   std::unique_ptr<char []> mOriginName;
   struct sockaddr_in mPeer; // todo not a v4 world
+
+  // both only set in server parent
   unsigned char mServerResetToken[16];
+  unsigned char mValidationKey[32];    
 
   uint32_t mVersion;
   uint32_t mClientOriginalOfferedVersion;
@@ -212,9 +225,11 @@ private:
 
   uint32_t mMTU;
   uint64_t mConnectionID;
+  uint64_t mOriginalConnectionID;
   uint64_t mNextTransmitPacketNumber;
   uint64_t mOriginalTransmitPacketNumber;
   uint64_t mNextRecvPacketNumber; // expected
+  uint64_t mClientInitialPacketNumber; // only set on child in server
 
   void *mClosure;
   int  (*mConnEventCB)(void *, uint32_t, void *);

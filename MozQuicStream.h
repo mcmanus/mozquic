@@ -89,6 +89,7 @@ public:
   bool Done() {
     return mEndGivenToApp;
   }
+  uint32_t ResetInbound();
 
 private:
   uint64_t mOffset;
@@ -119,6 +120,8 @@ public:
     return mIn.Empty();
   }
 
+  uint32_t ResetInbound();
+  
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
 
   int EndStream() {

@@ -27,6 +27,7 @@ mozquic_connection_t *parentConnection;
 struct testParam testList[] =
 {
   TEST_PARAMS(0),  TEST_PARAMS(1), TEST_PARAMS(2),  TEST_PARAMS(3), TEST_PARAMS(4),
+  TEST_PARAMS(5),
 };
 
 int main(int argc, char **argv)

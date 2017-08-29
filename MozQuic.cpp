@@ -51,6 +51,7 @@ MozQuic::MozQuic(bool handleIO)
   , mTolerateBadALPN(false)
   , mTolerateNoTransportParams(false)
   , mSabotageVN(false)
+  , mForceAddressValidation(false)
   , mAppHandlesSendRecv(false)
   , mIsLoopback(false)
   , mProcessedVN(false)
@@ -60,9 +61,11 @@ MozQuic::MozQuic(bool handleIO)
   , mClientOriginalOfferedVersion(0)
   , mMTU(kInitialMTU)
   , mConnectionID(0)
+  , mOriginalConnectionID(0)
   , mNextTransmitPacketNumber(0)
   , mOriginalTransmitPacketNumber(0)
   , mNextRecvPacketNumber(0)
+  , mClientInitialPacketNumber(0)
   , mClosure(this)
   , mConnEventCB(nullptr)
   , mNextStreamId(1)
@@ -220,7 +223,9 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     return rv;
   }
   
-  fprintf(stderr,"TRANSMIT[%lX] len=%d\n", mNextTransmitPacketNumber, written + headerLen);
+  fprintf(stderr,"TRANSMIT[%lX] this=%p len=%d cid=%lX\n",
+          mNextTransmitPacketNumber, this,
+          written + headerLen, mConnectionID);
   mNextTransmitPacketNumber++;
 
   return MOZQUIC_OK;
@@ -373,9 +378,16 @@ MozQuic::StartServer()
   mNextRecvStreamId = 1;
 
   // make a reset token, but this should really come from config
-  // so it can persist restarts - todo
+  // so it can persist restarts - todo and use nss random
+  assert((sizeof(mServerResetToken) % sizeof(uint16_t)) == 0);
   for (int i=0; i < (sizeof(mServerResetToken) / sizeof (uint16_t)); i++) {
     ((uint16_t *)mServerResetToken)[i] = random() & 0xffff;
+  }
+
+  // todo use nss random
+  assert((sizeof(mValidationKey) % sizeof(uint16_t)) == 0);
+  for (int i=0; i < (sizeof(mValidationKey) / sizeof (uint16_t)); i++) {
+    ((uint16_t *)mValidationKey)[i] = random() & 0xffff;
   }
 
   mConnectionState = SERVER_STATE_LISTEN;
@@ -561,15 +573,10 @@ MozQuic::Intake()
         break;
       case PACKET_TYPE_CLIENT_INITIAL:
       case PACKET_TYPE_SERVER_CLEARTEXT:
-        if (!IntegrityCheck(pkt, pktSize)) {
-          rv = MOZQUIC_ERR_GENERAL;
-        }
-        break;
       case PACKET_TYPE_SERVER_STATELESS_RETRY:
         if (!IntegrityCheck(pkt, pktSize)) {
           rv = MOZQUIC_ERR_GENERAL;
         }
-        assert(false); // todo mvp
         break;
       case PACKET_TYPE_CLIENT_CLEARTEXT:
         if (!IntegrityCheck(pkt, pktSize)) {
@@ -617,8 +624,8 @@ MozQuic::Intake()
         }
         break;
       case PACKET_TYPE_SERVER_STATELESS_RETRY:
+        rv = session->ProcessServerStatelessRetry(pkt, pktSize, longHeader);
         // do not ack
-        // todo mvp
         break;
       case PACKET_TYPE_SERVER_CLEARTEXT:
         rv = session->ProcessServerCleartext(pkt, pktSize, longHeader, sendAck);
@@ -1300,11 +1307,69 @@ MozQuic::Server1RTT()
       RaiseError(code, (char *) "server 1rtt handshake failed");
       return code;
     }
+
+    if (mNSSHelper->DoHRR()) {
+      mNSSHelper.reset(new NSSHelper(this, mParent->mTolerateBadALPN, mParent->mOriginName.get()));
+      mParent->mConnectionHash.erase(mConnectionID);
+      mParent->mConnectionHashOriginalNew.erase(mOriginalConnectionID);
+      mConnectionState = SERVER_STATE_SSR;
+      return MOZQUIC_OK;
+    }
+
     if (mNSSHelper->IsHandshakeComplete()) {
       return ServerConnected();
     }
   }
   return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header)
+{
+  // check packet num and version
+  assert(pkt[0] & 0x80);
+  assert((pkt[0] & ~0x80) == PACKET_TYPE_SERVER_STATELESS_RETRY);
+  assert(pktSize >= 17);
+
+  if (!mIsClient) {
+    fprintf(stderr,"SSR should only arrive at client. Ignore.\n");
+    return MOZQUIC_OK;
+  }
+
+  if (mReceivedServerClearText) {
+    fprintf(stderr,"SSR not allowed after server cleartext.\n");
+    return MOZQUIC_OK;
+  }
+
+  if ((header.mVersion != mVersion) ||
+      (header.mConnectionID != mConnectionID)) {
+    // this was supposedly copied from client - so this isn't a match
+    fprintf(stderr,"version or cid mismatch\n");
+    return MOZQUIC_ERR_VERSION;
+  }
+
+  // essentially this is an ack of client_initial using the packet #
+  // in the header as the ack, so need to find that on the unacked list.
+  // then we can reset the unacked list
+  bool foundReference = false;
+  for (auto i = mUnAckedData.begin(); i != mUnAckedData.end(); i++) {
+    if ((*i)->mPacketNumber == header.mPacketNumber) {
+      foundReference = true;
+      break;
+    }
+  }
+  if (!foundReference) {
+    // packet num was supposedly copied from client - so no match
+    return MOZQUIC_ERR_VERSION;
+  }
+
+  mStream0.reset(new MozQuicStreamPair(0, this, this));
+  mSetupTransportExtension = false;
+  mUnAckedData.clear();
+  mUnWrittenData.clear();
+
+  bool sendack = false;
+  return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendack, true);
 }
 
 uint32_t
@@ -1314,7 +1379,6 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
   assert(pkt[0] & 0x80);
   assert((pkt[0] & ~0x80) == PACKET_TYPE_VERSION_NEGOTIATION);
   assert(pktSize >= 17);
-  assert(mIsClient);
   unsigned char *framePtr = pkt + 17;
 
   if (!mIsClient) {
@@ -1391,7 +1455,8 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
 }
 
 int
-MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header, bool &sendAck)
+MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
+                                LongHeaderData &header, bool &sendAck)
 {
   // cleartext is always in long form
   assert(pkt[0] & 0x80);
@@ -1402,7 +1467,13 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
     fprintf(stderr,"server cleartext arrived at server. ignored.\n");
     return MOZQUIC_OK;
   }
-  
+
+  if (mConnectionState != CLIENT_STATE_1RTT &&
+      mConnectionState != CLIENT_STATE_0RTT) {
+    fprintf(stderr, "clear text after handshake will be dropped.\n");
+    return MOZQUIC_OK;
+  }
+
   if (header.mVersion != mVersion) {
     Log((char *)"wrong version");
     return MOZQUIC_ERR_GENERAL;
@@ -1410,12 +1481,19 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
     // not authenticated
   }
 
-  mReceivedServerClearText = true;
   if (mConnectionID != header.mConnectionID) {
+    if (mReceivedServerClearText) {
+      Log((char *)"wrong connection id");
+      return MOZQUIC_ERR_GENERAL;
+      // this should not abort session as its
+      // not authenticated
+    }
+
     fprintf(stderr, "server clear text changed connID from %lx to %lx\n",
             mConnectionID, header.mConnectionID);
     mConnectionID = header.mConnectionID;
   }
+  mReceivedServerClearText = true;
 
   return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck, true);
 }
@@ -1805,8 +1883,32 @@ MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
   return MOZQUIC_OK;
 }
 
+void
+MozQuic::GetRemotePeerAddressHash(unsigned char *out, uint32_t *outLen)
+{
+  assert(mIsChild && !mIsClient);
+  assert(*outLen >= 14 + sizeof(mParent->mValidationKey));
+
+  *outLen = 0;
+  unsigned char *ptr = out;
+  assert (mPeer.sin_family == AF_INET); // todo - need v6 support in server
+  
+  memcpy(ptr, &mPeer.sin_addr.s_addr, sizeof(uint32_t));
+  ptr += sizeof(uint32_t);
+  memcpy(ptr, &mPeer.sin_port, sizeof(in_port_t));
+  ptr += sizeof(in_port_t);
+  uint64_t connID = PR_htonll(mOriginalConnectionID);
+  memcpy(ptr, &connID, sizeof (uint64_t));
+  ptr += sizeof(uint64_t);
+  memcpy(ptr, &mParent->mValidationKey, sizeof(mValidationKey));
+  ptr += sizeof(mValidationKey);
+
+  *outLen = ptr - out;
+  return;
+}
+
 MozQuic *
-MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID)
+MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t aCIPacketNumber)
 {
   MozQuic *child = new MozQuic(mHandleIO);
   child->mIsChild = true;
@@ -1815,6 +1917,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID)
   child->mConnectionState = SERVER_STATE_LISTEN;
   memcpy(&child->mPeer, clientAddr, sizeof (struct sockaddr_in));
   child->mFD = mFD;
+  child->mClientInitialPacketNumber = aCIPacketNumber;
 
   child->mStream0.reset(new MozQuicStreamPair(0, child, child));
   do {
@@ -1834,6 +1937,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID)
   child->mNSSHelper.reset(new NSSHelper(child, mTolerateBadALPN, mOriginName.get()));
   child->mVersion = mVersion;
   child->mTimestampConnBegin = Timestamp();
+  child->mOriginalConnectionID = aConnectionID;
 
   mConnectionHash.insert( { child->mConnectionID, child });
   mConnectionHashOriginalNew.insert( { aConnectionID,
@@ -1938,7 +2042,6 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
       if (j != mConnectionHash.end()) {
         *childSession = (*j).second;
         // It is a dup and we will ignore it.
-        // TODO: maybe send hrr.
         return MOZQUIC_OK;
       } else {
         // TODO maybe do not accept this: we received a dup of connectionId
@@ -1948,12 +2051,13 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
       }
     }
   }
-  MozQuic *child = Accept(clientAddr, header.mConnectionID);
+  MozQuic *child = Accept(clientAddr, header.mConnectionID, header.mPacketNumber);
   assert(!mIsChild);
   assert(!mIsClient);
   mChildren.emplace_back(child->mAlive);
   child->ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck, true);
   child->mConnectionState = SERVER_STATE_1RTT;
+
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION, child);
   } else {
@@ -1999,16 +2103,31 @@ MozQuic::FlushStream0(bool forceAck)
   // long form header 17 bytes
   pkt[0] = 0x80;
   if (ServerState()) {
-    pkt[0] |= PACKET_TYPE_SERVER_CLEARTEXT;
+    pkt[0] |= (mConnectionState == SERVER_STATE_SSR) ?
+      PACKET_TYPE_SERVER_STATELESS_RETRY : PACKET_TYPE_SERVER_CLEARTEXT;
   } else {
     pkt[0] |= mReceivedServerClearText ? PACKET_TYPE_CLIENT_CLEARTEXT : PACKET_TYPE_CLIENT_INITIAL;
   }
 
+  if ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) {
+    assert(mStream0->Empty());
+    // just in case of server stateless reset pollution
+    mStream0->ResetInbound();
+  }
+
   // todo store a network order version of this
   uint64_t connID = PR_htonll(mConnectionID);
+  if (mConnectionState == SERVER_STATE_SSR) {
+    fprintf(stderr,"Generating Server Stateless Retry.\n");
+    connID = PR_htonll(mOriginalConnectionID);
+    assert(mUnAckedData.empty());
+  }
   memcpy(pkt + 1, &connID, 8);
 
-  tmp32 = htonl(mNextTransmitPacketNumber);
+  tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
+  if (mConnectionState == SERVER_STATE_SSR) {
+    tmp32 = htonl(mClientInitialPacketNumber & 0xffffffff);
+  }
   memcpy(pkt + 9, &tmp32, 4);
   tmp32 = htonl(mVersion);
   memcpy(pkt + 13, &tmp32, 4);
@@ -2024,6 +2143,14 @@ MozQuic::FlushStream0(bool forceAck)
     finalLen = (framePtr - pkt) + 8;
     if (finalLen < kMinClientInitial) {
       finalLen = kMinClientInitial;
+    }
+  } else if (mConnectionState == SERVER_STATE_SSR) {
+    finalLen = ((framePtr - pkt) + 8);
+    mConnectionState = SERVER_STATE_1RTT;
+    mUnAckedData.clear();
+    assert(mUnWrittenData.empty());
+    if (mConnEventCB) {
+      mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
     }
   } else {
     uint32_t room = endpkt - framePtr - 8; // the last 8 are for checksum
@@ -2052,9 +2179,10 @@ MozQuic::FlushStream0(bool forceAck)
       return code;
     }
 
-    fprintf(stderr,"TRANSMIT0 %lX len=%d total0=%d\n",
-            mNextTransmitPacketNumber, finalLen,
-            mNextTransmitPacketNumber - mOriginalTransmitPacketNumber);
+    fprintf(stderr,"TRANSMIT0[%lX] this=%p len=%d total0=%d cid=%lX\n",
+            mNextTransmitPacketNumber, this, finalLen,
+            mNextTransmitPacketNumber - mOriginalTransmitPacketNumber,
+            mConnectionID);
 
     mNextTransmitPacketNumber++;
 
@@ -2292,7 +2420,6 @@ MozQuic::Flush()
 uint32_t
 MozQuic::DoWriter(std::unique_ptr<MozQuicStreamChunk> &p)
 {
-
   // this data gets queued to unwritten and framed and
   // transmitted after prioritization by flush()
   assert (mConnectionState != STATE_UNINITIALIZED);
