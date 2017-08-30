@@ -183,7 +183,7 @@ int main(int argc, char **argv)
   uint32_t i = 0;
   uint32_t delay = 1000;
   struct mozquic_config_t config;
-  mozquic_connection_t *c;
+  mozquic_connection_t *c, *hrr;
 
   if (has_arg(argc, argv, "-quiet", &argVal)) {
     fclose(stderr);
@@ -221,6 +221,13 @@ int main(int argc, char **argv)
   mozquic_set_event_callback(c, connEventCB);
   mozquic_start_server(c);
 
+  config.originPort = SERVER_PORT + 1;
+  config.forceAddressValidation = 1;
+  mozquic_new_connection(&hrr, &config);
+  mozquic_set_event_callback(hrr, connEventCB);
+  mozquic_start_server(hrr);
+  fprintf(stderr,"server using certificate (HRR) for %s on port %d\n", config.originName, config.originPort);
+
   do {
     usleep (delay); // this is for handleio todo
     if (!(i++ & 0xf)) {
@@ -240,6 +247,7 @@ int main(int argc, char **argv)
       fflush(stderr);
     }
     mozquic_IO(c);
+    mozquic_IO(hrr);
   } while (1);
   
 }
