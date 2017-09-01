@@ -4,7 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #define SERVER_NAME "localhost"
-#define SERVER_PORT 4433
+#define SERVER_PORT 4434
 
 #if 0
 
@@ -144,11 +144,18 @@ int main(int argc, char **argv)
   
   memset(&config, 0, sizeof(config));
   if (has_arg(argc, argv, "-peer", &argVal)) {
+    char *c = strchr(argVal, ':');
+    if (c) {
+      *c++ = 0;
+      config.originPort = atoi(c);
+    }
     config.originName = strdup(argVal); // leaked
   } else {
     config.originName = SERVER_NAME;
   }
-  config.originPort = SERVER_PORT;
+  if (!config.originPort) {
+    config.originPort = SERVER_PORT;
+  }
   fprintf(stderr,"client connecting to %s port %d\n", config.originName, config.originPort);
 
   config.handleIO = 0; // todo mvp
