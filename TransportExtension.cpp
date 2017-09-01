@@ -136,13 +136,13 @@ TransportExtension::Decode16ByteObject(const unsigned char *input,
 }
 
 void
-TransportExtension::MakeClientTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
-                                                  uint32_t negotiatedVersion,
-                                                  uint32_t initialVersion,
-                                                  uint32_t initialMaxStreamData,
-                                                  uint32_t initialMaxData,
-                                                  uint32_t initialMaxStreamID,
-                                                  uint16_t idleTimeout)
+TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
+                                                    uint32_t negotiatedVersion,
+                                                    uint32_t initialVersion,
+                                                    uint32_t initialMaxStreamData,
+                                                    uint32_t initialMaxData,
+                                                    uint32_t initialMaxStreamID,
+                                                    uint16_t idleTimeout)
 {
   Encode4ByteObject(output, _offset, maxOutput, negotiatedVersion);
   Encode4ByteObject(output, _offset, maxOutput, initialVersion);
@@ -219,13 +219,13 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
 }
   
 void
-TransportExtension::MakeServerTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
-                                                  const uint32_t *versionList, uint16_t versionListSize,
-                                                  uint32_t initialMaxStreamData,
-                                                  uint32_t initialMaxData,
-                                                  uint32_t initialMaxStreamID,
-                                                  uint16_t idleTimeout,
-                                                  unsigned char *statelessResetToken /* 16 bytes */)
+TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
+                                                    const uint32_t *versionList, uint16_t versionListSize,
+                                                    uint32_t initialMaxStreamData,
+                                                    uint32_t initialMaxData,
+                                                    uint32_t initialMaxStreamID,
+                                                    uint16_t idleTimeout,
+                                                    unsigned char *statelessResetToken /* 16 bytes */)
 {
   assert(versionListSize > 0);
   assert ((4 * versionListSize) <= 255);

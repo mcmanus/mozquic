@@ -34,13 +34,13 @@ private:
                                  uint16_t &_offset, uint16_t inputSize,
                                  unsigned char *_output);
 public:
-  static void MakeClientTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
-                                            uint32_t negotiatedVersion,
-                                            uint32_t initialVersion,
-                                            uint32_t initialMaxStreamData,
-                                            uint32_t initialMaxData,
-                                            uint32_t initialMaxStreamID,
-                                            uint16_t idleTimeout);
+  static void EncodeClientTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
+                                              uint32_t negotiatedVersion,
+                                              uint32_t initialVersion,
+                                              uint32_t initialMaxStreamData,
+                                              uint32_t initialMaxData,
+                                              uint32_t initialMaxStreamID,
+                                              uint16_t idleTimeout);
   static uint32_t DecodeClientTransportParameters(unsigned char *input, uint16_t inputSize,
                                                   uint32_t &_negotiatedVersion,
                                                   uint32_t &_initialVersion,
@@ -49,13 +49,13 @@ public:
                                                   uint32_t &_initialMaxStreamID,
                                                   uint16_t &_idleTimeout);
   
-  static void MakeServerTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
-                                            const uint32_t *versionList, uint16_t versionListSize,
-                                            uint32_t initialMaxStreamData,
-                                            uint32_t initialMaxData,
-                                            uint32_t initialMaxStreamID,
-                                            uint16_t idleTimeout,
-                                            unsigned char *statelessResetToken /* 16 bytes */);
+  static void EncodeServerTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
+                                              const uint32_t *versionList, uint16_t versionListSize,
+                                              uint32_t initialMaxStreamData,
+                                              uint32_t initialMaxData,
+                                              uint32_t initialMaxStreamID,
+                                              uint16_t idleTimeout,
+                                              unsigned char *statelessResetToken /* 16 bytes */);
   static uint32_t DecodeServerTransportParameters(unsigned char *input, uint16_t inputSize,
                                                   uint32_t *versionList, uint16_t &_versionListSize,
                                                   uint32_t &_initialMaxStreamData,

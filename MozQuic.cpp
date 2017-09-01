@@ -1253,10 +1253,10 @@ MozQuic::Client1RTT()
       uint16_t teLength = 0;
       assert(mVersion && mClientOriginalOfferedVersion);
       TransportExtension::
-        MakeClientTransportParameters(te, teLength, 2048,
-                                      mVersion, mClientOriginalOfferedVersion,
-                                      kMaxStreamDataDefault, kMaxDataDefault,
-                                      kMaxStreamIDDefault, kIdleTimeoutDefault);
+        EncodeClientTransportParameters(te, teLength, 2048,
+                                        mVersion, mClientOriginalOfferedVersion,
+                                        kMaxStreamDataDefault, kMaxDataDefault,
+                                        kMaxStreamIDDefault, kIdleTimeoutDefault);
       mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
       mSetupTransportExtension = true;
     }
@@ -1292,11 +1292,11 @@ MozQuic::Server1RTT()
     unsigned char te[2048];
     uint16_t teLength = 0;
     TransportExtension::
-      MakeServerTransportParameters(te, teLength, 2048,
-                                    VersionNegotiationList, sizeof(VersionNegotiationList) / sizeof (uint32_t),
-                                    kMaxStreamDataDefault, kMaxDataDefault,
-                                    kMaxStreamIDDefault, kIdleTimeoutDefault,
-                                    mParent->mServerResetToken);
+      EncodeServerTransportParameters(te, teLength, 2048,
+                                      VersionNegotiationList, sizeof(VersionNegotiationList) / sizeof (uint32_t),
+                                      kMaxStreamDataDefault, kMaxDataDefault,
+                                      kMaxStreamIDDefault, kIdleTimeoutDefault,
+                                      mParent->mServerResetToken);
     mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
     mSetupTransportExtension = true;
   }
