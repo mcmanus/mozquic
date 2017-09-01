@@ -4,3 +4,6 @@
 *.d
 /client
 /server
+/qdrive-client
+/qdrive-server
+
