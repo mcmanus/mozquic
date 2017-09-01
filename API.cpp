@@ -219,6 +219,34 @@ int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMs)
   return self->CheckPeer(deadlineMs);
 }
 
+namespace mozquic  {
+
+static const uint32_t kMozQuicVersionGreaseC = 0xfa1a7a3a;
+
+void
+MozQuic::GreaseVersionNegotiation()
+{
+  assert(mConnectionState == STATE_UNINITIALIZED);
+  fprintf(stderr,"applying version grease\n");
+  mVersion = kMozQuicVersionGreaseC;
+}
+
+bool
+MozQuic::IgnorePKI()
+{
+  return mIgnorePKI || mIsLoopback;
+}
+
+void
+MozQuic::SetOriginName(const char *name)
+{
+  mOriginName.reset(new char[strlen(name) + 1]);
+  strcpy (mOriginName.get(), name);
+}
+
+}
+
+
 #ifdef __cplusplus
 }
 #endif
