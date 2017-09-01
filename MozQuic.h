@@ -68,6 +68,7 @@ extern "C" {
 
     // these are just for testing early implementations - they will go away
     // they will go into a testing API of some sort
+    unsigned char statelessResetKey[128];
     unsigned int greaseVersionNegotiation; // flag
     unsigned int ignorePKI; // flag
     unsigned int tolerateBadALPN; // flag
@@ -116,7 +117,7 @@ extern "C" {
 
   struct mozquic_eventdata_transmit
   {
-    unsigned char *pkt;
+    const unsigned char *pkt;
     uint32_t len;
     struct sockaddr_in *explicitPeer;
   };

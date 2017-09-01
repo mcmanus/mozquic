@@ -81,6 +81,7 @@ public:
 
   void SetOriginPort(int port) { mOriginPort = port; }
   void SetOriginName(const char *name);
+  void SetStatelessResetKey(const unsigned char *key) { memcpy(mStatelessResetKey, key, 128); }
   void SetClosure(void *closure) { mClosure = closure; }
   void SetConnEventCB(int (*fx)(mozquic_connection_t *,
                       uint32_t event, void * param)) { mConnEventCB = fx; }
@@ -129,8 +130,8 @@ private:
   int ProcessClientInitial(unsigned char *, uint32_t size, struct sockaddr_in *peer,
                            LongHeaderData &, MozQuic **outSession, bool &);
   int ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeaderData &, bool&);
-  uint32_t ProcessGeneralDecoded(unsigned char *, uint32_t size, bool &, bool fromClearText);
-  uint32_t ProcessGeneral(unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
+  uint32_t ProcessGeneralDecoded(const unsigned char *, uint32_t size, bool &, bool fromClearText);
+  uint32_t ProcessGeneral(const unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   bool IntegrityCheck(unsigned char *, uint32_t size);
   void ProcessAck(class FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext);
 
@@ -179,12 +180,19 @@ private:
   void CompletePMTUD1();
   void AbortPMTUD1();
 
-  uint32_t Transmit(unsigned char *, uint32_t len, struct sockaddr_in *peer);
+  uint32_t Transmit(const unsigned char *, uint32_t len, struct sockaddr_in *peer);
   uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
   uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                              unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
                              bool addAcks, uint32_t mtuOverride = 0);
-  
+
+  // Stateless Reset
+  bool     StatelessResetCheckForReceipt(const unsigned char *pkt, uint32_t pktSize);
+  uint32_t StatelessResetSend(uint64_t connID, struct sockaddr_in *peer);
+  static uint32_t StatelessResetCalculateToken(const unsigned char *key128,
+                                               uint64_t connID, unsigned char *out);
+  uint32_t StatelessResetEnsureKey();
+    
   mozquic_socket_t mFD;
 
   bool mHandleIO;
@@ -206,8 +214,11 @@ private:
   struct sockaddr_in mPeer; // todo not a v4 world
 
   // both only set in server parent
-  unsigned char mServerResetToken[16];
-  unsigned char mValidationKey[32];    
+  unsigned char mStatelessResetKey[128];
+  unsigned char mValidationKey[32];
+
+  // only set in client after exchange of transport params
+  unsigned char mStatelessResetToken[16];
 
   uint32_t mVersion;
   uint32_t mClientOriginalOfferedVersion;
@@ -371,7 +382,7 @@ private:
   class ShortHeaderData
   {
   public:
-    ShortHeaderData(unsigned char *, uint32_t, uint64_t);
+    ShortHeaderData(unsigned char *, uint32_t, uint64_t, uint64_t);
     uint32_t mHeaderSize;
     uint64_t mConnectionID;
     uint64_t mPacketNumber;
@@ -380,7 +391,7 @@ private:
   class FrameHeaderData
   {
   public:
-    FrameHeaderData(unsigned char *, uint32_t, MozQuic *);
+    FrameHeaderData(const unsigned char *, uint32_t, MozQuic *);
     FrameType mType;
     uint32_t  mValid;
     uint32_t  mFrameLen;

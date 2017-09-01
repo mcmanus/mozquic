@@ -24,12 +24,6 @@
 
 mozquic_connection_t *parentConnection;
 
-struct testParam testList[] =
-{
-  TEST_PARAMS(0),  TEST_PARAMS(1), TEST_PARAMS(2),  TEST_PARAMS(3), TEST_PARAMS(4),
-  TEST_PARAMS(5),
-};
-
 int main(int argc, char **argv)
 {
   char *argVal, *t;
@@ -75,7 +69,10 @@ int main(int argc, char **argv)
 
   config.tolerateBadALPN = 1;
   
-  int numTests = sizeof(testList) / sizeof(struct testParam);
+  int numTests = 0;
+  while (testList[numTests].name) {
+    numTests++;
+  }
   config_tests(testList, numTests, argc, argv, &config);
   mozquic_new_connection(&parentConnection, &config);
 

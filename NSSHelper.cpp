@@ -17,7 +17,6 @@
 #include "assert.h"
 #include "sechash.h"
 
-
 #if NSS_VMAJOR < 3 || (NSS_VMINOR < 32 && NSS_VMAJOR == 3)
 fail complie;
 #endif
@@ -317,9 +316,8 @@ NSSHelper::HandshakeSecret(unsigned int ciphersuite,
                               importMechanism1, importMechanism2);
 
   bool didHandshakeFail =
-
-      MakeKeyFromRaw(mExternalSendSecret, secretSize, keySize, hashType, importMechanism1,
-                     importMechanism2, mPacketProtectionSenderIV0, &mPacketProtectionSenderKey0) != MOZQUIC_OK;
+    MakeKeyFromRaw(mExternalSendSecret, secretSize, keySize, hashType, importMechanism1,
+                   importMechanism2, mPacketProtectionSenderIV0, &mPacketProtectionSenderKey0) != MOZQUIC_OK;
   memset(mExternalSendSecret, 0, sizeof(mExternalSendSecret));
 
 
@@ -492,8 +490,8 @@ failure:
 
 uint32_t
 NSSHelper::BlockOperation(bool encrypt,
-                          unsigned char *aadData, uint32_t aadLen,
-                          unsigned char *data, uint32_t dataLen,
+                          const unsigned char *aadData, uint32_t aadLen,
+                          const unsigned char *data, uint32_t dataLen,
                           uint64_t packetNumber,
                           unsigned char *out, uint32_t outAvail, uint32_t &written)
 // for encrypt outAvail should be at least dataLen + 16 (for tag), for decrypt out should be at
@@ -524,7 +522,7 @@ NSSHelper::BlockOperation(bool encrypt,
     memset(&gcmParams, 0, sizeof(gcmParams));
     gcmParams.pIv = nonce;
     gcmParams.ulIvLen = sizeof(nonce);
-    gcmParams.pAAD = aadData;
+    gcmParams.pAAD = (unsigned char *)aadData;
     gcmParams.ulAADLen = aadLen;
     gcmParams.ulTagBits = 128;
   } else {
@@ -534,7 +532,7 @@ NSSHelper::BlockOperation(bool encrypt,
     memset(&polyParams, 0, sizeof(polyParams));
     polyParams.pNonce = nonce;
     polyParams.ulNonceLen = sizeof(nonce);
-    polyParams.pAAD = aadData;
+    polyParams.pAAD = (unsigned char *)aadData;
     polyParams.ulAADLen = aadLen;
     polyParams.ulTagLen = 16;
   }
@@ -556,8 +554,8 @@ NSSHelper::BlockOperation(bool encrypt,
 }
 
 uint32_t
-NSSHelper::EncryptBlock(unsigned char *aadData, uint32_t aadLen,
-                        unsigned char *plaintext, uint32_t plaintextLen,
+NSSHelper::EncryptBlock(const unsigned char *aadData, uint32_t aadLen,
+                        const unsigned char *plaintext, uint32_t plaintextLen,
                         uint64_t packetNumber, unsigned char *out,
                         uint32_t outAvail, uint32_t &written)
 {
@@ -566,8 +564,8 @@ NSSHelper::EncryptBlock(unsigned char *aadData, uint32_t aadLen,
 }
 
 uint32_t
-NSSHelper::DecryptBlock(unsigned char *aadData, uint32_t aadLen,
-                        unsigned char *ciphertext, uint32_t ciphertextLen,
+NSSHelper::DecryptBlock(const unsigned char *aadData, uint32_t aadLen,
+                        const unsigned char *ciphertext, uint32_t ciphertextLen,
                         uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                         uint32_t &written)
 {

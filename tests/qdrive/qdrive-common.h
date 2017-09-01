@@ -8,23 +8,10 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "MozQuic.h"
+#include <assert.h>
 
 struct mozquic_config_t;
 struct mozquic_connection_t;
-
-#define TEST_PARAMS(N) {"-qdrive-test"#N, testConfig##N, testEvent##N, testGetClosure##N}
-#define TEST_EXPORT(N) void testConfig##N(struct mozquic_config_t *_c);\
-  int  testEvent##N(void *closure, uint32_t event, void *param);       \
-  void *testGetClosure##N();
-
-TEST_EXPORT(0)
-TEST_EXPORT(1)
-TEST_EXPORT(2)
-TEST_EXPORT(3)
-TEST_EXPORT(4)
-TEST_EXPORT(5)
-
-#undef TE
 
 extern mozquic_connection_t *parentConnection;
 
@@ -36,10 +23,23 @@ struct testParam
   void *(*getClosureFx)();
 };
 
-void test_assert(int test_assertion) ;
+#undef TE
+
+extern struct testParam testList[];
 int has_arg(int argc, char **argv, const char *test, char **value);
 
 void config_tests(struct testParam *testList, int numTests,
                   int argc, char **argv, struct mozquic_config_t *c);
 int setup_tests(struct testParam *testList, int numTests,
                 int argc, char **argv, struct mozquic_connection_t *c);
+
+static inline void test_assert(int test_assertion) 
+{
+  assert(test_assertion);
+  // ndebug too
+  if (!test_assertion) {
+    void *ptr = 0;
+    *((int *)ptr) =  0xdeadbeef;
+    exit (-1); // rather un-necessary
+  }
+}

@@ -26,13 +26,13 @@ public:
   bool IsHandshakeComplete() { return mHandshakeComplete; }
   uint32_t HandshakeSecret(unsigned int ciphersuite, unsigned char *sendSecret, unsigned char *recvSecret);
 
-  uint32_t EncryptBlock(unsigned char *aeadData, uint32_t aeadLen,
-                        unsigned char *plaintext, uint32_t plaintextLen,
+  uint32_t EncryptBlock(const unsigned char *aeadData, uint32_t aeadLen,
+                        const unsigned char *plaintext, uint32_t plaintextLen,
                         uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                         uint32_t &written);
 
-  uint32_t DecryptBlock(unsigned char *aeadData, uint32_t aeadLen,
-                        unsigned char *ciphertext, uint32_t ciphertextLen,
+  uint32_t DecryptBlock(const unsigned char *aeadData, uint32_t aeadLen,
+                        const unsigned char *ciphertext, uint32_t ciphertextLen,
                         uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                         uint32_t &written);
 
@@ -70,8 +70,8 @@ private:
   static SECStatus TransportExtensionHandler(PRFileDesc *fd, SSLHandshakeType m, const PRUint8 *data,
                                              unsigned int len, SSLAlertDescription *alert, void *arg);
   
-  uint32_t BlockOperation(bool encrypt, unsigned char *aeadData, uint32_t aeadLen,
-                          unsigned char *plaintext, uint32_t plaintextLen,
+  uint32_t BlockOperation(bool encrypt, const unsigned char *aeadData, uint32_t aeadLen,
+                          const unsigned char *plaintext, uint32_t plaintextLen,
                           uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                           uint32_t &written);
   uint32_t MakeKeyFromNSS(PRFileDesc *fd, const char *label,

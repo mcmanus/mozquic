@@ -4,21 +4,25 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include <stdlib.h>
-#include <assert.h>
 #include <strings.h>
 #include "qdrive-common.h"
 #include "MozQuic.h"
 
-void test_assert(int test_assertion) 
+#define TEST_PARAMS(N) {"-qdrive-test"#N, testConfig##N, testEvent##N, testGetClosure##N}
+#define TEST_EXPORT(N) void testConfig##N(struct mozquic_config_t *_c);\
+  int  testEvent##N(void *closure, uint32_t event, void *param);       \
+  void *testGetClosure##N();
+
+TEST_EXPORT(0) TEST_EXPORT(1) TEST_EXPORT(2) TEST_EXPORT(3) TEST_EXPORT(4)
+TEST_EXPORT(5) TEST_EXPORT(6)
+
+struct testParam testList[] =
 {
-  assert(test_assertion);
-  // ndebug too
-  if (!test_assertion) {
-    void *ptr = 0;
-    *((int *)ptr) =  0xdeadbeef;
-    exit (-1); // rather un-necessary
-  }
-}
+  TEST_PARAMS(0), TEST_PARAMS(1), TEST_PARAMS(2), TEST_PARAMS(3), TEST_PARAMS(4),
+  TEST_PARAMS(5), TEST_PARAMS(6),
+
+  { NULL, NULL, NULL, NULL } // eof sentinel
+};
 
 int
 has_arg(int argc, char **argv, const char *test, char **value)

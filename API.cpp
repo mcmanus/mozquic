@@ -64,6 +64,12 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   if (inConfig->ignorePKI) {
     q->SetIgnorePKI();
   }
+  unsigned char empty[128];
+  memset(empty, 0, 128);
+  assert(sizeof(empty) == sizeof(inConfig->statelessResetKey));
+  if (memcmp(empty, inConfig->statelessResetKey, 128)) {
+    q->SetStatelessResetKey(inConfig->statelessResetKey);
+  }
   return MOZQUIC_OK;
 }
 

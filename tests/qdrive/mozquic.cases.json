@@ -29,6 +29,11 @@
             "Name" : "addrValidationOK",
             "ClientArgs": ["-qdrive-test5"],
             "ServerArgs": ["-qdrive-test5"]
+        },
+	{
+            "Name" : "statelessReset",
+            "ClientArgs": ["-qdrive-test6"],
+            "ServerArgs": ["-qdrive-test6"]
         }
     ]
 }

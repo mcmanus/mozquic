@@ -22,11 +22,7 @@
     and key for foo.example.com that is signed by a CA defined by CA.cert.der.
 */
 
-struct testParam testList[] =
-{
-  TEST_PARAMS(0),  TEST_PARAMS(1), TEST_PARAMS(2),  TEST_PARAMS(3), TEST_PARAMS(4),
-  TEST_PARAMS(5),
-};
+int qdrive_server_crash = 0;
 
 int main(int argc, char **argv)
 {
@@ -68,25 +64,31 @@ int main(int argc, char **argv)
   }
 
   config.originName = SERVER_NAME;
-  fprintf(stderr,"server using certificate for %s on port %d\n", config.originName, config.originPort);
 
   config.tolerateBadALPN = 1;
   config.handleIO = 0; // todo mvp
 
-  int numTests = sizeof(testList) / sizeof(struct testParam);
-  config_tests(testList, numTests, argc, argv, &config);
-  mozquic_new_connection(&c, &config);
-
-  setup_tests(testList, numTests, argc, argv, c);
-  test_assert (mozquic_start_server(c) == MOZQUIC_OK);
-
+  int numTests = 0;
+  while (testList[numTests].name) {
+    numTests++;
+  }
   do {
-    usleep (1000); // this is for handleio todo
-    if (!(i++ & 0xf)) {
-      fprintf(stderr,".");
-      fflush(stderr);
-    }
-    mozquic_IO(c);
+    fprintf(stderr,"server using certificate for %s on port %d\n", config.originName, config.originPort);
+    config_tests(testList, numTests, argc, argv, &config);
+    mozquic_new_connection(&c, &config);
+
+    setup_tests(testList, numTests, argc, argv, c);
+    test_assert (mozquic_start_server(c) == MOZQUIC_OK);
+
+    do {
+      usleep (1000); // this is for handleio todo
+      if (!(i++ & 0xf)) {
+        fprintf(stderr,".");
+        fflush(stderr);
+      }
+      mozquic_IO(c);
+    } while (!qdrive_server_crash);
+    qdrive_server_crash = 0;
+    mozquic_destroy_connection(c);
   } while (1);
-  
 }

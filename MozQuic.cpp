@@ -91,6 +91,8 @@ MozQuic::MozQuic(bool handleIO)
     srandom(seed[0] << 24 | seed[1] << 16 | seed[2] << 8 | seed[3]);
   }
   memset(&mPeer, 0, sizeof(mPeer));
+  memset(mStatelessResetKey, 0, sizeof(mStatelessResetKey));
+  memset(mStatelessResetToken, 0x80, sizeof(mStatelessResetToken));
 }
 
 MozQuic::~MozQuic()
@@ -108,7 +110,7 @@ MozQuic::Destroy(uint32_t code, const char *reason)
 }
 
 uint32_t
-MozQuic::Transmit(unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer)
+MozQuic::Transmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer)
 {
   // this would be a reasonable place to insert a queuing layer that
   // thought about cong control, flow control, priority, and pacing
@@ -377,14 +379,8 @@ MozQuic::StartServer()
   mNextStreamId = 2;
   mNextRecvStreamId = 1;
 
-  // make a reset token, but this should really come from config
-  // so it can persist restarts - todo and use nss random
-  assert((sizeof(mServerResetToken) % sizeof(uint16_t)) == 0);
-  for (int i=0; i < (sizeof(mServerResetToken) / sizeof (uint16_t)); i++) {
-    ((uint16_t *)mServerResetToken)[i] = random() & 0xffff;
-  }
+  StatelessResetEnsureKey();
 
-  // todo use nss random
   assert((sizeof(mValidationKey) % sizeof(uint16_t)) == 0);
   for (int i=0; i < (sizeof(mValidationKey) / sizeof (uint16_t)); i++) {
     ((uint16_t *)mValidationKey)[i] = random() & 0xffff;
@@ -511,8 +507,8 @@ MozQuic::Intake()
   do {
     uint32_t pktSize = 0;
     sendAck = false;
-    struct sockaddr_in client;
-    rv = Recv(pkt, kMozQuicMSS, pktSize, &client);
+    struct sockaddr_in peer;
+    rv = Recv(pkt, kMozQuicMSS, pktSize, &peer);
     if (rv != MOZQUIC_OK || !pktSize) {
       return rv;
     }
@@ -521,7 +517,7 @@ MozQuic::Intake()
     MozQuic *session = this; // default
 
     if (!(pkt[0] & 0x80)) {
-      ShortHeaderData tmpShortHeader(pkt, pktSize, 0);
+      ShortHeaderData tmpShortHeader(pkt, pktSize, 0, mConnectionID);
       if (pktSize < tmpShortHeader.mHeaderSize) {
         return rv;
       }
@@ -529,10 +525,11 @@ MozQuic::Intake()
       if (!session) {
         fprintf(stderr,"no session found for encoded packet id=%lx size=%d\n",
                 tmpShortHeader.mConnectionID, pktSize);
+        StatelessResetSend(tmpShortHeader.mConnectionID, &peer);
         rv = MOZQUIC_ERR_GENERAL;
         continue;
       }
-      ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber);
+      ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber, mConnectionID);
       assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
       fprintf(stderr,"SHORTFORM PACKET[%d] id=%lx pkt# %lx hdrsize=%d\n",
               pktSize, shortHeader.mConnectionID, shortHeader.mPacketNumber,
@@ -556,7 +553,7 @@ MozQuic::Intake()
         fprintf(stderr,"unacceptable version recvd.\n");
         if (!mIsClient) {
           if (pktSize >= kInitialMTU) {
-            session->GenerateVersionNegotiation(longHeader, &client);
+            session->GenerateVersionNegotiation(longHeader, &peer);
           } else {
             fprintf(stderr,"packet too small to be CI, ignoring\n");
           }
@@ -617,7 +614,7 @@ MozQuic::Intake()
         // do not ack
         break;
       case PACKET_TYPE_CLIENT_INITIAL:
-        rv = session->ProcessClientInitial(pkt, pktSize, &client, longHeader, &session, sendAck);
+        rv = session->ProcessClientInitial(pkt, pktSize, &peer, longHeader, &session, sendAck);
         // ack after processing - find new session
         if (rv == MOZQUIC_OK) {
           session->Acknowledge(longHeader.mPacketNumber, keyPhaseUnprotected);
@@ -1100,12 +1097,13 @@ MozQuic::ClientConnected()
     fprintf(stderr,"Decocding Server Transport Parameters: tolerated empty by config\n");
     decodeResult = MOZQUIC_OK;
   } else {
+    assert(sizeof(mStatelessResetToken) == 16);
     decodeResult =
       TransportExtension::
       DecodeServerTransportParameters(extensionInfo, extensionInfoLen,
                                       peerVersionList, versionSize,
                                       mPeerMaxStreamData, mPeerMaxData, mPeerMaxStreamID, mPeerIdleTimeout,
-                                      mServerResetToken);
+                                      mStatelessResetToken);
     fprintf(stderr,"Decoding Server Transport Parameters: %s\n",
             decodeResult == MOZQUIC_OK ? "passed" : "failed");
     if (decodeResult != MOZQUIC_OK) {
@@ -1289,14 +1287,17 @@ MozQuic::Server1RTT()
 
   if (!mSetupTransportExtension) {
     fprintf(stderr,"setup transport extension (server)\n");
+    unsigned char resetToken[16];
+    StatelessResetCalculateToken(mParent->mStatelessResetKey,
+                                 mConnectionID, resetToken); // from key and CID
+  
     unsigned char te[2048];
     uint16_t teLength = 0;
     TransportExtension::
       EncodeServerTransportParameters(te, teLength, 2048,
                                       VersionNegotiationList, sizeof(VersionNegotiationList) / sizeof (uint32_t),
                                       kMaxStreamDataDefault, kMaxDataDefault,
-                                      kMaxStreamIDDefault, kIdleTimeoutDefault,
-                                      mParent->mServerResetToken);
+                                      kMaxStreamIDDefault, kIdleTimeoutDefault, resetToken);
     mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
     mSetupTransportExtension = true;
   }
@@ -1622,7 +1623,8 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
 }
 
 uint32_t
-MozQuic::ProcessGeneral(unsigned char *pkt, uint32_t pktSize, uint32_t headerSize, uint64_t packetNum, bool &sendAck)
+MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
+                        uint64_t packetNum, bool &sendAck)
 {
   assert(pktSize >= headerSize);
   assert(pktSize <= kMozQuicMSS);
@@ -1640,6 +1642,9 @@ MozQuic::ProcessGeneral(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
   fprintf(stderr,"decrypt (pktnum=%lX) rv=%d sz=%d\n", packetNum, rv, written);
   if (rv != MOZQUIC_OK) {
     fprintf(stderr, "decrypt failed\n");
+    if (StatelessResetCheckForReceipt(pkt, pktSize)) {
+      return MOZQUIC_OK;
+    }
     return rv;
   }
   if (!mDecodedOK) {
@@ -1805,11 +1810,11 @@ MozQuic::HandleResetFrame(FrameHeaderData *result, bool fromCleartext,
 }
 
 uint32_t
-MozQuic::ProcessGeneralDecoded(unsigned char *pkt, uint32_t pktSize,
+MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
                                bool &sendAck, bool fromCleartext)
 {
   // used by both client and server
-  unsigned char *endpkt = pkt + pktSize;
+  const unsigned char *endpkt = pkt + pktSize;
   uint32_t ptr = 0;
   uint32_t rv;
   assert(pktSize <= kMozQuicMSS);
@@ -2530,13 +2535,14 @@ MozQuic::ClearOldInitialConnectIdsTimer()
   return MOZQUIC_OK;
 }
 
-MozQuic::FrameHeaderData::FrameHeaderData(unsigned char *pkt, uint32_t pktSize, MozQuic *session)
+MozQuic::FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
+                                          uint32_t pktSize, MozQuic *session)
 {
   memset(&u, 0, sizeof (u));
   mValid = MOZQUIC_ERR_GENERAL;
 
   unsigned char type = pkt[0];
-  unsigned char *framePtr = pkt + 1;
+  const unsigned char *framePtr = pkt + 1;
 
   if ((type & FRAME_MASK_STREAM) == FRAME_TYPE_STREAM) {
     mType = FRAME_TYPE_STREAM;
@@ -2878,7 +2884,8 @@ MozQuic::DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next)
   return rv;
 }
 
-MozQuic::ShortHeaderData::ShortHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t next)
+MozQuic::ShortHeaderData::ShortHeaderData(unsigned char *pkt, uint32_t pktSize,
+                                          uint64_t nextPN, uint64_t defaultCID)
 {
   mHeaderSize = 0xffffffff;
   mConnectionID = 0;
@@ -2895,15 +2902,20 @@ MozQuic::ShortHeaderData::ShortHeaderData(unsigned char *pkt, uint32_t pktSize, 
   } else {
     return;
   }
+
+  uint32_t used;
   if ((!(pkt[0] & 0x40)) || (pktSize < (9 + pnSize))) {
     // missing connection id. without the truncate transport option this cannot happen
-    return;
+    used = 1;
+    mConnectionID = defaultCID;
+  } else {
+    memcpy(&mConnectionID, pkt + 1, 8);
+    mConnectionID = PR_ntohll(mConnectionID);
+    used = 9;
   }
 
-  memcpy(&mConnectionID, pkt + 1, 8);
-  mConnectionID = PR_ntohll(mConnectionID);
-  mHeaderSize = 9 + pnSize;
-  mPacketNumber = DecodePacketNumber(pkt + 9, pnSize, next);
+  mHeaderSize = used + pnSize;
+  mPacketNumber = DecodePacketNumber(pkt + used, pnSize, nextPN);
 }
 
 }
