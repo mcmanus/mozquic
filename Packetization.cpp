@@ -6,6 +6,7 @@
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "Packetization.h"
+#include "Streams.h"
 
 #include "assert.h"
 #include "stdlib.h"
@@ -21,8 +22,8 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   // always too short as it doesn't allow a useful window
   // if (nextNumber - lowestUnacked) > 16000 then use 4.
   uint8_t pnSizeType = 2; // 2 bytes
-  if (!mUnAckedData.empty() &&
-      ((mNextTransmitPacketNumber - mUnAckedData.front()->mPacketNumber) > 16000)) {
+  if (!mStreamState->mUnAckedData.empty() &&
+      ((mNextTransmitPacketNumber - mStreamState->mUnAckedData.front()->mPacketNumber) > 16000)) {
     pnSizeType = 3; // 4 bytes
   }
 
@@ -213,8 +214,8 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
           return;
         }
         // Log error!
-        char reason[MozQuic::kMozQuicMSS];
-        if (len + 64 < MozQuic::kMozQuicMSS) {
+        char reason[kMozQuicMSS];
+        if (len + 64 < kMozQuicMSS) {
           snprintf(reason, 64, "Close code %X reason: ", u.mClose.mErrorCode);
           ssize_t slen = strlen(reason);
           memcpy(reason + slen, framePtr, len);

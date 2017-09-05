@@ -53,6 +53,7 @@ class MozQuicWriter
 public:
   // the caller owns the unique_ptr if it returns 0
   virtual uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) = 0;
+  virtual uint32_t ScrubUnWritten(uint32_t id) = 0;
 };
 
 class MozQuicStreamOut
@@ -63,10 +64,8 @@ public:
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
   int EndStream();
   int RstStream(uint32_t code);
-  bool Done()
-  {
-    return mFin || mPeerRst;
-  }
+  bool Done() { return mFin || mPeerRst; }
+  uint32_t ScrubUnWritten(uint32_t id) { return mWriter->ScrubUnWritten(id); }
 
 private:
   MozQuicWriter *mWriter;

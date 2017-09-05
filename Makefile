@@ -32,6 +32,7 @@ OBJS += NSSHelper.o
 OBJS += Packetization.o
 OBJS += Ping.o
 OBJS += StatelessReset.o
+OBJS += Streams.o
 OBJS += TransportExtension.o
 
 all: client server qdrive-client qdrive-server

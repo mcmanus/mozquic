@@ -8,6 +8,7 @@
 #include "MozQuicInternal.h"
 #include "MozQuicStream.h"
 #include "NSSHelper.h"
+#include "Streams.h"
 #include "TransportExtension.h"
 
 #include "assert.h"
@@ -23,6 +24,7 @@
 namespace mozquic  {
 
 const char *MozQuic::kAlpn = "hq-05";
+static const uint16_t kIdleTimeoutDefault = 600;
 
 MozQuic::MozQuic(bool handleIO)
   : mFD(MOZQUIC_SOCKET_BAD)
@@ -52,8 +54,6 @@ MozQuic::MozQuic(bool handleIO)
   , mClientInitialPacketNumber(0)
   , mClosure(this)
   , mConnEventCB(nullptr)
-  , mNextStreamId(1)
-  , mNextRecvStreamId(1)
   , mParent(nullptr)
   , mAlive(this)
   , mTimestampConnBegin(0)
@@ -61,9 +61,6 @@ MozQuic::MozQuic(bool handleIO)
   , mPMTUD1Deadline(0)
   , mPMTUD1PacketNumber(0)
   , mDecodedOK(false)
-  , mPeerMaxStreamData(kMaxStreamDataDefault)
-  , mPeerMaxData(kMaxDataDefault)
-  , mPeerMaxStreamID(kMaxStreamIDDefault)
   , mPeerIdleTimeout(kIdleTimeoutDefault)
 {
   assert(!handleIO); // todo
@@ -77,6 +74,7 @@ MozQuic::MozQuic(bool handleIO)
   memset(&mPeer, 0, sizeof(mPeer));
   memset(mStatelessResetKey, 0, sizeof(mStatelessResetKey));
   memset(mStatelessResetToken, 0x80, sizeof(mStatelessResetToken));
+  mStreamState.reset(new StreamState(this));
 }
 
 MozQuic::~MozQuic()
@@ -259,10 +257,9 @@ MozQuic::StartClient()
 {
   assert(!mHandleIO); // todo
   mIsClient = true;
-  mNextStreamId = 1;
-  mNextRecvStreamId = 2;
+  mStreamState->InitIDs(1,2);
   mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
-  mStream0.reset(new MozQuicStreamPair(0, this, this));
+  mStreamState->mStream0.reset(new MozQuicStreamPair(0, mStreamState.get(), this));
 
   assert(!mClientOriginalOfferedVersion);
   mClientOriginalOfferedVersion = mVersion;
@@ -316,8 +313,7 @@ MozQuic::StartServer()
 {
   assert(!mHandleIO); // todo
   mIsClient = false;
-  mNextStreamId = 2;
-  mNextRecvStreamId = 1;
+  mStreamState->InitIDs(2, 1);
 
   StatelessResetEnsureKey();
 
@@ -328,18 +324,6 @@ MozQuic::StartServer()
 
   mConnectionState = SERVER_STATE_LISTEN;
   return Bind();
-}
-
-int
-MozQuic::StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin)
-{
-  *outStream = new MozQuicStreamPair(mNextStreamId, this, this);
-  mStreams.insert( { mNextStreamId, *outStream } );
-  mNextStreamId += 2;
-  if ( amount || fin) {
-    return (*outStream)->Write((const unsigned char *)data, amount, fin);
-  }
-  return MOZQUIC_OK;
 }
 
 int
@@ -384,12 +368,11 @@ MozQuic::RemoveSession(uint64_t cid)
   mConnectionHash.erase(cid);
 }
 
-
 int
 MozQuic::Client1RTT()
 {
   if (mAppHandlesSendRecv) {
-    if (mStream0->Empty()) {
+    if (mStreamState->mStream0->Empty()) {
       return MOZQUIC_OK;
     }
     // Server Reply is available and needs to be passed to app for processing
@@ -398,7 +381,7 @@ MozQuic::Client1RTT()
     bool fin = false;
 
     // todo transport extension info needs to be passed to app
-    uint32_t code = mStream0->Read(buf, kMozQuicMSS, amt, fin);
+    uint32_t code = mStreamState->mStream0->Read(buf, kMozQuicMSS, amt, fin);
     if (code != MOZQUIC_OK) {
       return code;
     }
@@ -467,7 +450,7 @@ MozQuic::Server1RTT()
     mSetupTransportExtension = true;
   }
 
-  if (!mStream0->Empty()) {
+  if (!mStreamState->mStream0->Empty()) {
     uint32_t code = mNSSHelper->DriveHandshake();
     if (code != MOZQUIC_OK) {
       RaiseError(code, (char *) "server 1rtt handshake failed");
@@ -666,9 +649,9 @@ MozQuic::IO()
   std::shared_ptr<MozQuic> deleteProtector(mAlive);
 
   Intake();
-  RetransmitTimer();
+  mStreamState->RetransmitTimer();
   ClearOldInitialConnectIdsTimer();
-  Flush();
+  mStreamState->Flush(false);
 
   if (mIsClient) {
     switch (mConnectionState) {
@@ -777,7 +760,7 @@ MozQuic::RaiseError(uint32_t e, char *reason)
 void
 MozQuic::HandshakeOutput(unsigned char *buf, uint32_t datalen)
 {
-  mStream0->Write(buf, datalen, false);
+  mStreamState->mStream0->Write(buf, datalen, false);
 }
 
 // this is called by the application when the application is handling
@@ -828,7 +811,8 @@ MozQuic::ClientConnected()
       TransportExtension::
       DecodeServerTransportParameters(extensionInfo, extensionInfoLen,
                                       peerVersionList, versionSize,
-                                      mPeerMaxStreamData, mPeerMaxData, mPeerMaxStreamID, mPeerIdleTimeout,
+                                      mStreamState->mPeerMaxStreamData, mStreamState->mPeerMaxData,
+                                      mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
                                       mStatelessResetToken);
     fprintf(stderr,"Decoding Server Transport Parameters: %s\n",
             decodeResult == MOZQUIC_OK ? "passed" : "failed");
@@ -904,7 +888,8 @@ MozQuic::ServerConnected()
       TransportExtension::
       DecodeClientTransportParameters(extensionInfo, extensionInfoLen,
                                       peerNegotiatedVersion, peerInitialVersion,
-                                      mPeerMaxStreamData, mPeerMaxData, mPeerMaxStreamID, mPeerIdleTimeout);
+                                      mStreamState->mPeerMaxStreamData, mStreamState->mPeerMaxData,
+                                      mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
 
     fprintf(stderr,"Decoding Client Transport Parameters: %s\n",
             decodeResult == MOZQUIC_OK ? "passed" : "failed");
@@ -984,83 +969,6 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
 }
 
 uint32_t
-MozQuic::FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d)
-{
-  // Open a new stream and implicitly open all streams with ID smaller than
-  // streamID that are not already opened.
-  while (streamID >= mNextRecvStreamId) {
-    fprintf(stderr, "Add new stream %d\n", mNextRecvStreamId);
-    MozQuicStreamPair *stream = new MozQuicStreamPair(mNextRecvStreamId, this, this);
-    mStreams.insert( { mNextRecvStreamId, stream } );
-    mNextRecvStreamId += 2;
-  }
-
-  auto i = mStreams.find(streamID);
-  if (i == mStreams.end()) {
-    fprintf(stderr, "Stream %d already closed.\n", streamID);
-    // this stream is already closed and deleted. Discharge frame.
-    d.reset();
-    return MOZQUIC_ERR_ALREADY_FINISHED;
-  }
-  (*i).second->Supply(d);
-  if (!(*i).second->Empty() && mConnEventCB) {
-    mConnEventCB(mClosure, MOZQUIC_EVENT_NEW_STREAM_DATA, (*i).second);
-  }
-  return MOZQUIC_OK;
-}
-
-void
-MozQuic::DeleteStream(uint32_t streamID)
-{
-  fprintf(stderr, "Delete stream %lu\n", streamID);
-  mStreams.erase(streamID);
-}
-
-uint32_t
-MozQuic::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
-                           const unsigned char *pkt, const unsigned char *endpkt,
-                           uint32_t &_ptr)
-{
-  fprintf(stderr,"recv stream %d len=%d offset=%d fin=%d\n",
-          result->u.mStream.mStreamID,
-          result->u.mStream.mDataLen,
-          result->u.mStream.mOffset,
-          result->u.mStream.mFinBit);
-
-  if (!result->u.mStream.mStreamID && result->u.mStream.mFinBit) {
-    // todo need to respond with a connection error PROTOCOL_VIOLATION 12.2
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "fin not allowed on stream 0\n");
-    return MOZQUIC_ERR_GENERAL;
-  }
-
-  // todo, ultimately the stream chunk could hold references to
-  // the packet buffer and _ptr into it for zero copy
-
-  // parser checked for this, but jic
-  assert(pkt + _ptr + result->u.mStream.mDataLen <= endpkt);
-  std::unique_ptr<MozQuicStreamChunk>
-    tmp(new MozQuicStreamChunk(result->u.mStream.mStreamID,
-                               result->u.mStream.mOffset,
-                               pkt + _ptr,
-                               result->u.mStream.mDataLen,
-                               result->u.mStream.mFinBit));
-  if (!result->u.mStream.mStreamID) {
-    mStream0->Supply(tmp);
-  } else {
-    if (fromCleartext) {
-      RaiseError(MOZQUIC_ERR_GENERAL, (char *) "cleartext non 0 stream id\n");
-      return MOZQUIC_ERR_GENERAL;
-    }
-    uint32_t rv = FindStream(result->u.mStream.mStreamID, tmp);
-    if (rv != MOZQUIC_OK) {
-      return rv;
-    }
-  }
-  _ptr += result->u.mStream.mDataLen;
-  return MOZQUIC_OK;
-}
-
-uint32_t
 MozQuic::HandleCloseFrame(FrameHeaderData *result, bool fromCleartext,
                           const unsigned char *pkt, const unsigned char *endpkt,
                           uint32_t &_ptr)
@@ -1104,7 +1012,7 @@ MozQuic::HandleResetFrame(FrameHeaderData *result, bool fromCleartext,
                                0, 0));
   tmp->MakeStreamRst(result->u.mRstStream.mErrorCode);
 
-  return FindStream(result->u.mStream.mStreamID, tmp);
+  return mStreamState->FindStream(result->u.mStream.mStreamID, tmp);
 }
 
 uint32_t
@@ -1143,7 +1051,7 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
 
     case FRAME_TYPE_STREAM:
       sendAck = true;
-      rv = HandleStreamFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      rv = mStreamState->HandleStreamFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {
         return rv;
       }
@@ -1222,7 +1130,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
   child->mFD = mFD;
   child->mClientInitialPacketNumber = aCIPacketNumber;
 
-  child->mStream0.reset(new MozQuicStreamPair(0, child, child));
+  child->mStreamState->mStream0.reset(new MozQuicStreamPair(0, child->mStreamState.get(), child));
   do {
     for (int i=0; i < 4; i++) {
       child->mConnectionID = child->mConnectionID << 16;
@@ -1255,8 +1163,27 @@ MozQuic::VersionOK(uint32_t proposed)
   return false;
 }
 
-static bool CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpkt,
-                            MozQuicStreamChunk *chunk)
+uint32_t
+MozQuic::StartNewStream(MozQuicStreamPair **outStream, const void *data,
+                        uint32_t amount, bool fin)
+{
+  if (mStreamState) {
+    return mStreamState->StartNewStream(outStream, data, amount, fin);
+  }
+  return MOZQUIC_ERR_GENERAL;
+}
+
+void
+MozQuic::DeleteStream(uint32_t id)
+{
+  if (mStreamState) {
+    mStreamState->DeleteStream(id);
+  }
+}
+
+uint32_t
+MozQuic::CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpkt,
+                         MozQuicStreamChunk *chunk)
 {
   fprintf(stderr,"generating stream reset %d\n", chunk->mOffset);
   assert(chunk->mRst);
@@ -1264,7 +1191,7 @@ static bool CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpk
   assert(!chunk->mLen);
   uint32_t room = endpkt - framePtr;
   if (room < 17) {
-    return false;
+    return MOZQUIC_ERR_GENERAL;
   }
   framePtr[0] = FRAME_TYPE_RST_STREAM;
   uint32_t tmp32 = htonl(chunk->mStreamID);
@@ -1274,197 +1201,6 @@ static bool CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpk
   uint64_t tmp64 = PR_htonll(chunk->mOffset);
   memcpy(framePtr + 9, &tmp64, 8);
   framePtr += 17;
-  return true;
-}
-
-uint32_t
-MozQuic::ScrubUnWritten(uint32_t streamID)
-{
-  auto iter = mUnWrittenData.begin();
-  while (iter != mUnWrittenData.end()) {
-    auto chunk = (*iter).get();
-    if (chunk->mStreamID == streamID && !chunk->mRst) {
-      iter = mUnWrittenData.erase(iter);
-      fprintf(stderr,"scrubbing chunk %p of unwritten id %d\n",
-              chunk, streamID);
-    } else {
-      iter++;
-    }
-  }
-
-  auto iter2 = mUnAckedData.begin();
-  while (iter2 != mUnAckedData.end()) {
-    auto chunk = (*iter2).get();
-    if (chunk->mStreamID == streamID && !chunk->mRst) {
-      iter2 = mUnAckedData.erase(iter2);
-      fprintf(stderr,"scrubbing chunk %p of unacked id %d\n",
-              chunk, streamID);
-    } else {
-      iter2++;
-    }
-  }
-  return MOZQUIC_OK;
-}
-
-static uint8_t varSize(uint64_t input)
-{
-  // returns 0->3 depending on magnitude of input
-  return (input < 0x100) ? 0 : (input < 0x10000) ? 1 : (input < 0x100000000UL) ? 2 : 3;
-}
-
-uint32_t
-MozQuic::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt, bool justZero)
-{
-  auto iter = mUnWrittenData.begin();
-  while (iter != mUnWrittenData.end()) {
-    if (justZero && (*iter)->mStreamID) {
-      iter++;
-      continue;
-    }
-    if ((*iter)->mRst) {
-      if (!CreateStreamRst(framePtr, endpkt, (*iter).get())) {
-        break;
-      }
-    } else {
-      uint32_t room = endpkt - framePtr;
-      if (room < 1) {
-        break; // this is only for type, we will do a second check later.
-      }
-
-      // 11fssood -> 11000001 -> 0xC1. Fill in fin, offset-len and id-len below dynamically
-      auto typeBytePtr = framePtr;
-      framePtr[0] = 0xc1;
-
-      // Determine streamId size without varSize becuase we use 24 bit value
-      uint32_t tmp32 = (*iter)->mStreamID;
-      tmp32 = htonl(tmp32);
-      uint8_t idLen = 4;
-      for (int i=0; (i < 3) && (((uint8_t*)(&tmp32))[i] == 0); i++) {
-        idLen--;
-      }
-
-      // determine offset size
-      uint64_t offsetValue = PR_htonll((*iter)->mOffset);
-      uint8_t offsetSizeType = varSize((*iter)->mOffset);
-      uint8_t offsetLen;
-      if (offsetSizeType == 0) {
-        // 0, 16, 32, 64 instead of usual 8, 16, 32, 64
-        if ((*iter)->mOffset) {
-          offsetSizeType = 1;
-          offsetLen = 2;
-        } else {
-          offsetLen = 0;
-        }
-      } else {
-        offsetLen = 1 << offsetSizeType;
-      }
-
-      // 1(type) + idLen + offsetLen + 2(len) + 1(data)
-      if (room < (4 + idLen + offsetLen)) {
-        break;
-      }
-
-      // adjust the frame type:
-      framePtr[0] |= (idLen - 1) << 3;
-      assert(!(offsetSizeType & ~0x3));
-      framePtr[0] |= (offsetSizeType << 1);
-      framePtr++;
-
-      // Set streamId
-      memcpy(framePtr, ((uint8_t*)(&tmp32)) + (4 - idLen), idLen);
-      framePtr += idLen;
-
-      // Set offset
-      if (offsetLen) {
-        memcpy(framePtr, ((uint8_t*)(&offsetValue)) + (8 - offsetLen), offsetLen);
-        framePtr += offsetLen;
-      }
-
-      room -= (3 + idLen + offsetLen); //  1(type) + idLen + offsetLen + 2(len)
-      if (room < (*iter)->mLen) {
-        // we need to split this chunk. its too big
-        // todo iterate on them all instead of doing this n^2
-        // as there is a copy involved
-        std::unique_ptr<MozQuicStreamChunk>
-          tmp(new MozQuicStreamChunk((*iter)->mStreamID,
-                                     (*iter)->mOffset + room,
-                                     (*iter)->mData.get() + room,
-                                     (*iter)->mLen - room,
-                                     (*iter)->mFin));
-        (*iter)->mLen = room;
-        (*iter)->mFin = false;
-        auto iterReg = iter++;
-        mUnWrittenData.insert(iter, std::move(tmp));
-        iter = iterReg;
-      }
-      assert(room >= (*iter)->mLen);
-
-      // set the len and fin bits after any potential split
-      uint16_t tmp16 = (*iter)->mLen;
-      tmp16 = htons(tmp16);
-      memcpy(framePtr, &tmp16, 2);
-      framePtr += 2;
-
-      if ((*iter)->mFin) {
-        *typeBytePtr = *typeBytePtr | STREAM_FIN_BIT;
-      }
-
-      memcpy(framePtr, (*iter)->mData.get(), (*iter)->mLen);
-      fprintf(stderr,"writing a stream %d frame %d @ offset %d [fin=%d] in packet %lX\n",
-              (*iter)->mStreamID, (*iter)->mLen, (*iter)->mOffset, (*iter)->mFin, mNextTransmitPacketNumber);
-      framePtr += (*iter)->mLen;
-    }
-
-    (*iter)->mPacketNumber = mNextTransmitPacketNumber;
-    (*iter)->mTransmitTime = Timestamp();
-    if ((mConnectionState == CLIENT_STATE_CONNECTED) ||
-        (mConnectionState == SERVER_STATE_CONNECTED) ||
-        (mConnectionState == CLIENT_STATE_0RTT)) {
-      (*iter)->mTransmitKeyPhase = keyPhase1Rtt;
-    } else {
-      (*iter)->mTransmitKeyPhase = keyPhaseUnprotected;
-    }
-    (*iter)->mRetransmitted = false;
-
-    // move it to the unacked list
-    std::unique_ptr<MozQuicStreamChunk> x(std::move(*iter));
-    mUnAckedData.push_back(std::move(x));
-    iter = mUnWrittenData.erase(iter);
-  }
-  return MOZQUIC_OK;
-}
-
-uint32_t
-MozQuic::FlushStream(bool forceAck)
-{
-  if (!mDecodedOK) {
-    FlushStream0(forceAck);
-  }
-
-  if (mUnWrittenData.empty() && !forceAck) {
-    return MOZQUIC_OK;
-  }
-
-  assert(mMTU <= kMaxMTU);
-  unsigned char plainPkt[kMaxMTU];
-  uint32_t headerLen;
-
-  CreateShortPacketHeader(plainPkt, mMTU - kTagLen, headerLen);
-
-  unsigned char *framePtr = plainPkt + headerLen;
-  const unsigned char *endpkt = plainPkt + mMTU - kTagLen; // reserve 16 for aead tag
-  CreateStreamFrames(framePtr, endpkt, false);
-  
-  uint32_t rv = ProtectedTransmit(plainPkt, headerLen,
-                                  plainPkt + headerLen, framePtr - (plainPkt + headerLen),
-                                  mMTU - headerLen - kTagLen, true);
-  if (rv != MOZQUIC_OK) {
-    return rv;
-  }
-
-  if (!mUnWrittenData.empty()) {
-    return FlushStream(false);
-  }
   return MOZQUIC_OK;
 }
 
@@ -1477,28 +1213,10 @@ MozQuic::Timestamp()
   return (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
 }
 
-uint32_t
-MozQuic::Flush()
-{
-  return FlushStream(false);
-}
-
-uint32_t
-MozQuic::DoWriter(std::unique_ptr<MozQuicStreamChunk> &p)
-{
-  // this data gets queued to unwritten and framed and
-  // transmitted after prioritization by flush()
-  assert (mConnectionState != STATE_UNINITIALIZED);
-
-  mUnWrittenData.push_back(std::move(p));
-
-  return MOZQUIC_OK;
-}
-
 int32_t
 MozQuic::NSSInput(void *buf, int32_t amount)
 {
-  if (mStream0->Empty()) {
+  if (mStreamState->mStream0->Empty()) {
     PR_SetError(PR_WOULD_BLOCK_ERROR, 0);
     return -1;
   }
@@ -1508,7 +1226,7 @@ MozQuic::NSSInput(void *buf, int32_t amount)
   uint32_t amt = 0;
   bool fin = false;
 
-  uint32_t code = mStream0->Read((unsigned char *)buf,
+  uint32_t code = mStreamState->mStream0->Read((unsigned char *)buf,
                                  amount, amt, fin);
   if (code != MOZQUIC_OK) {
     PR_SetError(PR_IO_ERROR, 0);
@@ -1530,50 +1248,7 @@ MozQuic::NSSOutput(const void *buf, int32_t amount)
   // nss has produced some server output e.g. server hello
   // we need to put it into stream 0 so that it can be
   // written on the network
-  return mStream0->Write((const unsigned char *)buf, amount, false);
-}
-
-uint32_t
-MozQuic::RetransmitTimer()
-{
-  if (mUnAckedData.empty()) {
-    return MOZQUIC_OK;
-  }
-
-  // this is a crude stand in for reliability until we get a real loss
-  // recovery system built
-  uint64_t now = Timestamp();
-  uint64_t discardEpoch = now - kForgetUnAckedThresh;
-
-  for (auto i = mUnAckedData.begin(); i != mUnAckedData.end(); ) {
-    // just a linear backoff for now
-    uint64_t retransEpoch = now - (kRetransmitThresh * (*i)->mTransmitCount);
-    if ((*i)->mTransmitTime > retransEpoch) {
-      break;
-    }
-    if (((*i)->mTransmitTime <= discardEpoch) && (*i)->mRetransmitted) {
-      // this is only on packets that we are keeping around for timestamp purposes
-      fprintf(stderr,"old unacked packet forgotten %lX\n",
-              (*i)->mPacketNumber);
-      assert(!(*i)->mData);
-      i = mUnAckedData.erase(i);
-    } else if (!(*i)->mRetransmitted) {
-      assert((*i)->mData);
-      fprintf(stderr,"data associated with packet %lX retransmitted\n",
-              (*i)->mPacketNumber);
-      (*i)->mRetransmitted = true;
-
-      // the ctor steals the data pointer
-      std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(*(*i)));
-      assert(!(*i)->mData);
-      DoWriter(tmp);
-      i++;
-    } else {
-      i++;
-    }
-  }
-
-  return MOZQUIC_OK;
+  return mStreamState->mStream0->Write((const unsigned char *)buf, amount, false);
 }
 
 uint32_t

@@ -7,6 +7,15 @@
 
 namespace mozquic  {
 
+enum {
+  kMaxMTU = 1472,
+  kInitialMTU = 1200,
+  kMozQuicMSS = 16384,
+  kTagLen = 16,
+
+  STREAM_FIN_BIT = 0x20,
+};
+
 enum LongHeaderType {
   PACKET_TYPE_VERSION_NEGOTIATION    = 1,
   PACKET_TYPE_CLIENT_INITIAL         = 2,
@@ -115,11 +124,6 @@ public:
   } u;
 };
 
-enum 
-{
-  STREAM_FIN_BIT = 0x20,
-};
-  
 enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
   FRAME_TYPE_RST_STREAM_LENGTH        = 17,

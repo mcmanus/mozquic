@@ -12,8 +12,8 @@
 #include <unordered_map>
 #include <memory>
 #include <vector>
+#include <string.h>
 #include "MozQuicStream.h"
-#include "NSSHelper.h"
 #include "prnetdb.h"
 #include "MozQuic.h"
 #include "Packetization.h"
@@ -57,28 +57,17 @@ enum connectionState
 
 class MozQuicStreamPair;
 class MozQuicStreamAck;
+class NSSHelper;
+class StreamState;
 
-class MozQuic final : public MozQuicWriter
+class MozQuic final
 {
 friend class MozQuicStreamPair;
 friend class FrameHeaderData;
+friend class StreamState;
 public:
   static const char *kAlpn;
-
-  static const uint32_t kMaxMTU = 1472;
-  static const uint32_t kInitialMTU = 1200;
-  static const uint32_t kMinClientInitial = 1200;
-  static const uint32_t kMozQuicMSS = 16384;
-  static const uint32_t kTagLen = 16;
-
-  static const uint32_t kRetransmitThresh = 500;
-  static const uint32_t kForgetUnAckedThresh = 4000; // ms
   static const uint32_t kForgetInitialConnectionIDsThresh = 4000; // ms
-
-  static const uint32_t kMaxStreamDataDefault = 0xffffffff;
-  static const uint32_t kMaxDataDefault = 0xffffffff;
-  static const uint32_t kMaxStreamIDDefault = 0xffffffff;
-  static const uint16_t kIdleTimeoutDefault = 600;
 
   MozQuic(bool handleIO);
   MozQuic();
@@ -87,7 +76,8 @@ public:
   int StartClient();
   int StartServer();
   void SetInitialPacketNumber();
-  int StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin);
+  uint32_t StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin);
+  void DeleteStream(uint32_t streamID);
   int IO();
   void HandshakeOutput(unsigned char *, uint32_t amt);
   void HandshakeComplete(uint32_t errCode, struct mozquic_handshake_info *keyInfo);
@@ -111,11 +101,9 @@ public:
   }
   void SetAppHandlesSendRecv() { mAppHandlesSendRecv = true; }
   bool IgnorePKI();
-  void DeleteStream(uint32_t streamID);
   void Destroy(uint32_t, const char *);
   uint32_t CheckPeer(uint32_t);
-
-  uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) override;
+  enum connectionState GetConnectionState() { return mConnectionState; }
 
   bool IsOpen() {
     return (mConnectionState == CLIENT_STATE_0RTT || mConnectionState == CLIENT_STATE_1RTT ||
@@ -123,7 +111,9 @@ public:
             mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_CONNECTED);
   }
 
+  bool DecodedOK() { return mDecodedOK; }
   void GetRemotePeerAddressHash(unsigned char *out, uint32_t *outLen);
+  static uint64_t Timestamp();
 
 private:
   void RaiseError(uint32_t err, char *reason);
@@ -131,7 +121,6 @@ private:
   void AckScoreboard(uint64_t num, enum keyPhase kp);
   int MaybeSendAck();
 
-  uint32_t RetransmitTimer();
   uint32_t ClearOldInitialConnectIdsTimer();
   void Acknowledge(uint64_t packetNum, keyPhase kp);
   uint32_t AckPiggyBack(unsigned char *pkt, uint64_t pktNumber, uint32_t avail, keyPhase kp, uint32_t &used);
@@ -145,9 +134,6 @@ private:
   bool IntegrityCheck(unsigned char *, uint32_t size);
   void ProcessAck(class FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext);
 
-  uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
-                             const unsigned char *pkt, const unsigned char *endpkt,
-                             uint32_t &_ptr);
   uint32_t HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
                           const unsigned char *pkt, const unsigned char *endpkt,
                           uint32_t &_ptr);
@@ -165,13 +151,10 @@ private:
   uint32_t ClientConnected();
   uint32_t ServerConnected();
 
-  uint64_t Timestamp();
   uint32_t Intake();
-  uint32_t Flush();
   uint32_t FlushStream0(bool forceAck);
-  uint32_t FlushStream(bool forceAck);
-  uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt, bool justZero);
-  uint32_t ScrubUnWritten(uint32_t id);
+  uint32_t CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpkt,
+                           MozQuicStreamChunk *chunk);
 
   int Client1RTT();
   int Server1RTT();
@@ -183,8 +166,6 @@ private:
   uint32_t ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
 
   MozQuic *Accept(struct sockaddr_in *peer, uint64_t aConnectionID, uint64_t ciNumber);
-
-  uint32_t FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d);
 
   void StartPMTUD1();
   void CompletePMTUD1();
@@ -255,33 +236,8 @@ private:
   void *mClosure;
   int  (*mConnEventCB)(void *, uint32_t, void *);
 
-  std::unique_ptr<MozQuicStreamPair> mStream0;
-  std::unique_ptr<NSSHelper>         mNSSHelper;
-
-  uint32_t mNextStreamId;
-  uint32_t mNextRecvStreamId;
-  std::unordered_map<uint32_t, MozQuicStreamPair *> mStreams;
-
-  // wrt munwrittendata and munackeddata. retransmit happens off of
-  // munackeddata by duplicating it and placing it in munwrittendata. The
-  // dup'd entry is marked retransmitted so it doesn't repeat that. After a
-  // certain amount of time the retransmitted packet is just forgotten (as
-  // it won't be retransmitted again - that happens to the dup'd
-  // incarnation)
-  // mUnackedData is sorted by the packet number it was sent in.
-  std::list<std::unique_ptr<MozQuicStreamChunk>> mUnWrittenData;
-  std::list<std::unique_ptr<MozQuicStreamChunk>> mUnAckedData;
-
-  // macklist is the current state of all unacked acks - maybe written out,
-  // maybe not. ordered with the highest packet ack'd at front.Each time
-  // the whole set needs to be written out. each entry in acklist contains
-  // a vector of pairs (transmitTime, transmitID) representing each time it
-  // is written. Upon receipt of an ack we need to find transmitID and
-  // remove the entry from the acklist. TODO index by transmitID, but for
-  // now iterate from rear (oldest data being acknowledged).
-  //
-  // acks ordered {1,2,5,6,7} as 7/2, 2/1 (biggest at head)
-  std::list<MozQuicStreamAck>                    mAckList;
+  std::unique_ptr<NSSHelper>   mNSSHelper;
+  std::unique_ptr<StreamState> mStreamState;
 
   // parent and children are only defined on the server
   MozQuic *mParent; // only in child
@@ -298,9 +254,6 @@ private:
 
   bool     mDecodedOK;
 
-  uint32_t mPeerMaxStreamData;
-  uint32_t mPeerMaxData;
-  uint32_t mPeerMaxStreamID;
   uint16_t mPeerIdleTimeout;
 
   // need other frame 2 list
@@ -326,33 +279,6 @@ public:
     // FRAME_ERROR 0x8000001XX
   };
     
-};
-
-class MozQuicStreamAck
-{
-public:
-  MozQuicStreamAck(uint64_t num, uint64_t rtime, enum keyPhase kp)
-    : mPacketNumber(num)
-    , mExtra(0)
-    , mPhase (kp)
-    , mTimestampTransmitted(false)
-  {
-    mReceiveTime.push_front(rtime);
-  }
-
-  // num=10, mExtra=3 means we are acking 10, 9, 8, 7
-  // and ReceiveTime applies to 10
-  uint64_t mPacketNumber; // being ACKd
-  uint64_t mExtra;
-  std::list<uint64_t> mReceiveTime;
-  enum keyPhase mPhase;
-  bool mTimestampTransmitted;
-
-  // pair.first is packet number of transmitted ack
-  // pair.second is transmission time
-  std::vector<std::pair<uint64_t, uint64_t>> mTransmits;
-
-  bool Transmitted() { return !mTransmits.empty(); }
 };
 
 } //namespace

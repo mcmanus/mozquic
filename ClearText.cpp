@@ -5,6 +5,8 @@
 
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
+#include "NSSHelper.h"
+#include "Streams.h"
 
 #include "assert.h"
 #include "stdlib.h"
@@ -13,6 +15,7 @@
 namespace mozquic  {
 
 static const uint32_t kFNV64Size = 8;
+static const uint32_t kMinClientInitial = 1200;
 
 static uint64_t
 fnv1a(unsigned char *p, uint32_t len)
@@ -52,7 +55,7 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize)
 uint32_t
 MozQuic::FlushStream0(bool forceAck)
 {
-  if (mUnWrittenData.empty() && !forceAck) {
+  if (mStreamState->mUnWrittenData.empty() && !forceAck) {
     return MOZQUIC_OK;
   }
 
@@ -72,9 +75,9 @@ MozQuic::FlushStream0(bool forceAck)
   }
 
   if ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) {
-    assert(mStream0->Empty());
+    assert(mStreamState->mStream0->Empty());
     // just in case of server stateless reset pollution
-    mStream0->ResetInbound();
+    mStreamState->mStream0->ResetInbound();
   }
 
   // todo store a network order version of this
@@ -82,7 +85,7 @@ MozQuic::FlushStream0(bool forceAck)
   if (mConnectionState == SERVER_STATE_SSR) {
     fprintf(stderr,"Generating Server Stateless Retry.\n");
     connID = PR_htonll(mOriginalConnectionID);
-    assert(mUnAckedData.empty());
+    assert(mStreamState->mUnAckedData.empty());
   }
   memcpy(pkt + 1, &connID, 8);
 
@@ -95,7 +98,7 @@ MozQuic::FlushStream0(bool forceAck)
   memcpy(pkt + 13, &tmp32, 4);
 
   unsigned char *framePtr = pkt + 17;
-  CreateStreamFrames(framePtr, endpkt - 8, true); // last 8 are for checksum
+  mStreamState->CreateStreamFrames(framePtr, endpkt - 8, true); // last 8 are for checksum
   bool sentStream = (framePtr != (pkt + 17));
 
   // then padding as needed up to mtu on client_initial
@@ -109,8 +112,8 @@ MozQuic::FlushStream0(bool forceAck)
   } else if (mConnectionState == SERVER_STATE_SSR) {
     finalLen = ((framePtr - pkt) + 8);
     mConnectionState = SERVER_STATE_1RTT;
-    mUnAckedData.clear();
-    assert(mUnWrittenData.empty());
+    mStreamState->mUnAckedData.clear();
+    assert(mStreamState->mUnWrittenData.empty());
     if (mConnEventCB) {
       mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
     }
@@ -148,7 +151,7 @@ MozQuic::FlushStream0(bool forceAck)
 
     mNextTransmitPacketNumber++;
 
-    if (sentStream && !mUnWrittenData.empty()) {
+    if (sentStream && !mStreamState->mUnWrittenData.empty()) {
       return FlushStream0(false);
     }
   }
@@ -183,7 +186,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
   // in the header as the ack, so need to find that on the unacked list.
   // then we can reset the unacked list
   bool foundReference = false;
-  for (auto i = mUnAckedData.begin(); i != mUnAckedData.end(); i++) {
+  for (auto i = mStreamState->mUnAckedData.begin(); i != mStreamState->mUnAckedData.end(); i++) {
     if ((*i)->mPacketNumber == header.mPacketNumber) {
       foundReference = true;
       break;
@@ -194,10 +197,10 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
     return MOZQUIC_ERR_VERSION;
   }
 
-  mStream0.reset(new MozQuicStreamPair(0, this, this));
+  mStreamState->mStream0.reset(new MozQuicStreamPair(0, mStreamState.get(), this));
   mSetupTransportExtension = false;
-  mUnAckedData.clear();
-  mUnWrittenData.clear();
+  mStreamState->mUnAckedData.clear();
+  mStreamState->mUnWrittenData.clear();
   SetInitialPacketNumber();
 
   bool sendack = false;
@@ -238,7 +241,7 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
   // in the header as the ack, so need to find that on the unacked list.
   // then we can reset the unacked list
   bool foundReference = false;
-  for (auto i = mUnAckedData.begin(); i != mUnAckedData.end(); i++) {
+  for (auto i = mStreamState->mUnAckedData.begin(); i != mStreamState->mUnAckedData.end(); i++) {
     if ((*i)->mPacketNumber == header.mPacketNumber) {
       foundReference = true;
       break;
@@ -275,9 +278,9 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
     mVersion = newVersion;
     fprintf(stderr, "negotiated version %X\n", mVersion);
     mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
-    mStream0.reset(new MozQuicStreamPair(0, this, this));
+    mStreamState->mStream0.reset(new MozQuicStreamPair(0, mStreamState.get(), this));
     mSetupTransportExtension  = false;
-    mUnAckedData.clear();
+    mStreamState->mUnAckedData.clear();
     
     return MOZQUIC_OK;
   }
@@ -404,7 +407,7 @@ MozQuic::ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
   assert(mIsChild);
 
   assert(!mIsClient);
-  assert(mStream0);
+  assert(mStreamState->mStream0);
 
   if (header.mVersion != mVersion) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"version mismatch");

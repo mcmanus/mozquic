@@ -39,7 +39,7 @@ MozQuicStreamPair::Supply(std::unique_ptr<MozQuicStreamChunk> &p) {
       RstStream(MozQuic::ERROR_NO_ERROR);
     }
     mOut.mPeerRst = true;
-    mMozQuic->ScrubUnWritten(p->mStreamID);
+    mOut.ScrubUnWritten(p->mStreamID);
   }
   return mIn.Supply(p);
 }

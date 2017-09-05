@@ -5,6 +5,7 @@
 
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
+#include "Streams.h"
 
 #include "assert.h"
 #include "stdlib.h"
@@ -24,14 +25,14 @@ void
 MozQuic::AckScoreboard(uint64_t packetNumber, enum keyPhase kp)
 {
   // todo out of order packets should be coalesced
-  if (mAckList.empty()) {
-    mAckList.emplace_front(packetNumber, Timestamp(), kp);
+  if (mStreamState->mAckList.empty()) {
+    mStreamState->mAckList.emplace_front(packetNumber, Timestamp(), kp);
     return;
   }
   // todo coalesce also in case where two ranges can be combined
 
-  auto iter = mAckList.begin();
-  for (; iter != mAckList.end(); ++iter) {
+  auto iter = mStreamState->mAckList.begin();
+  for (; iter != mStreamState->mAckList.end(); ++iter) {
     if ((iter->mPhase == kp) &&
         ((iter->mPacketNumber + 1) == packetNumber)) {
       // the common case is to just adjust this counter
@@ -53,13 +54,13 @@ MozQuic::AckScoreboard(uint64_t packetNumber, enum keyPhase kp)
       break;
     }
   }
-  mAckList.emplace(iter, packetNumber, Timestamp(), kp);
+  mStreamState->mAckList.emplace(iter, packetNumber, Timestamp(), kp);
 }
 
 int
 MozQuic::MaybeSendAck()
 {
-  if (mAckList.empty()) {
+  if (mStreamState->mAckList.empty()) {
     return MOZQUIC_OK;
   }
 
@@ -71,14 +72,14 @@ MozQuic::MaybeSendAck()
   // todo for doing some kind of delack
 
   bool ackedUnprotected = false;
-  auto iter = mAckList.begin();
-  for (; iter != mAckList.end(); ++iter) {
+  auto iter = mStreamState->mAckList.begin();
+  for (; iter != mStreamState->mAckList.end(); ++iter) {
     if (iter->Transmitted()) {
       continue;
     }
     fprintf(stderr,"Trigger Ack based on %lX (extra %d) kp=%d\n",
             iter->mPacketNumber, iter->mExtra, iter->mPhase);
-    FlushStream(true);
+    mStreamState->Flush(true);
     break;
   }
   return MOZQUIC_OK;
@@ -103,7 +104,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
   uint8_t *numTS = nullptr;
   uint64_t largestAcked;
   uint64_t lowAcked;
-  for (auto iter = mAckList.begin(); iter != mAckList.end(); ) {
+  for (auto iter = mStreamState->mAckList.begin(); iter != mStreamState->mAckList.end(); ) {
     // list  ordered as 7/2, 2/1.. (with gap @4 @3)
     // i.e. highest num first
     if ((kp <= keyPhaseUnprotected) && iter->mPhase >= keyPhase0Rtt) {
@@ -218,7 +219,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
   uint64_t previousTS;
   uint32_t previousPktID;
   if (kp != keyPhaseUnprotected) {
-    for (auto iter = mAckList.begin(); iter != mAckList.end(); iter++) {
+    for (auto iter = mStreamState->mAckList.begin(); iter != mStreamState->mAckList.end(); iter++) {
       if (iter->mTimestampTransmitted) {
         continue;
       }
@@ -306,7 +307,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
             fromCleartext ? "cleartext" : "protected",
             largestAcked - extra, largestAcked);
     // form a stack here so we can process them starting at the
-    // lowest packet number, which is how mUnAckedData is ordered and
+    // lowest packet number, which is how mStreamState->mUnAckedData is ordered and
     // do it all in one pass
     assert(numRanges < 257);
     ackStack[numRanges] =
@@ -322,7 +323,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
     framePtr++;
   } while (1);
 
-  auto dataIter = mUnAckedData.begin();
+  auto dataIter = mStreamState->mUnAckedData.begin();
   for (auto iters = numRanges; iters > 0; --iters) {
     uint64_t haveAckFor = ackStack[iters - 1].first;
     uint64_t haveAckForEnd = haveAckFor + ackStack[iters - 1].second;
@@ -336,16 +337,16 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
     for (; haveAckFor < haveAckForEnd; haveAckFor++) {
 
       // skip over stuff that is too low
-      for (; (dataIter != mUnAckedData.end()) && ((*dataIter)->mPacketNumber < haveAckFor); dataIter++);
+      for (; (dataIter != mStreamState->mUnAckedData.end()) && ((*dataIter)->mPacketNumber < haveAckFor); dataIter++);
 
-      if ((dataIter == mUnAckedData.end()) || ((*dataIter)->mPacketNumber > haveAckFor)) {
+      if ((dataIter == mStreamState->mUnAckedData.end()) || ((*dataIter)->mPacketNumber > haveAckFor)) {
         fprintf(stderr,"ACK'd data not found for %lX ack\n", haveAckFor);
       } else {
         do {
           assert ((*dataIter)->mPacketNumber == haveAckFor);
           fprintf(stderr,"ACK'd data found for %lX\n", haveAckFor);
-          dataIter = mUnAckedData.erase(dataIter);
-        } while ((dataIter != mUnAckedData.end()) &&
+          dataIter = mStreamState->mUnAckedData.erase(dataIter);
+        } while ((dataIter != mStreamState->mUnAckedData.end()) &&
                  (*dataIter)->mPacketNumber == haveAckFor);
       }
     }
@@ -360,7 +361,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
     uint64_t haveAckForEnd = haveAckFor + ackStack[iters - 1].second;
     for (; haveAckFor < haveAckForEnd; haveAckFor++) {
       bool foundHaveAckFor = false;
-      for (auto acklistIter = mAckList.begin(); acklistIter != mAckList.end(); ) {
+      for (auto acklistIter = mStreamState->mAckList.begin(); acklistIter != mStreamState->mAckList.end(); ) {
         bool foundAckFor = false;
         for (auto vectorIter = acklistIter->mTransmits.begin();
              vectorIter != acklistIter->mTransmits.end(); vectorIter++ ) {
@@ -370,13 +371,13 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
                     acklistIter->mTransmits.size());
             foundAckFor = true;
             break; // vector iteration
-            // need to keep looking at the rest of mAckList. Todo this is terribly wasteful.
+            // need to keep looking at the rest of mStreamState->mAckList. Todo this is terribly wasteful.
           }
         } // vector iteration
         if (!foundAckFor) {
           acklistIter++;
         } else {
-          acklistIter = mAckList.erase(acklistIter);
+          acklistIter = mStreamState->mAckList.erase(acklistIter);
           foundHaveAckFor = true;
         }
       } // macklist iteration
