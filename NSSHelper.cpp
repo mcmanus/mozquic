@@ -392,6 +392,21 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
   assert(digestLen == sizeof(digest));
 
   fprintf(stderr,"HRRCallback first=%d tokenlen=%d max=%d\n", firstHello, clientTokenLen, retryTokMax);
+  fprintf(stderr,"Input : ");
+  for (int i = 0 ; i < sourceAddressLen; i++) {
+      fprintf(stderr,"%02X ", sourceAddressInfo[i]);
+  }
+  fprintf(stderr,"\nDigest: ");
+  for (int i = 0 ; i < digestLen; i++) {
+    fprintf(stderr,"%02X ", digest[i]);
+  }
+  if (!firstHello) {
+    fprintf(stderr,"\nCookie: ");
+    for (int i = 0 ; i < clientTokenLen; i++) {
+      fprintf(stderr,"%02X ", clientToken[i]);
+    }
+  }
+  fprintf(stderr,"\n");
   fprintf(stderr,"HRRCallback %d bytes of SourceAddress into %d bytes of hash\n",
           sourceAddressLen, digestLen);
 
