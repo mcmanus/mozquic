@@ -52,12 +52,13 @@ class MozQuicWriter
 {
 public:
   // the caller owns the unique_ptr if it returns 0
-  virtual uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) = 0;
+  virtual uint32_t ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p) = 0;
   virtual uint32_t ScrubUnWritten(uint32_t id) = 0;
 };
 
 class MozQuicStreamOut
 {
+  friend class StreamState;
 public:
   MozQuicStreamOut(uint32_t id, MozQuicWriter *w);
   ~MozQuicStreamOut();
@@ -68,7 +69,10 @@ public:
   uint32_t ScrubUnWritten(uint32_t id) { return mWriter->ScrubUnWritten(id); }
 
 private:
+  uint32_t StreamWrite(std::unique_ptr<MozQuicStreamChunk> &p);
+
   MozQuicWriter *mWriter;
+  std::list<std::unique_ptr<MozQuicStreamChunk>> mStreamUnWritten;
   uint32_t mStreamID;
   uint64_t mOffset;
   bool mFin;
@@ -108,6 +112,7 @@ public:
   MozQuicStreamPair(uint32_t id, MozQuicWriter *, MozQuic *);
   ~MozQuicStreamPair();
 
+  // Supply places data on the input (i.e. read()) queue
   uint32_t Supply(std::unique_ptr<MozQuicStreamChunk> &p);
 
   // todo it would be nice to have a zero copy interface

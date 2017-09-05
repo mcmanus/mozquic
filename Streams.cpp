@@ -107,11 +107,11 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
 uint32_t
 StreamState::ScrubUnWritten(uint32_t streamID)
 {
-  auto iter = mUnWrittenData.begin();
-  while (iter != mUnWrittenData.end()) {
+  auto iter = mConnUnWritten.begin();
+  while (iter != mConnUnWritten.end()) {
     auto chunk = (*iter).get();
     if (chunk->mStreamID == streamID && !chunk->mRst) {
-      iter = mUnWrittenData.erase(iter);
+      iter = mConnUnWritten.erase(iter);
       fprintf(stderr,"scrubbing chunk %p of unwritten id %d\n",
               chunk, streamID);
     } else {
@@ -133,6 +133,33 @@ StreamState::ScrubUnWritten(uint32_t streamID)
   return MOZQUIC_OK;
 }
 
+uint32_t
+StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
+{
+  for (auto iBuffer = out->mStreamUnWritten.begin();
+       iBuffer != out->mStreamUnWritten.end(); ) {
+    std::unique_ptr<MozQuicStreamChunk> x(std::move(*iBuffer));
+    mConnUnWritten.push_back(std::move(x));
+    iBuffer = out->mStreamUnWritten.erase(iBuffer);
+  }
+  return MOZQUIC_OK;
+}
+
+// This fx() identifies buffers in streampair.out.mStreamUnWritten and
+// promotoes them to the connection scoped mConnUnWritten according to
+// flow control rules
+uint32_t
+StreamState::FlowControlPromotion()
+{
+  if (mStream0) {
+    FlowControlPromotionForStream(&mStream0->mOut);
+  }
+  for (auto iStreamPair = mStreams.begin(); iStreamPair != mStreams.end(); iStreamPair++) {
+    FlowControlPromotionForStream(&iStreamPair->second->mOut);
+  }
+  return MOZQUIC_OK;
+}
+
 static uint8_t varSize(uint64_t input)
 {
   // returns 0->3 depending on magnitude of input
@@ -142,8 +169,8 @@ static uint8_t varSize(uint64_t input)
 uint32_t
 StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt, bool justZero)
 {
-  auto iter = mUnWrittenData.begin();
-  while (iter != mUnWrittenData.end()) {
+  auto iter = mConnUnWritten.begin();
+  while (iter != mConnUnWritten.end()) {
     if (justZero && (*iter)->mStreamID) {
       iter++;
       continue;
@@ -221,7 +248,7 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
         (*iter)->mLen = room;
         (*iter)->mFin = false;
         auto iterReg = iter++;
-        mUnWrittenData.insert(iter, std::move(tmp));
+        mConnUnWritten.insert(iter, std::move(tmp));
         iter = iterReg;
       }
       assert(room >= (*iter)->mLen);
@@ -257,7 +284,7 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
     // move it to the unacked list
     std::unique_ptr<MozQuicStreamChunk> x(std::move(*iter));
     mUnAckedData.push_back(std::move(x));
-    iter = mUnWrittenData.erase(iter);
+    iter = mConnUnWritten.erase(iter);
   }
   return MOZQUIC_OK;
 }
@@ -269,7 +296,8 @@ StreamState::Flush(bool forceAck)
     mMozQuic->FlushStream0(forceAck);
   }
 
-  if (mUnWrittenData.empty() && !forceAck) {
+  FlowControlPromotion();
+  if (mConnUnWritten.empty() && !forceAck) {
     return MOZQUIC_OK;
   }
 
@@ -291,20 +319,20 @@ StreamState::Flush(bool forceAck)
     return rv;
   }
 
-  if (!mUnWrittenData.empty()) {
+  if (!mConnUnWritten.empty()) {
     return Flush(false);
   }
   return MOZQUIC_OK;
 }
 
 uint32_t
-StreamState::DoWriter(std::unique_ptr<MozQuicStreamChunk> &p)
+StreamState::ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p)
 {
   // this data gets queued to unwritten and framed and
   // transmitted after prioritization by flush()
   assert (mMozQuic->GetConnectionState() != STATE_UNINITIALIZED);
   
-  mUnWrittenData.push_back(std::move(p));
+  mConnUnWritten.push_back(std::move(p));
 
   return MOZQUIC_OK;
 }
@@ -339,10 +367,13 @@ StreamState::RetransmitTimer()
               (*i)->mPacketNumber);
       (*i)->mRetransmitted = true;
 
-      // the ctor steals the data pointer
+      // move the data pointer from iter to tmp
       std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(*(*i)));
       assert(!(*i)->mData);
-      DoWriter(tmp);
+      assert(tmp->mData);
+
+      // its ok to bypass the per out stream flow control window on rexmit
+      ConnectionWrite(tmp);
       i++;
     } else {
       i++;

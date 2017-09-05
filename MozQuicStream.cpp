@@ -275,6 +275,15 @@ MozQuicStreamOut::~MozQuicStreamOut()
 }
 
 uint32_t
+MozQuicStreamOut::StreamWrite(std::unique_ptr<MozQuicStreamChunk> &p)
+{
+  mStreamUnWritten.push_back(std::move(p));
+
+  return MOZQUIC_OK;
+}
+
+
+uint32_t
 MozQuicStreamOut::Write(const unsigned char *data, uint32_t len, bool fin)
 {
   if (mPeerRst) {
@@ -288,7 +297,7 @@ MozQuicStreamOut::Write(const unsigned char *data, uint32_t len, bool fin)
   std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(mStreamID, mOffset, data, len, fin));
   mOffset += len;
   mFin = fin;
-  return mWriter->DoWriter(tmp);
+  return StreamWrite(tmp);
 }
 
 int
@@ -300,7 +309,7 @@ MozQuicStreamOut::EndStream()
   mFin = true;
 
   std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(mStreamID, mOffset, nullptr, 0, true));
-  return mWriter->DoWriter(tmp);
+  return StreamWrite(tmp);
 }
 
 int
@@ -311,9 +320,11 @@ MozQuicStreamOut::RstStream(uint32_t code)
   }
   mFin = true;
 
+  // empty local queue before sending rst
+  mStreamUnWritten.clear();
   std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(mStreamID, mOffset, nullptr, 0, 0));
   tmp->MakeStreamRst(code);
-  return mWriter->DoWriter(tmp);
+  return mWriter->ConnectionWrite(tmp);
 }
 
 MozQuicStreamChunk::MozQuicStreamChunk(uint32_t id, uint64_t offset,

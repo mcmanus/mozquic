@@ -47,6 +47,7 @@ class StreamState : public MozQuicWriter
   friend class MozQuic;
 public:
   StreamState(MozQuic *);
+  uint32_t ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p) override;
 
   uint32_t StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d);
@@ -54,7 +55,6 @@ public:
   void DeleteStream(uint32_t streamID);
   uint32_t Flush(bool forceAck);
   uint32_t ScrubUnWritten(uint32_t id) override;
-  uint32_t DoWriter(std::unique_ptr<MozQuicStreamChunk> &p) override;
   uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                              const unsigned char *pkt, const unsigned char *endpkt,
                              uint32_t &_ptr);
@@ -64,6 +64,9 @@ public:
   void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamId = next; mNextRecvStreamId = nextR; }
 
 private:
+  uint32_t FlowControlPromotion();
+  uint32_t FlowControlPromotionForStream(MozQuicStreamOut *out);
+
   MozQuic *mMozQuic;
   uint32_t mNextStreamId;
   uint32_t mNextRecvStreamId;
@@ -76,14 +79,14 @@ private: // these still need friend mozquic
   std::unique_ptr<MozQuicStreamPair> mStream0;
   std::unordered_map<uint32_t, MozQuicStreamPair *> mStreams;
 
-  // wrt munwrittendata and munackeddata. retransmit happens off of
-  // munackeddata by duplicating it and placing it in munwrittendata. The
+  // retransmit happens off of mUnAckedData by
+  // duplicating it and placing it in mConnUnWritten. The
   // dup'd entry is marked retransmitted so it doesn't repeat that. After a
   // certain amount of time the retransmitted packet is just forgotten (as
   // it won't be retransmitted again - that happens to the dup'd
   // incarnation)
   // mUnackedData is sorted by the packet number it was sent in.
-  std::list<std::unique_ptr<MozQuicStreamChunk>> mUnWrittenData;
+  std::list<std::unique_ptr<MozQuicStreamChunk>> mConnUnWritten;
   std::list<std::unique_ptr<MozQuicStreamChunk>> mUnAckedData;
 
   // macklist is the current state of all unacked acks - maybe written out,

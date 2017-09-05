@@ -55,7 +55,9 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize)
 uint32_t
 MozQuic::FlushStream0(bool forceAck)
 {
-  if (mStreamState->mUnWrittenData.empty() && !forceAck) {
+  mStreamState->FlowControlPromotion();
+
+  if (mStreamState->mConnUnWritten.empty() && !forceAck) {
     return MOZQUIC_OK;
   }
 
@@ -113,7 +115,7 @@ MozQuic::FlushStream0(bool forceAck)
     finalLen = ((framePtr - pkt) + 8);
     mConnectionState = SERVER_STATE_1RTT;
     mStreamState->mUnAckedData.clear();
-    assert(mStreamState->mUnWrittenData.empty());
+    assert(mStreamState->mConnUnWritten.empty());
     if (mConnEventCB) {
       mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
     }
@@ -151,7 +153,7 @@ MozQuic::FlushStream0(bool forceAck)
 
     mNextTransmitPacketNumber++;
 
-    if (sentStream && !mStreamState->mUnWrittenData.empty()) {
+    if (sentStream && !mStreamState->mConnUnWritten.empty()) {
       return FlushStream0(false);
     }
   }
@@ -200,7 +202,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
   mStreamState->mStream0.reset(new MozQuicStreamPair(0, mStreamState.get(), this));
   mSetupTransportExtension = false;
   mStreamState->mUnAckedData.clear();
-  mStreamState->mUnWrittenData.clear();
+  mStreamState->mConnUnWritten.clear();
   SetInitialPacketNumber();
 
   bool sendack = false;
