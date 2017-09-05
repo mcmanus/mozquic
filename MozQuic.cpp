@@ -243,6 +243,17 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
 }
 
+void
+MozQuic::SetInitialPacketNumber()
+{
+  for (int i=0; i < 2; i++) {
+    mNextTransmitPacketNumber = mNextTransmitPacketNumber << 16;
+    mNextTransmitPacketNumber = mNextTransmitPacketNumber | (random() & 0xffff);
+  }
+  mNextTransmitPacketNumber &= 0x7fffffff; // 31 bits
+  mOriginalTransmitPacketNumber = mNextTransmitPacketNumber;
+}
+
 int
 MozQuic::StartClient()
 {
@@ -261,12 +272,7 @@ MozQuic::StartClient()
     mConnectionID = mConnectionID << 16;
     mConnectionID = mConnectionID | (random() & 0xffff);
   }
-  for (int i=0; i < 2; i++) {
-    mNextTransmitPacketNumber = mNextTransmitPacketNumber << 16;
-    mNextTransmitPacketNumber = mNextTransmitPacketNumber | (random() & 0xffff);
-  }
-  mNextTransmitPacketNumber &= 0x7fffffff; // 31 bits
-  mOriginalTransmitPacketNumber = mNextTransmitPacketNumber;
+  SetInitialPacketNumber();
 
   if (mFD == MOZQUIC_SOCKET_BAD) {
     // the application did not pass in its own fd
@@ -1224,12 +1230,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
     }
   } while (mConnectionHash.count(child->mConnectionID) != 0);
 
-  for (int i=0; i < 2; i++) {
-    child->mNextTransmitPacketNumber = child->mNextTransmitPacketNumber << 16;
-    child->mNextTransmitPacketNumber = child->mNextTransmitPacketNumber | (random() & 0xffff);
-  }
-  child->mNextTransmitPacketNumber &= 0x7fffffff; // 31 bits
-  child->mOriginalTransmitPacketNumber = child->mNextTransmitPacketNumber;
+  child->SetInitialPacketNumber();
 
   child->mNSSHelper.reset(new NSSHelper(child, mTolerateBadALPN, mOriginName.get()));
   child->mVersion = mVersion;

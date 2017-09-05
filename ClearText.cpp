@@ -198,6 +198,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
   mSetupTransportExtension = false;
   mUnAckedData.clear();
   mUnWrittenData.clear();
+  SetInitialPacketNumber();
 
   bool sendack = false;
   return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendack, true);
