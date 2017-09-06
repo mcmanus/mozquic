@@ -161,10 +161,6 @@ private:
 
   uint32_t Intake();
   uint32_t FlushStream0(bool forceAck);
-  uint32_t CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpkt,
-                           ReliableData *chunk);
-  uint32_t CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
-                                    ReliableData *chunk);
 
   int Client1RTT();
   int Server1RTT();

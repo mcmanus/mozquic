@@ -67,8 +67,17 @@ public:
   uint32_t HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartext,
                                     const unsigned char *pkt, const unsigned char *endpkt,
                                     uint32_t &_ptr);
+  uint32_t HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartext,
+                                    const unsigned char *pkt, const unsigned char *endpkt,
+                                    uint32_t &_ptr);
   uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt,
                               bool justZero);
+  uint32_t CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                ReliableData *chunk);
+  uint32_t CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                    ReliableData *chunk);
+  uint32_t CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                    ReliableData *chunk);
 
   void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamId = next; mNextRecvStreamId = nextR; }
 

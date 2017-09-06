@@ -296,6 +296,7 @@ MozQuicStreamOut::MozQuicStreamOut(uint32_t id, FlowController *fc,
   , mOffset(0)
   , mFlowControlLimit(flowControlLimit)
   , mFin(false)
+  , mBlocked(false)
   , mPeerRst(false)
 {
 }

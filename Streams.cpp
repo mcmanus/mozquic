@@ -135,6 +135,21 @@ StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartex
 }
 
 uint32_t
+StreamState::HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartext,
+                                      const unsigned char *pkt, const unsigned char *endpkt,
+                                      uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "stream blocked frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  uint32_t streamID = result->u.mStreamBlocked.mStreamID;
+  fprintf(stderr,"recvd stream blocked id=%X\n", streamID);
+  return MOZQUIC_OK;
+}
+
+uint32_t
 StreamState::ScrubUnWritten(uint32_t streamID)
 {
   auto iter = mConnUnWritten.begin();
@@ -173,7 +188,14 @@ StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
     if ((*iBuffer)->mLen) {
       if ((*iBuffer)->mOffset >= out->mFlowControlLimit) {
         iBuffer++;
-        fprintf(stderr,"BLOCKED\n"); // todo
+        if (!out->mBlocked) {
+          fprintf(stderr,"Stream %d BLOCKED flow control\n",
+                  (*iBuffer)->mStreamID);
+          out->mBlocked = true;
+          std::unique_ptr<ReliableData> tmp(new ReliableData((*iBuffer)->mStreamID, 0, nullptr, 0, 0));
+          tmp->MakeStreamBlocked();
+          return ConnectionWrite(tmp);
+        }
         continue;
       }
       if ((*iBuffer)->mOffset + (*iBuffer)->mLen > out->mFlowControlLimit) {
@@ -200,6 +222,7 @@ StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
     }
     
     assert((*iBuffer)->mOffset + (*iBuffer)->mLen <= out->mFlowControlLimit);
+    out->mBlocked = false;
     fprintf(stderr,"promoting chunk stream %d %ld.%d [limit=%ld]\n",
             (*iBuffer)->mStreamID, (*iBuffer)->mOffset, (*iBuffer)->mLen,
             out->mFlowControlLimit);
@@ -242,11 +265,15 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       continue;
     }
     if ((*iter)->mType == ReliableData::kStreamRst) {
-      if (mMozQuic->CreateStreamRst(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+      if (CreateStreamRstFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
     } else if ((*iter)->mType == ReliableData::kMaxStreamData) {
-      if (mMozQuic->CreateMaxStreamDataFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+      if (CreateMaxStreamDataFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+        break;
+      }
+    } else if ((*iter)->mType == ReliableData::kStreamBlocked) {
+      if (CreateStreamBlockedFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
     } else {
@@ -476,6 +503,71 @@ StreamState::RetransmitTimer()
     }
   }
 
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamState::CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                  ReliableData *chunk)
+{
+  fprintf(stderr,"generating stream reset %d\n", chunk->mOffset);
+  assert(chunk->mType == ReliableData::kStreamRst);
+  assert(chunk->mStreamID);
+  assert(!chunk->mLen);
+  uint32_t room = endpkt - framePtr;
+  if (room < 17) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr[0] = FRAME_TYPE_RST_STREAM;
+  uint32_t tmp32 = htonl(chunk->mStreamID);
+  memcpy(framePtr + 1, &tmp32, 4);
+  tmp32 = htonl(chunk->mRstCode);
+  memcpy(framePtr + 5, &tmp32, 4);
+  uint64_t tmp64 = PR_htonll(chunk->mOffset);
+  memcpy(framePtr + 9, &tmp64, 8);
+  framePtr += 17;
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamState::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                      ReliableData *chunk)
+{
+  fprintf(stderr,"generating max stream data id=%d val=%ld\n",
+          chunk->mStreamID, chunk->mStreamCreditValue);
+  assert(chunk->mType == ReliableData::kMaxStreamData);
+  assert(chunk->mStreamCreditValue);
+  assert(!chunk->mLen);
+
+  uint32_t room = endpkt - framePtr;
+  if (room < 13) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr[0] = FRAME_TYPE_MAX_STREAM_DATA;
+  uint32_t tmp32 = htonl(chunk->mStreamID);
+  memcpy(framePtr + 1, &tmp32, 4);
+  uint64_t tmp64 = PR_htonll(chunk->mStreamCreditValue);
+  memcpy(framePtr + 5, &tmp64, 8);
+  framePtr += 13;
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamState::CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                      ReliableData *chunk)
+{
+  fprintf(stderr,"generating stream blocked id=%d\n", chunk->mStreamID);
+  assert(chunk->mType == ReliableData::kStreamBlocked);
+  assert(!chunk->mLen);
+
+  uint32_t room = endpkt - framePtr;
+  if (room < 5) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr[0] = FRAME_TYPE_STREAM_BLOCKED;
+  uint32_t tmp32 = htonl(chunk->mStreamID);
+  memcpy(framePtr + 1, &tmp32, 4);
+  framePtr += 5;
   return MOZQUIC_OK;
 }
 

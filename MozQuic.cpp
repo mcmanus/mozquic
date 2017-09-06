@@ -1094,6 +1094,14 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
+    case FRAME_TYPE_STREAM_BLOCKED:
+      sendAck = true;
+      rv = mStreamState->HandleStreamBlockedFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
     default:
       sendAck = true;
       if (fromCleartext) {
@@ -1196,52 +1204,6 @@ MozQuic::DeleteStream(uint32_t id)
   if (mStreamState) {
     mStreamState->DeleteStream(id);
   }
-}
-
-uint32_t
-MozQuic::CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpkt,
-                         ReliableData *chunk)
-{
-  fprintf(stderr,"generating stream reset %d\n", chunk->mOffset);
-  assert(chunk->mType == ReliableData::kStreamRst);
-  assert(chunk->mStreamID);
-  assert(!chunk->mLen);
-  uint32_t room = endpkt - framePtr;
-  if (room < 17) {
-    return MOZQUIC_ERR_GENERAL;
-  }
-  framePtr[0] = FRAME_TYPE_RST_STREAM;
-  uint32_t tmp32 = htonl(chunk->mStreamID);
-  memcpy(framePtr + 1, &tmp32, 4);
-  tmp32 = htonl(chunk->mRstCode);
-  memcpy(framePtr + 5, &tmp32, 4);
-  uint64_t tmp64 = PR_htonll(chunk->mOffset);
-  memcpy(framePtr + 9, &tmp64, 8);
-  framePtr += 17;
-  return MOZQUIC_OK;
-}
-
-uint32_t
-MozQuic::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
-                                  ReliableData *chunk)
-{
-  fprintf(stderr,"generating max stream data id=%d val=%ld\n",
-          chunk->mStreamID, chunk->mStreamCreditValue);
-  assert(chunk->mType == ReliableData::kMaxStreamData);
-  assert(chunk->mStreamCreditValue);
-  assert(!chunk->mLen);
-
-  uint32_t room = endpkt - framePtr;
-  if (room < 13) {
-    return MOZQUIC_ERR_GENERAL;
-  }
-  framePtr[0] = FRAME_TYPE_MAX_STREAM_DATA;
-  uint32_t tmp32 = htonl(chunk->mStreamID);
-  memcpy(framePtr + 1, &tmp32, 4);
-  uint64_t tmp64 = PR_htonll(chunk->mStreamCreditValue);
-  memcpy(framePtr + 5, &tmp64, 8);
-  framePtr += 13;
-  return MOZQUIC_OK;
 }
 
 uint64_t

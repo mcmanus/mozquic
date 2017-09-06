@@ -24,10 +24,11 @@ public:
 
   void MakeStreamRst(uint32_t code) { mType = kStreamRst; mRstCode = code;}
   void MakeMaxStreamData(uint64_t offset) { mType = kMaxStreamData; mStreamCreditValue = offset;}
+  void MakeStreamBlocked() { mType = kStreamBlocked; }
 
   enum 
   {
-    kStream, kStreamRst, kMaxStreamData,
+    kStream, kStreamRst, kMaxStreamData, kStreamBlocked,
   } mType;
   
   std::unique_ptr<const unsigned char []>mData;
@@ -82,6 +83,7 @@ private:
   uint64_t mOffset;
   uint64_t mFlowControlLimit;
   bool mFin;
+  bool mBlocked;
 public:
   bool mPeerRst;
 };
