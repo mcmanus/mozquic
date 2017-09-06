@@ -217,7 +217,6 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
 
   newFrame = true;
   uint64_t previousTS;
-  uint32_t previousPktID;
   if (kp != keyPhaseUnprotected) {
     for (auto iter = mStreamState->mAckList.begin(); iter != mStreamState->mAckList.end(); iter++) {
       if (iter->mTimestampTransmitted) {
@@ -231,27 +230,23 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
           break;
         }
 
+        uint64_t deltaLA = largestAcked - iter->mPacketNumber;
+        if (deltaLA > 255) {
+          break;
+        }
+
         if (newFrame) {
           newFrame = false;
-          uint64_t gap = largestAcked - iter->mPacketNumber;
-          if (gap > 255) {
-            break;
-          }
-          pkt[0] = gap;
+          pkt[0] = deltaLA;
           uint32_t delta = *pIter - mTimestampConnBegin;
           delta = htonl(delta);
           memcpy(pkt + 1, &delta, 4);
-          previousPktID = iter->mPacketNumber;
           previousTS = *pIter;
           pkt += 5;
           used += 5;
           avail -= 5;
         } else {
-          uint64_t gap = previousPktID - (iter->mPacketNumber - i);
-          if (gap > 255) {
-            break;
-          }
-          pkt[0] = gap;
+          pkt[0] = deltaLA;
           uint64_t delay64 = (previousTS - *pIter) * 1000;
           uint16_t delay = htons(ufloat16_encode(delay64));
           memcpy(pkt + 1, &delay, 2);
