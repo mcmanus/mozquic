@@ -42,19 +42,23 @@ public:
   bool Transmitted() { return !mTransmits.empty(); }
 };
 
-class StreamState : public MozQuicWriter
+class StreamState : public FlowController
 {
   friend class MozQuic;
 public:
   StreamState(MozQuic *);
-  uint32_t ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p) override;
 
+  // FlowController Methods
+  uint32_t ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p) override;
+  uint32_t ScrubUnWritten(uint32_t id) override;
+  virtual uint32_t GetIncrement() override;
+  virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) override;
+  
   uint32_t StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d);
   uint32_t RetransmitTimer();
   void DeleteStream(uint32_t streamID);
   uint32_t Flush(bool forceAck);
-  uint32_t ScrubUnWritten(uint32_t id) override;
   uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                              const unsigned char *pkt, const unsigned char *endpkt,
                              uint32_t &_ptr);
@@ -72,7 +76,9 @@ private:
   uint32_t mNextRecvStreamId;
 
 private: // these still need friend mozquic
-  uint32_t mPeerMaxStreamData;
+  uint32_t mPeerMaxStreamData;  // max offset we can send
+  uint32_t mLocalMaxStreamData; // max offset peer can send
+
   uint32_t mPeerMaxData;
   uint32_t mPeerMaxStreamID;
 

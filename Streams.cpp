@@ -17,7 +17,8 @@ uint32_t
 StreamState::StartNewStream(MozQuicStreamPair **outStream, const void *data,
                             uint32_t amount, bool fin)
 {
-  *outStream = new MozQuicStreamPair(mNextStreamId, this, mMozQuic);
+  *outStream = new MozQuicStreamPair(mNextStreamId, mMozQuic, this,
+                                     mPeerMaxStreamData, mLocalMaxStreamData);
   mStreams.insert( { mNextStreamId, *outStream } );
   mNextStreamId += 2;
   if ( amount || fin) {
@@ -34,7 +35,8 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &
   while (streamID >= mNextRecvStreamId) {
     fprintf(stderr, "Add new stream %d\n", mNextRecvStreamId);
     MozQuicStreamPair *stream = new MozQuicStreamPair(mNextRecvStreamId,
-                                                      this, mMozQuic);
+                                                      mMozQuic, this,
+                                                      mPeerMaxStreamData, mLocalMaxStreamData);
     mStreams.insert( { mNextRecvStreamId, stream } );
     mNextRecvStreamId += 2;
   }
@@ -138,6 +140,42 @@ StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
 {
   for (auto iBuffer = out->mStreamUnWritten.begin();
        iBuffer != out->mStreamUnWritten.end(); ) {
+    // todo whitelist 0len
+
+    if ((*iBuffer)->mLen) {
+      if ((*iBuffer)->mOffset >= out->mFlowControlLimit) {
+        iBuffer++;
+        fprintf(stderr,"BLOCKED\n"); // todo
+        continue;
+      }
+      if ((*iBuffer)->mOffset + (*iBuffer)->mLen > out->mFlowControlLimit) {
+        // need to split it!
+
+        uint64_t room = out->mFlowControlLimit - (*iBuffer)->mOffset;
+
+        std::unique_ptr<MozQuicStreamChunk>
+          tmp(new MozQuicStreamChunk((*iBuffer)->mStreamID,
+                                     (*iBuffer)->mOffset + room,
+                                     (*iBuffer)->mData.get() + room,
+                                     (*iBuffer)->mLen - room,
+                                     (*iBuffer)->mFin));
+        (*iBuffer)->mLen = room;
+        (*iBuffer)->mFin = false;
+        fprintf(stderr,"FlowControlPromotionForStream splitting chunk into "
+                "%ld.%d and %ld.%d\n",
+                (*iBuffer)->mOffset, (*iBuffer)->mLen,
+                tmp->mOffset, tmp->mLen);
+        auto iterReg = iBuffer++;
+        out->mStreamUnWritten.insert(iBuffer, std::move(tmp));
+        iBuffer = iterReg;
+      }
+    }
+    
+    assert((*iBuffer)->mOffset + (*iBuffer)->mLen <= out->mFlowControlLimit);
+    fprintf(stderr,"promoting chunk stream %d %ld.%d [limit=%ld]\n",
+            (*iBuffer)->mStreamID, (*iBuffer)->mOffset, (*iBuffer)->mLen,
+            out->mFlowControlLimit);
+    assert((*iBuffer)->mOffset + (*iBuffer)->mLen <= out->mFlowControlLimit);
     std::unique_ptr<MozQuicStreamChunk> x(std::move(*iBuffer));
     mConnUnWritten.push_back(std::move(x));
     iBuffer = out->mStreamUnWritten.erase(iBuffer);
@@ -338,6 +376,22 @@ StreamState::ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p)
 }
 
 uint32_t
+StreamState::GetIncrement()
+{
+  if (mLocalMaxStreamData < 1024 * 1024) {
+    return mLocalMaxStreamData;
+  }
+  return 1024 * 1024; // todo
+}
+
+uint32_t
+StreamState::IssueStreamCredit(uint32_t streamID, uint64_t newMax)
+{
+  fprintf(stderr,"Issue a stream credit id=%d maxoffset=%ld\n", streamID, newMax);
+  return MOZQUIC_OK;
+}
+
+uint32_t
 StreamState::RetransmitTimer()
 {
   if (mUnAckedData.empty()) {
@@ -388,6 +442,7 @@ StreamState::StreamState(MozQuic *q)
   , mNextStreamId(1)
   , mNextRecvStreamId(1)
   , mPeerMaxStreamData(kMaxStreamDataDefault)
+  , mLocalMaxStreamData(5000) // todo config
   , mPeerMaxData(kMaxDataDefault)
   , mPeerMaxStreamID(kMaxStreamIDDefault)
 {

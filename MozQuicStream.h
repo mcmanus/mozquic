@@ -48,33 +48,39 @@ public:
   enum keyPhase mTransmitKeyPhase;
 };
 
-class MozQuicWriter
+class FlowController
 {
 public:
   // the caller owns the unique_ptr if it returns 0
   virtual uint32_t ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p) = 0;
   virtual uint32_t ScrubUnWritten(uint32_t id) = 0;
+  virtual uint32_t GetIncrement() = 0;
+  virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) = 0;
 };
 
 class MozQuicStreamOut
 {
   friend class StreamState;
 public:
-  MozQuicStreamOut(uint32_t id, MozQuicWriter *w);
+  MozQuicStreamOut(uint32_t id, FlowController *f, uint64_t limit);
   ~MozQuicStreamOut();
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
   int EndStream();
   int RstStream(uint32_t code);
   bool Done() { return mFin || mPeerRst; }
   uint32_t ScrubUnWritten(uint32_t id) { return mWriter->ScrubUnWritten(id); }
+  void NewFlowControlLimit(uint64_t limit) {
+    mFlowControlLimit = limit;
+  }
 
 private:
   uint32_t StreamWrite(std::unique_ptr<MozQuicStreamChunk> &p);
-
-  MozQuicWriter *mWriter;
+  
+  FlowController *mWriter;
   std::list<std::unique_ptr<MozQuicStreamChunk>> mStreamUnWritten;
   uint32_t mStreamID;
   uint64_t mOffset;
+  uint64_t mFlowControlLimit;
   bool mFin;
 public:
   bool mPeerRst;
@@ -83,7 +89,7 @@ public:
 class MozQuicStreamIn
 {
 public:
-  MozQuicStreamIn(uint32_t id);
+  MozQuicStreamIn(uint32_t id, FlowController *flowController, uint64_t localMSD);
   ~MozQuicStreamIn();
   uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin);
   uint32_t Supply(std::unique_ptr<MozQuicStreamChunk> &p);
@@ -95,8 +101,15 @@ public:
   uint32_t ResetInbound();
 
 private:
+  uint32_t mStreamID;
   uint64_t mOffset;
   uint64_t mFinOffset;
+
+  uint64_t mLocalMaxStreamData; // highest flow control we have sent to peer
+  uint64_t mNextStreamDataExpected;
+
+  FlowController *mFlowController;
+
   bool     mFinRecvd;
   bool     mRstRecvd;
   bool     mEndGivenToApp;
@@ -109,7 +122,8 @@ class MozQuic;
 class MozQuicStreamPair
 {
 public:
-  MozQuicStreamPair(uint32_t id, MozQuicWriter *, MozQuic *);
+  MozQuicStreamPair(uint32_t id, MozQuic *, FlowController *,
+                    uint64_t peerMSD, uint64_t localMSD);
   ~MozQuicStreamPair();
 
   // Supply places data on the input (i.e. read()) queue
@@ -125,7 +139,11 @@ public:
   }
 
   uint32_t ResetInbound();
-  
+
+  void NewFlowControlLimit(uint64_t limit) {
+    mOut.NewFlowControlLimit(limit);
+  }
+
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
 
   int EndStream() {

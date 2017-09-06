@@ -199,7 +199,9 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
     return MOZQUIC_ERR_VERSION;
   }
 
-  mStreamState->mStream0.reset(new MozQuicStreamPair(0, mStreamState.get(), this));
+  mStreamState->mStream0.reset(new MozQuicStreamPair(0, this, mStreamState.get(),
+                                                     kMaxStreamDataDefault,
+                                                     mStreamState->mLocalMaxStreamData));
   mSetupTransportExtension = false;
   mStreamState->mUnAckedData.clear();
   mStreamState->mConnUnWritten.clear();
@@ -280,7 +282,9 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
     mVersion = newVersion;
     fprintf(stderr, "negotiated version %X\n", mVersion);
     mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
-    mStreamState->mStream0.reset(new MozQuicStreamPair(0, mStreamState.get(), this));
+    mStreamState->mStream0.reset(new MozQuicStreamPair(0, this, mStreamState.get(),
+                                                       kMaxStreamDataDefault,
+                                                       mStreamState->mLocalMaxStreamData));
     mSetupTransportExtension  = false;
     mStreamState->mUnAckedData.clear();
     

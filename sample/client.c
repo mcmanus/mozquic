@@ -90,9 +90,9 @@ has_arg(int argc, char **argv, char *test, char **value)
 void streamtest1(mozquic_connection_t *c)
 {
   fprintf(stderr,"Start sending data.\n");
-  char msg[2000];
-  memset(msg, 'f', 1999);
-  msg[1999] = 0;
+  char msg[8000];
+  memset(msg, 'f', 7999);
+  msg[7999] = 0;
   mozquic_stream_t *stream;
   mozquic_start_new_stream(&stream, c, "PREAMBLE", 8, 0);
   mozquic_send(stream, msg, strlen(msg), 0);

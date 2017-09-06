@@ -259,7 +259,9 @@ MozQuic::StartClient()
   mIsClient = true;
   mStreamState->InitIDs(1,2);
   mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
-  mStreamState->mStream0.reset(new MozQuicStreamPair(0, mStreamState.get(), this));
+  mStreamState->mStream0.reset(new MozQuicStreamPair(0, this, mStreamState.get(),
+                                                     kMaxStreamDataDefault,
+                                                     mStreamState->mLocalMaxStreamData));
 
   assert(!mClientOriginalOfferedVersion);
   mClientOriginalOfferedVersion = mVersion;
@@ -401,7 +403,8 @@ MozQuic::Client1RTT()
       TransportExtension::
         EncodeClientTransportParameters(te, teLength, 2048,
                                         mVersion, mClientOriginalOfferedVersion,
-                                        kMaxStreamDataDefault, kMaxDataDefault,
+                                        mStreamState->mLocalMaxStreamData,
+                                        kMaxDataDefault,
                                         kMaxStreamIDDefault, kIdleTimeoutDefault);
       mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
       mSetupTransportExtension = true;
@@ -444,7 +447,8 @@ MozQuic::Server1RTT()
     TransportExtension::
       EncodeServerTransportParameters(te, teLength, 2048,
                                       VersionNegotiationList, sizeof(VersionNegotiationList) / sizeof (uint32_t),
-                                      kMaxStreamDataDefault, kMaxDataDefault,
+                                      mStreamState->mLocalMaxStreamData,
+                                      kMaxDataDefault,
                                       kMaxStreamIDDefault, kIdleTimeoutDefault, resetToken);
     mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
     mSetupTransportExtension = true;
@@ -803,7 +807,7 @@ MozQuic::ClientConnected()
   uint32_t decodeResult;
   uint32_t errorCode = ERROR_NO_ERROR;
   if (!extensionInfoLen && mTolerateNoTransportParams) {
-    fprintf(stderr,"Decocding Server Transport Parameters: tolerated empty by config\n");
+    fprintf(stderr,"Decoding Server Transport Parameters: tolerated empty by config\n");
     decodeResult = MOZQUIC_OK;
   } else {
     assert(sizeof(mStatelessResetToken) == 16);
@@ -819,7 +823,8 @@ MozQuic::ClientConnected()
     if (decodeResult != MOZQUIC_OK) {
       errorCode = ERROR_TRANSPORT_PARAMETER;
     }
-
+    mStreamState->mStream0->NewFlowControlLimit(mStreamState->mPeerMaxStreamData);
+                                                            
     // need to confirm version negotiation wasn't messed with
     if (decodeResult == MOZQUIC_OK) {
       // is mVersion in the peerVersionList?
@@ -872,6 +877,7 @@ MozQuic::ClientConnected()
 uint32_t
 MozQuic::ServerConnected()
 {
+  assert (mIsChild && !mIsClient);
   fprintf(stderr,"SERVER_STATE_CONNECTED\n");
   assert(mConnectionState == SERVER_STATE_1RTT);
   unsigned char *extensionInfo = nullptr;
@@ -881,7 +887,7 @@ MozQuic::ServerConnected()
   uint32_t decodeResult;
   uint32_t errorCode = ERROR_NO_ERROR;
   if (!extensionInfoLen && mTolerateNoTransportParams) {
-    fprintf(stderr,"Decocding Client Transport Parameters: tolerated empty by config\n");
+    fprintf(stderr,"Decoding Client Transport Parameters: tolerated empty by config\n");
     decodeResult = MOZQUIC_OK;
   } else {
     decodeResult =
@@ -893,7 +899,8 @@ MozQuic::ServerConnected()
 
     fprintf(stderr,"Decoding Client Transport Parameters: %s\n",
             decodeResult == MOZQUIC_OK ? "passed" : "failed");
-
+    mStreamState->mStream0->NewFlowControlLimit(mStreamState->mPeerMaxStreamData);
+    
     if (decodeResult != MOZQUIC_OK) {
       errorCode = ERROR_TRANSPORT_PARAMETER;
     } else {
@@ -1130,7 +1137,10 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
   child->mFD = mFD;
   child->mClientInitialPacketNumber = aCIPacketNumber;
 
-  child->mStreamState->mStream0.reset(new MozQuicStreamPair(0, child->mStreamState.get(), child));
+  child->mStreamState->mStream0.reset(new MozQuicStreamPair(0, child, child->mStreamState.get(),
+                                                            kMaxStreamDataDefault,
+                                                            child->mStreamState->mLocalMaxStreamData));
+  
   do {
     for (int i=0; i < 4; i++) {
       child->mConnectionID = child->mConnectionID << 16;

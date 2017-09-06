@@ -14,10 +14,12 @@
 
 namespace mozquic {
 
-MozQuicStreamPair::MozQuicStreamPair(uint32_t id, MozQuicWriter *w, MozQuic *m)
+MozQuicStreamPair::MozQuicStreamPair(uint32_t id, MozQuic *m,
+                                     FlowController *flowController,
+                                     uint64_t peerMaxStreamData, uint64_t localMaxStreamData)
   : mStreamID(id)
-  , mOut(id, w)
-  , mIn(id)
+  , mOut(id, flowController, peerMaxStreamData)
+  , mIn(id, flowController, localMaxStreamData)
   , mMozQuic(m)
 {
 }
@@ -53,9 +55,14 @@ MozQuicStreamPair::Write(const unsigned char *data, uint32_t len, bool fin)
   return mOut.Write(data, len, fin);
 }
 
-MozQuicStreamIn::MozQuicStreamIn(uint32_t id)
-  : mOffset(0)
+MozQuicStreamIn::MozQuicStreamIn(uint32_t id,
+                                 FlowController *flowcontroller, uint64_t localMaxStreamData)
+  : mStreamID(id)
+  , mOffset(0)
   , mFinOffset(0)
+  , mLocalMaxStreamData(localMaxStreamData)
+  , mNextStreamDataExpected(0)
+  , mFlowController(flowcontroller)
   , mFinRecvd(false)
   , mRstRecvd(false)
   , mEndGivenToApp(false)
@@ -159,6 +166,25 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
     d.reset();
     return MOZQUIC_OK;
   }
+  
+  if (endData > mNextStreamDataExpected) {
+    mNextStreamDataExpected = endData;
+    // todo - credit scheme should be based on how much is queued here.
+    // todo - autotuning
+    uint64_t available = mLocalMaxStreamData - endData;
+    uint32_t increment = mFlowController->GetIncrement();
+    fprintf(stderr,"peer has %ld flow control credits available on stream %d\n",
+            available, mStreamID);
+
+    if ((available < 32 * 16) ||
+        (available < (increment / 2))) {
+      if (mLocalMaxStreamData > (0xffffffffffffffffULL - increment)) {
+        return MOZQUIC_ERR_IO;
+      }
+      mLocalMaxStreamData += increment;
+      mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData);
+    }
+  }
 
   // if the list is empty, add it to the list!
   if (mAvailable.empty()) {
@@ -261,10 +287,12 @@ MozQuicStreamIn::Empty()
   return false;
 }
 
-MozQuicStreamOut::MozQuicStreamOut(uint32_t id, MozQuicWriter *w)
-  : mWriter(w)
+MozQuicStreamOut::MozQuicStreamOut(uint32_t id, FlowController *fc,
+                                   uint64_t flowControlLimit)
+  : mWriter(fc)
   , mStreamID(id)
   , mOffset(0)
+  , mFlowControlLimit(flowControlLimit)
   , mFin(false)
   , mPeerRst(false)
 {

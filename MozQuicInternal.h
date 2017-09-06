@@ -256,7 +256,6 @@ private:
 
   uint16_t mPeerIdleTimeout;
 
-  // need other frame 2 list
 public: // callbacks from nsshelper
   int32_t NSSInput(void *buf, int32_t amount);
   int32_t NSSOutput(const void *buf, int32_t amount);
