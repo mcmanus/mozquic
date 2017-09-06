@@ -216,7 +216,6 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
 
   newFrame = true;
   uint64_t previousTS;
-  uint32_t previousPktID;
   if (kp != keyPhaseUnprotected) {
     for (auto iter = mAckList.begin(); iter != mAckList.end(); iter++) {
       if (iter->mTimestampTransmitted) {
@@ -241,7 +240,6 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
           uint32_t delta = *pIter - mTimestampConnBegin;
           delta = htonl(delta);
           memcpy(pkt + 1, &delta, 4);
-          previousPktID = iter->mPacketNumber;
           previousTS = *pIter;
           pkt += 5;
           used += 5;
