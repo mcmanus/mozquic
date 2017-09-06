@@ -215,53 +215,6 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
     }
   }
 
-  newFrame = true;
-  uint64_t previousTS;
-  if (kp != keyPhaseUnprotected) {
-    for (auto iter = mStreamState->mAckList.begin(); iter != mStreamState->mAckList.end(); iter++) {
-      if (iter->mTimestampTransmitted) {
-        continue;
-      }
-      iter->mTimestampTransmitted = true;
-      int i = 0;
-      for (auto pIter = iter->mReceiveTime.begin();
-           pIter != iter->mReceiveTime.end(); pIter++) {
-        if (avail < (newFrame ? 5 : 3)) {
-          break;
-        }
-
-        uint64_t deltaLA = largestAcked - iter->mPacketNumber;
-        if (deltaLA > 255) {
-          break;
-        }
-
-        if (newFrame) {
-          newFrame = false;
-          pkt[0] = deltaLA;
-          uint32_t delta = *pIter - mTimestampConnBegin;
-          delta = htonl(delta);
-          memcpy(pkt + 1, &delta, 4);
-          previousTS = *pIter;
-          pkt += 5;
-          used += 5;
-          avail -= 5;
-        } else {
-          pkt[0] = deltaLA;
-          uint64_t delay64 = (previousTS - *pIter) * 1000;
-          uint16_t delay = htons(ufloat16_encode(delay64));
-          memcpy(pkt + 1, &delay, 2);
-          pkt += 3;
-          used += 3;
-          avail -= 3;
-        }
-        *numTS = *numTS + 1;
-        if (*numTS == 0xff) {
-          break;
-        }
-        i++;
-      }
-    }
-  }
   return MOZQUIC_OK;
 }
 
@@ -382,9 +335,10 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
     } // haveackfor iteration
   } //ranges iteration
 
-  uint32_t pktID = ackMetaInfo->u.mAck.mLargestAcked;
+  // each ID is absolute, but each ts is relative to previous
   uint64_t timestamp;
   for(int i = 0; i < ackMetaInfo->u.mAck.mNumTS; i++) {
+    uint32_t pktID = ackMetaInfo->u.mAck.mLargestAcked;
     assert(pktID > framePtr[0]);
     pktID = pktID - framePtr[0];
     if (!i) {
@@ -395,7 +349,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       uint16_t tmp16;
       memcpy(&tmp16, framePtr + 1, 2);
       tmp16 = ntohs(tmp16);
-      timestamp = timestamp - (ufloat16_decode(tmp16) / 1000);
+      timestamp = timestamp + (ufloat16_decode(tmp16) / 1000);
       framePtr += 3;
     }
     fprintf(stderr, "Timestamp for packet %lX is %lu\n", pktID, timestamp);
