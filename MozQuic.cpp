@@ -1086,6 +1086,14 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
+    case FRAME_TYPE_MAX_STREAM_DATA:
+      sendAck = true;
+      rv = mStreamState->HandleMaxStreamDataFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
     default:
       sendAck = true;
       if (fromCleartext) {
@@ -1224,14 +1232,15 @@ MozQuic::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char 
   assert(!chunk->mLen);
 
   uint32_t room = endpkt - framePtr;
-  if (room < 12) {
+  if (room < 13) {
     return MOZQUIC_ERR_GENERAL;
   }
+  framePtr[0] = FRAME_TYPE_MAX_STREAM_DATA;
   uint32_t tmp32 = htonl(chunk->mStreamID);
-  memcpy(framePtr, &tmp32, 4);
+  memcpy(framePtr + 1, &tmp32, 4);
   uint64_t tmp64 = PR_htonll(chunk->mStreamCreditValue);
-  memcpy(framePtr + 4, &tmp64, 8);
-  framePtr += 12;
+  memcpy(framePtr + 5, &tmp64, 8);
+  framePtr += 13;
   return MOZQUIC_OK;
 }
 

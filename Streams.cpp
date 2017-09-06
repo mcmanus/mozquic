@@ -107,6 +107,34 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
 }
 
 uint32_t
+StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartext,
+                                      const unsigned char *pkt, const unsigned char *endpkt,
+                                      uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "max stream data frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  uint32_t streamID = result->u.mMaxStreamData.mStreamID;
+  auto i = mStreams.find(streamID);
+  if (i == mStreams.end()) {
+    fprintf(stderr, "cannot find streamid %d for max stream data frame. pehaps closed.\n",
+            streamID);
+    return MOZQUIC_OK;
+  }
+
+  fprintf(stderr,"recvd max stream data id=%X offset=%ld current limit=%ld\n",
+          streamID,
+          result->u.mMaxStreamData.mMaximumStreamData,
+          i->second->mOut.mFlowControlLimit);
+  if (i->second->mOut.mFlowControlLimit < result->u.mMaxStreamData.mMaximumStreamData) {
+    i->second->mOut.mFlowControlLimit = result->u.mMaxStreamData.mMaximumStreamData;
+  }
+  return MOZQUIC_OK;
+}
+
+uint32_t
 StreamState::ScrubUnWritten(uint32_t streamID)
 {
   auto iter = mConnUnWritten.begin();
@@ -393,11 +421,16 @@ StreamState::GetIncrement()
 uint32_t
 StreamState::IssueStreamCredit(uint32_t streamID, uint64_t newMax)
 {
+  if ((mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED) &&
+      (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED)) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+          
   fprintf(stderr,"Issue a stream credit id=%d maxoffset=%ld\n", streamID, newMax);
 
   std::unique_ptr<ReliableData> tmp(new ReliableData(streamID, 0, nullptr, 0, 0));
   tmp->MakeMaxStreamData(newMax);
-  return FindStream(streamID, tmp);
+  return ConnectionWrite(tmp);
 }
 
 uint32_t

@@ -64,6 +64,9 @@ public:
   uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                              const unsigned char *pkt, const unsigned char *endpkt,
                              uint32_t &_ptr);
+  uint32_t HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartext,
+                                    const unsigned char *pkt, const unsigned char *endpkt,
+                                    uint32_t &_ptr);
   uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt,
                               bool justZero);
 
@@ -78,7 +81,7 @@ private:
   uint32_t mNextRecvStreamId;
 
 private: // these still need friend mozquic
-  uint32_t mPeerMaxStreamData;  // max offset we can send
+  uint32_t mPeerMaxStreamData;  // max offset we can send from transport params
   uint32_t mLocalMaxStreamData; // max offset peer can send
 
   uint32_t mPeerMaxData;

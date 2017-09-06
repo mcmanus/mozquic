@@ -176,13 +176,15 @@ MozQuicStreamIn::Supply(std::unique_ptr<ReliableData> &d)
     fprintf(stderr,"peer has %ld flow control credits available on stream %d\n",
             available, mStreamID);
 
-    if ((available < 32 * 16) ||
+    if ((available < 32 * 1024) ||
         (available < (increment / 2))) {
       if (mLocalMaxStreamData > (0xffffffffffffffffULL - increment)) {
         return MOZQUIC_ERR_IO;
       }
       mLocalMaxStreamData += increment;
-      mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData);
+      if (mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData) != MOZQUIC_OK) {
+        mLocalMaxStreamData -= increment;
+      }
     }
   }
 
