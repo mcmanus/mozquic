@@ -71,6 +71,8 @@ enum FrameType {
   FRAME_TYPE_STREAM            = 0xc0, // 11.. ....
 };
 
+class MozQuic;
+
 class FrameHeaderData
 {
 public:

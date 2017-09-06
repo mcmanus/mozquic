@@ -35,8 +35,8 @@ MozQuicStreamPair::Done()
 }
 
 uint32_t
-MozQuicStreamPair::Supply(std::unique_ptr<MozQuicStreamChunk> &p) {
-  if (p->mRst) {
+MozQuicStreamPair::Supply(std::unique_ptr<ReliableData> &p) {
+  if (p->mType == ReliableData::kStreamRst) {
     if (!mOut.Done() && !mIn.Done()) {
       RstStream(MozQuic::ERROR_NO_ERROR);
     }
@@ -138,7 +138,7 @@ MozQuicStreamIn::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool
 }
 
 uint32_t
-MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
+MozQuicStreamIn::Supply(std::unique_ptr<ReliableData> &d)
 {
   // new frame segment goes into a linked list ordered by seqno
   // any overlapping data is dropped
@@ -148,7 +148,7 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
     return MOZQUIC_OK;
   }
 
-  if (d->mRst && !mFinRecvd) {
+  if (d->mType == ReliableData::kStreamRst && !mFinRecvd) {
     mFinRecvd = true;
     mRstRecvd = true;
     assert(d->mLen == 0);
@@ -201,7 +201,7 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
     // we don't need empty chunks
     if (!d->mLen) {
       // todo log
-      std::unique_ptr<MozQuicStreamChunk> x(std::move(d));
+      std::unique_ptr<ReliableData> x(std::move(d));
       return MOZQUIC_OK;
     }
 
@@ -210,7 +210,7 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
     if ((d->mOffset == (*i)->mOffset) && (d->mLen == (*i)->mLen)) {
       // todo log
       // this is a dup. ignore it.
-      std::unique_ptr<MozQuicStreamChunk> x(std::move(d));
+      std::unique_ptr<ReliableData> x(std::move(d));
       return MOZQUIC_OK;
     }
 
@@ -235,8 +235,8 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
     if ((d->mOffset + d->mLen) > ((*i)->mOffset + (*i)->mLen)) {
       // we need a new chunk
       uint64_t skip = (*i)->mOffset + (*i)->mLen - d->mOffset;
-      std::unique_ptr<MozQuicStreamChunk>
-        newChunk(new MozQuicStreamChunk(d->mStreamID,
+      std::unique_ptr<ReliableData>
+        newChunk(new ReliableData(d->mStreamID,
                                         (*i)->mOffset + (*i)->mLen,
                                         d->mData.get() + skip,
                                         d->mLen - skip, false));
@@ -251,7 +251,7 @@ MozQuicStreamIn::Supply(std::unique_ptr<MozQuicStreamChunk> &d)
     if ((*i)->mOffset <= d->mOffset) {
       // there is no more data to the left. drop it.
       // todo log
-      std::unique_ptr<MozQuicStreamChunk> x(std::move(d));
+      std::unique_ptr<ReliableData> x(std::move(d));
       return MOZQUIC_OK;
     }
 
@@ -303,7 +303,7 @@ MozQuicStreamOut::~MozQuicStreamOut()
 }
 
 uint32_t
-MozQuicStreamOut::StreamWrite(std::unique_ptr<MozQuicStreamChunk> &p)
+MozQuicStreamOut::StreamWrite(std::unique_ptr<ReliableData> &p)
 {
   mStreamUnWritten.push_back(std::move(p));
 
@@ -322,7 +322,7 @@ MozQuicStreamOut::Write(const unsigned char *data, uint32_t len, bool fin)
     return MOZQUIC_ERR_ALREADY_FINISHED;
   }
 
-  std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(mStreamID, mOffset, data, len, fin));
+  std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, mOffset, data, len, fin));
   mOffset += len;
   mFin = fin;
   return StreamWrite(tmp);
@@ -336,7 +336,7 @@ MozQuicStreamOut::EndStream()
   }
   mFin = true;
 
-  std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(mStreamID, mOffset, nullptr, 0, true));
+  std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, mOffset, nullptr, 0, true));
   return StreamWrite(tmp);
 }
 
@@ -350,21 +350,22 @@ MozQuicStreamOut::RstStream(uint32_t code)
 
   // empty local queue before sending rst
   mStreamUnWritten.clear();
-  std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(mStreamID, mOffset, nullptr, 0, 0));
+  std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, mOffset, nullptr, 0, 0));
   tmp->MakeStreamRst(code);
   return mWriter->ConnectionWrite(tmp);
 }
 
-MozQuicStreamChunk::MozQuicStreamChunk(uint32_t id, uint64_t offset,
-                                       const unsigned char *data, uint32_t len,
-                                       bool fin)
-  : mData(new unsigned char[len])
+ReliableData::ReliableData(uint32_t id, uint64_t offset,
+                           const unsigned char *data, uint32_t len,
+                           bool fin)
+  : mType(kStream)
+  , mData(new unsigned char[len])
   , mLen(len)
   , mStreamID(id)
   , mOffset(offset)
   , mFin(fin)
-  , mRst(false)
   , mRstCode(0)
+  , mStreamCreditValue(0)
   , mTransmitTime(0)
   , mTransmitCount(1)
   , mRetransmitted(false)
@@ -378,13 +379,14 @@ MozQuicStreamChunk::MozQuicStreamChunk(uint32_t id, uint64_t offset,
   memcpy((void *)mData.get(), data, len);
 }
 
-MozQuicStreamChunk::MozQuicStreamChunk(MozQuicStreamChunk &orig)
-  : mLen(orig.mLen)
+ReliableData::ReliableData(ReliableData &orig)
+  : mType(orig.mType)
+  , mLen(orig.mLen)
   , mStreamID(orig.mStreamID)
   , mOffset(orig.mOffset)
   , mFin(orig.mFin)
-  , mRst(orig.mRst)
   , mRstCode(orig.mRstCode)
+  , mStreamCreditValue(orig.mStreamCreditValue)
   , mTransmitTime(0)
   , mTransmitCount(orig.mTransmitCount + 1)
   , mRetransmitted(false)
@@ -394,7 +396,7 @@ MozQuicStreamChunk::MozQuicStreamChunk(MozQuicStreamChunk &orig)
 }
 
 
-MozQuicStreamChunk::~MozQuicStreamChunk()
+ReliableData::~ReliableData()
 {
 }
 

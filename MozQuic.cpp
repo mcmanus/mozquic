@@ -1013,12 +1013,11 @@ MozQuic::HandleResetFrame(FrameHeaderData *result, bool fromCleartext,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  std::unique_ptr<MozQuicStreamChunk>
-    tmp(new MozQuicStreamChunk(result->u.mRstStream.mStreamID,
-                               result->u.mRstStream.mFinalOffset, nullptr,
-                               0, 0));
+  std::unique_ptr<ReliableData>
+    tmp(new ReliableData(result->u.mRstStream.mStreamID,
+                         result->u.mRstStream.mFinalOffset, nullptr,
+                         0, 0));
   tmp->MakeStreamRst(result->u.mRstStream.mErrorCode);
-
   return mStreamState->FindStream(result->u.mStream.mStreamID, tmp);
 }
 
@@ -1193,10 +1192,10 @@ MozQuic::DeleteStream(uint32_t id)
 
 uint32_t
 MozQuic::CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpkt,
-                         MozQuicStreamChunk *chunk)
+                         ReliableData *chunk)
 {
   fprintf(stderr,"generating stream reset %d\n", chunk->mOffset);
-  assert(chunk->mRst);
+  assert(chunk->mType == ReliableData::kStreamRst);
   assert(chunk->mStreamID);
   assert(!chunk->mLen);
   uint32_t room = endpkt - framePtr;
@@ -1211,6 +1210,28 @@ MozQuic::CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpkt,
   uint64_t tmp64 = PR_htonll(chunk->mOffset);
   memcpy(framePtr + 9, &tmp64, 8);
   framePtr += 17;
+  return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                  ReliableData *chunk)
+{
+  fprintf(stderr,"generating max stream data id=%d val=%ld\n",
+          chunk->mStreamID, chunk->mStreamCreditValue);
+  assert(chunk->mType == ReliableData::kMaxStreamData);
+  assert(chunk->mStreamCreditValue);
+  assert(!chunk->mLen);
+
+  uint32_t room = endpkt - framePtr;
+  if (room < 12) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  uint32_t tmp32 = htonl(chunk->mStreamID);
+  memcpy(framePtr, &tmp32, 4);
+  uint64_t tmp64 = PR_htonll(chunk->mStreamCreditValue);
+  memcpy(framePtr + 4, &tmp64, 8);
+  framePtr += 12;
   return MOZQUIC_OK;
 }
 

@@ -12,34 +12,34 @@
 
 namespace mozquic {
 
-enum keyPhase {
-  keyPhaseUnknown,
-  keyPhaseUnprotected,
-  keyPhase0Rtt,
-  keyPhase1Rtt
-};
-
-class MozQuicStreamChunk
+class ReliableData
 {
 public:
-  MozQuicStreamChunk(uint32_t id, uint64_t offset, const unsigned char *data,
-                     uint32_t len, bool fin);
+  ReliableData(uint32_t id, uint64_t offset, const unsigned char *data,
+               uint32_t len, bool fin);
 
   // This form of ctor steals the data pointer. used for retransmit
-  MozQuicStreamChunk(MozQuicStreamChunk &);
+  ReliableData(ReliableData &);
+  ~ReliableData();
 
-  void MakeStreamRst(uint32_t code) { mRst = true; mRstCode = code;}
-    
-  ~MozQuicStreamChunk();
+  void MakeStreamRst(uint32_t code) { mType = kStreamRst; mRstCode = code;}
+  void MakeMaxStreamData(uint64_t offset) { mType = kMaxStreamData; mStreamCreditValue = offset;}
 
+  enum 
+  {
+    kStream, kStreamRst, kMaxStreamData,
+  } mType;
+  
   std::unique_ptr<const unsigned char []>mData;
   uint32_t mLen;
   uint32_t mStreamID;
   uint64_t mOffset;
   bool     mFin;
-  bool     mRst;
-  uint32_t mRstCode;
 
+  uint32_t mRstCode; // for kStreamRst
+
+  uint64_t mStreamCreditValue; // forkMaxStreamData
+  
   // when unacked these are set
   uint64_t mPacketNumber;
   uint64_t mTransmitTime; // todo.. hmm if this gets queued for any cc/fc reason (same for ack)
@@ -52,7 +52,7 @@ class FlowController
 {
 public:
   // the caller owns the unique_ptr if it returns 0
-  virtual uint32_t ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p) = 0;
+  virtual uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) = 0;
   virtual uint32_t ScrubUnWritten(uint32_t id) = 0;
   virtual uint32_t GetIncrement() = 0;
   virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) = 0;
@@ -74,10 +74,10 @@ public:
   }
 
 private:
-  uint32_t StreamWrite(std::unique_ptr<MozQuicStreamChunk> &p);
+  uint32_t StreamWrite(std::unique_ptr<ReliableData> &p);
   
   FlowController *mWriter;
-  std::list<std::unique_ptr<MozQuicStreamChunk>> mStreamUnWritten;
+  std::list<std::unique_ptr<ReliableData>> mStreamUnWritten;
   uint32_t mStreamID;
   uint64_t mOffset;
   uint64_t mFlowControlLimit;
@@ -92,7 +92,7 @@ public:
   MozQuicStreamIn(uint32_t id, FlowController *flowController, uint64_t localMSD);
   ~MozQuicStreamIn();
   uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin);
-  uint32_t Supply(std::unique_ptr<MozQuicStreamChunk> &p);
+  uint32_t Supply(std::unique_ptr<ReliableData> &p);
   bool     Empty();
 
   bool Done() {
@@ -114,7 +114,7 @@ private:
   bool     mRstRecvd;
   bool     mEndGivenToApp;
 
-  std::list<std::unique_ptr<MozQuicStreamChunk>> mAvailable;
+  std::list<std::unique_ptr<ReliableData>> mAvailable;
 };
 
 class MozQuic;
@@ -127,7 +127,7 @@ public:
   ~MozQuicStreamPair();
 
   // Supply places data on the input (i.e. read()) queue
-  uint32_t Supply(std::unique_ptr<MozQuicStreamChunk> &p);
+  uint32_t Supply(std::unique_ptr<ReliableData> &p);
 
   // todo it would be nice to have a zero copy interface
   uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin) {

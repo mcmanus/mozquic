@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "MozQuicStream.h"
+
 namespace mozquic  {
 
 enum  {
@@ -49,13 +51,13 @@ public:
   StreamState(MozQuic *);
 
   // FlowController Methods
-  uint32_t ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p) override;
+  uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) override;
   uint32_t ScrubUnWritten(uint32_t id) override;
   virtual uint32_t GetIncrement() override;
   virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) override;
   
   uint32_t StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin);
-  uint32_t FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d);
+  uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
   void DeleteStream(uint32_t streamID);
   uint32_t Flush(bool forceAck);
@@ -92,8 +94,8 @@ private: // these still need friend mozquic
   // it won't be retransmitted again - that happens to the dup'd
   // incarnation)
   // mUnackedData is sorted by the packet number it was sent in.
-  std::list<std::unique_ptr<MozQuicStreamChunk>> mConnUnWritten;
-  std::list<std::unique_ptr<MozQuicStreamChunk>> mUnAckedData;
+  std::list<std::unique_ptr<ReliableData>> mConnUnWritten;
+  std::list<std::unique_ptr<ReliableData>> mUnAckedData;
 
   // macklist is the current state of all unacked acks - maybe written out,
   // maybe not. ordered with the highest packet ack'd at front.Each time

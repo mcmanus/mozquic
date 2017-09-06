@@ -28,7 +28,7 @@ StreamState::StartNewStream(MozQuicStreamPair **outStream, const void *data,
 }
 
 uint32_t
-StreamState::FindStream(uint32_t streamID, std::unique_ptr<MozQuicStreamChunk> &d)
+StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
 {
   // Open a new stream and implicitly open all streams with ID smaller than
   // streamID that are not already opened.
@@ -84,8 +84,8 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
 
   // parser checked for this, but jic
   assert(pkt + _ptr + result->u.mStream.mDataLen <= endpkt);
-  std::unique_ptr<MozQuicStreamChunk>
-    tmp(new MozQuicStreamChunk(result->u.mStream.mStreamID,
+  std::unique_ptr<ReliableData>
+    tmp(new ReliableData(result->u.mStream.mStreamID,
                                result->u.mStream.mOffset,
                                pkt + _ptr,
                                result->u.mStream.mDataLen,
@@ -112,7 +112,7 @@ StreamState::ScrubUnWritten(uint32_t streamID)
   auto iter = mConnUnWritten.begin();
   while (iter != mConnUnWritten.end()) {
     auto chunk = (*iter).get();
-    if (chunk->mStreamID == streamID && !chunk->mRst) {
+    if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kStreamRst) {
       iter = mConnUnWritten.erase(iter);
       fprintf(stderr,"scrubbing chunk %p of unwritten id %d\n",
               chunk, streamID);
@@ -124,7 +124,7 @@ StreamState::ScrubUnWritten(uint32_t streamID)
   auto iter2 = mUnAckedData.begin();
   while (iter2 != mUnAckedData.end()) {
     auto chunk = (*iter2).get();
-    if (chunk->mStreamID == streamID && !chunk->mRst) {
+    if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kStreamRst) {
       iter2 = mUnAckedData.erase(iter2);
       fprintf(stderr,"scrubbing chunk %p of unacked id %d\n",
               chunk, streamID);
@@ -153,8 +153,8 @@ StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
 
         uint64_t room = out->mFlowControlLimit - (*iBuffer)->mOffset;
 
-        std::unique_ptr<MozQuicStreamChunk>
-          tmp(new MozQuicStreamChunk((*iBuffer)->mStreamID,
+        std::unique_ptr<ReliableData>
+          tmp(new ReliableData((*iBuffer)->mStreamID,
                                      (*iBuffer)->mOffset + room,
                                      (*iBuffer)->mData.get() + room,
                                      (*iBuffer)->mLen - room,
@@ -176,7 +176,7 @@ StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
             (*iBuffer)->mStreamID, (*iBuffer)->mOffset, (*iBuffer)->mLen,
             out->mFlowControlLimit);
     assert((*iBuffer)->mOffset + (*iBuffer)->mLen <= out->mFlowControlLimit);
-    std::unique_ptr<MozQuicStreamChunk> x(std::move(*iBuffer));
+    std::unique_ptr<ReliableData> x(std::move(*iBuffer));
     mConnUnWritten.push_back(std::move(x));
     iBuffer = out->mStreamUnWritten.erase(iBuffer);
   }
@@ -213,11 +213,17 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       iter++;
       continue;
     }
-    if ((*iter)->mRst) {
+    if ((*iter)->mType == ReliableData::kStreamRst) {
       if (mMozQuic->CreateStreamRst(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
+    } else if ((*iter)->mType == ReliableData::kMaxStreamData) {
+      if (mMozQuic->CreateMaxStreamDataFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+        break;
+      }
     } else {
+      assert ((*iter)->mType == ReliableData::kStream);
+
       uint32_t room = endpkt - framePtr;
       if (room < 1) {
         break; // this is only for type, we will do a second check later.
@@ -277,8 +283,8 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
         // we need to split this chunk. its too big
         // todo iterate on them all instead of doing this n^2
         // as there is a copy involved
-        std::unique_ptr<MozQuicStreamChunk>
-          tmp(new MozQuicStreamChunk((*iter)->mStreamID,
+        std::unique_ptr<ReliableData>
+          tmp(new ReliableData((*iter)->mStreamID,
                                      (*iter)->mOffset + room,
                                      (*iter)->mData.get() + room,
                                      (*iter)->mLen - room,
@@ -320,7 +326,7 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
     (*iter)->mRetransmitted = false;
 
     // move it to the unacked list
-    std::unique_ptr<MozQuicStreamChunk> x(std::move(*iter));
+    std::unique_ptr<ReliableData> x(std::move(*iter));
     mUnAckedData.push_back(std::move(x));
     iter = mConnUnWritten.erase(iter);
   }
@@ -364,7 +370,7 @@ StreamState::Flush(bool forceAck)
 }
 
 uint32_t
-StreamState::ConnectionWrite(std::unique_ptr<MozQuicStreamChunk> &p)
+StreamState::ConnectionWrite(std::unique_ptr<ReliableData> &p)
 {
   // this data gets queued to unwritten and framed and
   // transmitted after prioritization by flush()
@@ -388,7 +394,10 @@ uint32_t
 StreamState::IssueStreamCredit(uint32_t streamID, uint64_t newMax)
 {
   fprintf(stderr,"Issue a stream credit id=%d maxoffset=%ld\n", streamID, newMax);
-  return MOZQUIC_OK;
+
+  std::unique_ptr<ReliableData> tmp(new ReliableData(streamID, 0, nullptr, 0, 0));
+  tmp->MakeMaxStreamData(newMax);
+  return FindStream(streamID, tmp);
 }
 
 uint32_t
@@ -422,7 +431,7 @@ StreamState::RetransmitTimer()
       (*i)->mRetransmitted = true;
 
       // move the data pointer from iter to tmp
-      std::unique_ptr<MozQuicStreamChunk> tmp(new MozQuicStreamChunk(*(*i)));
+      std::unique_ptr<ReliableData> tmp(new ReliableData(*(*i)));
       assert(!(*i)->mData);
       assert(tmp->mData);
 

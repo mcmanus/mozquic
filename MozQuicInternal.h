@@ -6,6 +6,7 @@
 #pragma once
 
 #include <netinet/ip.h>
+#include <list>
 #include <stdint.h>
 #include <unistd.h>
 #include <forward_list>
@@ -13,7 +14,6 @@
 #include <memory>
 #include <vector>
 #include <string.h>
-#include "MozQuicStream.h"
 #include "prnetdb.h"
 #include "MozQuic.h"
 #include "Packetization.h"
@@ -55,10 +55,18 @@ enum connectionState
   SERVER_STATE_CLOSED,
 };
 
+enum keyPhase {
+  keyPhaseUnknown,
+  keyPhaseUnprotected,
+  keyPhase0Rtt,
+  keyPhase1Rtt
+};
+
 class MozQuicStreamPair;
 class MozQuicStreamAck;
 class NSSHelper;
 class StreamState;
+class ReliableData;
 
 class MozQuic final
 {
@@ -154,7 +162,9 @@ private:
   uint32_t Intake();
   uint32_t FlushStream0(bool forceAck);
   uint32_t CreateStreamRst(unsigned char *&framePtr, const unsigned char *endpkt,
-                           MozQuicStreamChunk *chunk);
+                           ReliableData *chunk);
+  uint32_t CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                    ReliableData *chunk);
 
   int Client1RTT();
   int Server1RTT();

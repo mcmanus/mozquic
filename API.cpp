@@ -7,9 +7,9 @@ static int mozQuicInit = 0;
 
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
+#include "MozQuicStream.h"
 #include "NSSHelper.h"
-
-#include "assert.h"
+#include <assert.h>
 
 #ifdef __cplusplus
 extern "C" {
