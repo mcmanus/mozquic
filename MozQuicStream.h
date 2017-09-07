@@ -24,11 +24,13 @@ public:
 
   void MakeStreamRst(uint32_t code) { mType = kStreamRst; mRstCode = code;}
   void MakeMaxStreamData(uint64_t offset) { mType = kMaxStreamData; mStreamCreditValue = offset;}
+  void MakeMaxData(uint64_t kb) { mType = kMaxData; mConnectionCreditKB = kb;}
   void MakeStreamBlocked() { mType = kStreamBlocked; }
+  void MakeBlocked() { mType = kBlocked; }
 
   enum 
   {
-    kStream, kStreamRst, kMaxStreamData, kStreamBlocked,
+    kStream, kStreamRst, kMaxStreamData, kStreamBlocked, kMaxData, kBlocked,
   } mType;
   
   std::unique_ptr<const unsigned char []>mData;
@@ -39,8 +41,10 @@ public:
 
   uint32_t mRstCode; // for kStreamRst
 
-  uint64_t mStreamCreditValue; // forkMaxStreamData
-  
+  uint64_t mStreamCreditValue; // for kMaxStreamData
+
+  uint64_t mConnectionCreditKB; // for kMaxData 
+
   // when unacked these are set
   uint64_t mPacketNumber;
   uint64_t mTransmitTime; // todo.. hmm if this gets queued for any cc/fc reason (same for ack)
@@ -57,13 +61,14 @@ public:
   virtual uint32_t ScrubUnWritten(uint32_t id) = 0;
   virtual uint32_t GetIncrement() = 0;
   virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) = 0;
+  virtual uint32_t ConnectionReadBytes(uint64_t amt) = 0;
 };
 
 class MozQuicStreamOut
 {
   friend class StreamState;
 public:
-  MozQuicStreamOut(uint32_t id, FlowController *f, uint64_t limit);
+  MozQuicStreamOut(MozQuic *m, uint32_t id, FlowController *f, uint64_t limit);
   ~MozQuicStreamOut();
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
   int EndStream();
@@ -75,6 +80,7 @@ public:
   }
 
 private:
+  MozQuic *mMozQuic;
   uint32_t StreamWrite(std::unique_ptr<ReliableData> &p);
   
   FlowController *mWriter;
@@ -82,8 +88,10 @@ private:
   uint32_t mStreamID;
   uint64_t mOffset;
   uint64_t mFlowControlLimit;
+  uint64_t mOffsetChargedToConnFlowControl;
+
   bool mFin;
-  bool mBlocked;
+  bool mBlocked; // blocked on stream based flow control
 public:
   bool mPeerRst;
 };
@@ -91,7 +99,7 @@ public:
 class MozQuicStreamIn
 {
 public:
-  MozQuicStreamIn(uint32_t id, FlowController *flowController, uint64_t localMSD);
+  MozQuicStreamIn(MozQuic *m, uint32_t id, FlowController *flowController, uint64_t localMSD);
   ~MozQuicStreamIn();
   uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin);
   uint32_t Supply(std::unique_ptr<ReliableData> &p);
@@ -103,6 +111,7 @@ public:
   uint32_t ResetInbound();
 
 private:
+  MozQuic *mMozQuic;
   uint32_t mStreamID;
   uint64_t mOffset;
   uint64_t mFinOffset;

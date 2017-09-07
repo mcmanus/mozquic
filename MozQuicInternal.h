@@ -107,6 +107,9 @@ public:
   bool GetForceAddressValidation() {
     return mParent ? mParent->mForceAddressValidation : mForceAddressValidation;
   }
+  void SetStreamWindow(uint64_t w) { mAdvertiseStreamWindow = w; }
+  void SetConnWindowKB(uint64_t kb) { mAdvertiseConnectionWindowKB = kb; }
+
   void SetAppHandlesSendRecv() { mAppHandlesSendRecv = true; }
   bool IgnorePKI();
   void Destroy(uint32_t, const char *);
@@ -122,6 +125,7 @@ public:
   bool DecodedOK() { return mDecodedOK; }
   void GetRemotePeerAddressHash(unsigned char *out, uint32_t *outLen);
   static uint64_t Timestamp();
+  void Shutdown(uint32_t, const char *);
 
 private:
   void RaiseError(uint32_t err, char *reason);
@@ -155,7 +159,6 @@ private:
   bool ServerState() { return mConnectionState > SERVER_STATE_BREAK; }
   MozQuic *FindSession(uint64_t cid);
   void RemoveSession(uint64_t cid);
-  void Shutdown(uint32_t, const char *);
   uint32_t ClientConnected();
   uint32_t ServerConnected();
 
@@ -262,6 +265,9 @@ private:
 
   uint16_t mPeerIdleTimeout;
 
+  uint64_t mAdvertiseStreamWindow;
+  uint64_t mAdvertiseConnectionWindowKB;
+      
 public: // callbacks from nsshelper
   int32_t NSSInput(void *buf, int32_t amount);
   int32_t NSSOutput(const void *buf, int32_t amount);
@@ -272,6 +278,7 @@ public:
     ERROR_NO_ERROR            = 0x80000000,
     ERROR_INTERNAL            = 0x80000001,
     ERROR_CANCELLED           = 0x80000002,
+    FLOW_CONTROL_ERROR        = 0x80000003,
     STREAM_ID_ERROR           = 0x80000004,
     STREAM_STATE_ERROR        = 0x80000005,
     FINAL_OFFSET_ERROR        = 0x80000006,

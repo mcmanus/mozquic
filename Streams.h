@@ -11,8 +11,8 @@ namespace mozquic  {
 
 enum  {
   kMaxStreamIDDefault   = 0xffffffff,
-  kMaxStreamDataDefault = 0xffffffff,
-  kMaxDataDefault       = 0xffffffff,
+  kMaxStreamDataDefault = 10 * 1024 * 1024,
+  kMaxDataDefault       = 50 * 1024 * 1024,
   kRetransmitThresh     = 500,
   kForgetUnAckedThresh  = 4000, // ms
 };
@@ -48,13 +48,15 @@ class StreamState : public FlowController
 {
   friend class MozQuic;
 public:
-  StreamState(MozQuic *);
+  StreamState(MozQuic *, uint64_t initialStreamWindow,
+                         uint64_t initialConnectionWindow);
 
   // FlowController Methods
   uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) override;
   uint32_t ScrubUnWritten(uint32_t id) override;
-  virtual uint32_t GetIncrement() override;
-  virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) override;
+  uint32_t GetIncrement() override;
+  uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) override;
+  uint32_t ConnectionReadBytes(uint64_t amt) override;
   
   uint32_t StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
@@ -67,24 +69,35 @@ public:
   uint32_t HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartext,
                                     const unsigned char *pkt, const unsigned char *endpkt,
                                     uint32_t &_ptr);
+  uint32_t HandleMaxDataFrame(FrameHeaderData *result, bool fromCleartext,
+                              const unsigned char *pkt, const unsigned char *endpkt,
+                              uint32_t &_ptr);
   uint32_t HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartext,
                                     const unsigned char *pkt, const unsigned char *endpkt,
                                     uint32_t &_ptr);
+  uint32_t HandleBlockedFrame(FrameHeaderData *result, bool fromCleartext,
+                              const unsigned char *pkt, const unsigned char *endpkt,
+                              uint32_t &_ptr);
   uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt,
                               bool justZero);
   uint32_t CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk);
   uint32_t CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                     ReliableData *chunk);
+  uint32_t CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                              ReliableData *chunk);
   uint32_t CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                     ReliableData *chunk);
+  uint32_t CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                              ReliableData *chunk);
 
   void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamId = next; mNextRecvStreamId = nextR; }
 
 private:
   uint32_t FlowControlPromotion();
   uint32_t FlowControlPromotionForStream(MozQuicStreamOut *out);
-
+  uint64_t CalculateConnectionCharge(ReliableData *data, MozQuicStreamOut *out);
+  
   MozQuic *mMozQuic;
   uint32_t mNextStreamId;
   uint32_t mNextRecvStreamId;
@@ -93,7 +106,15 @@ private: // these still need friend mozquic
   uint32_t mPeerMaxStreamData;  // max offset we can send from transport params
   uint32_t mLocalMaxStreamData; // max offset peer can send
 
-  uint32_t mPeerMaxData;
+  // I'm sorry if you cannot compile __uint128_t - a c++ class can surely fix it
+  __uint128_t mPeerMaxData; // conn limit set by other side
+  __uint128_t mMaxDataSent; // sending bytes charged againts mPeerMaxData
+  bool        mMaxDataBlocked; // blocked from sending by connectionFlowControl
+
+  __uint128_t mLocalMaxData; // conn credit announced to peer
+  __uint128_t mLocalMaxDataUsed; // conn credit consumed by peer
+
+  
   uint32_t mPeerMaxStreamID;
 
   std::unique_ptr<MozQuicStreamPair> mStream0;

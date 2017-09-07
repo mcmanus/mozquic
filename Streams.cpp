@@ -74,7 +74,7 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
           result->u.mStream.mFinBit);
 
   if (!result->u.mStream.mStreamID && result->u.mStream.mFinBit) {
-    // todo need to respond with a connection error PROTOCOL_VIOLATION 12.2
+    mMozQuic->Shutdown(MozQuic::PROTOCOL_VIOLATION, "fin not allowed on stream 0\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "fin not allowed on stream 0\n");
     return MOZQUIC_ERR_GENERAL;
   }
@@ -135,6 +135,25 @@ StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartex
 }
 
 uint32_t
+StreamState::HandleMaxDataFrame(FrameHeaderData *result, bool fromCleartext,
+                                const unsigned char *pkt, const unsigned char *endpkt,
+                                uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "max data frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  uint64_t curLimitKB = mPeerMaxData >> 10;
+  fprintf(stderr,"recvd max data current %ldKB new %ldKB\n",
+          curLimitKB, result->u.mMaxData.mMaximumData);
+  if (result->u.mMaxData.mMaximumData > curLimitKB) {
+    mPeerMaxData = result->u.mMaxData.mMaximumData << 10;
+  }
+  return MOZQUIC_OK;
+}
+
+uint32_t
 StreamState::HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartext,
                                       const unsigned char *pkt, const unsigned char *endpkt,
                                       uint32_t &_ptr)
@@ -146,6 +165,20 @@ StreamState::HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartex
 
   uint32_t streamID = result->u.mStreamBlocked.mStreamID;
   fprintf(stderr,"recvd stream blocked id=%X\n", streamID);
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamState::HandleBlockedFrame(FrameHeaderData *result, bool fromCleartext,
+                                const unsigned char *pkt, const unsigned char *endpkt,
+                                uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "blocked frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  fprintf(stderr,"recvd connection blocked\n");
   return MOZQUIC_OK;
 }
 
@@ -178,23 +211,91 @@ StreamState::ScrubUnWritten(uint32_t streamID)
   return MOZQUIC_OK;
 }
 
+uint64_t
+StreamState::CalculateConnectionCharge(ReliableData *data, MozQuicStreamOut *out)
+{
+  uint64_t newConnectionCharge = 0;
+  if (data->mStreamID &&
+      (data->mOffset + data->mLen > out->mOffsetChargedToConnFlowControl)) {
+    newConnectionCharge = data->mOffset + data->mLen - out->mOffsetChargedToConnFlowControl;
+  }
+  return newConnectionCharge;
+}
+
 uint32_t
 StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
 {
   for (auto iBuffer = out->mStreamUnWritten.begin();
        iBuffer != out->mStreamUnWritten.end(); ) {
-    // todo whitelist 0len
 
+    uint64_t newConnectionCharge = 0;
     if ((*iBuffer)->mLen) {
+
+      newConnectionCharge = CalculateConnectionCharge((*iBuffer).get(), out);
+
+      if (newConnectionCharge) {
+        
+        if (mMaxDataSent >= mPeerMaxData) {
+          iBuffer++;
+          if (!mMaxDataBlocked) {
+            mMaxDataBlocked = true;
+            fprintf(stderr,"BLOCKED by connection window 1\n");
+            std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
+            tmp->MakeBlocked();
+            ConnectionWrite(tmp);
+          }
+          continue;
+        }
+        
+        if (mMaxDataSent + newConnectionCharge > mPeerMaxData) {
+          // split buffer
+          uint64_t minCharge = 1; // for hypothetical 1 byte frame
+          if ((*iBuffer)->mOffset + 1 > out->mOffsetChargedToConnFlowControl) {
+            minCharge = (*iBuffer)->mOffset + 1 - out->mOffsetChargedToConnFlowControl;
+          }
+          if (mMaxDataSent + minCharge > mPeerMaxData) {
+            iBuffer++;
+            if (!mMaxDataBlocked) {
+              mMaxDataBlocked = true;
+              fprintf(stderr,"BLOCKED by connection window 2\n");
+              std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
+              tmp->MakeBlocked();
+              ConnectionWrite(tmp);
+            }
+            continue;
+          }
+          uint64_t maxCharge = mPeerMaxData - mMaxDataSent;
+          uint64_t room = maxCharge - minCharge + 1;
+          assert (room < (*iBuffer)->mLen);
+
+          std::unique_ptr<ReliableData>
+            tmp(new ReliableData((*iBuffer)->mStreamID,
+                                 (*iBuffer)->mOffset + room,
+                                 (*iBuffer)->mData.get() + room,
+                                 (*iBuffer)->mLen - room,
+                                 (*iBuffer)->mFin));
+          (*iBuffer)->mLen = room;
+          (*iBuffer)->mFin = false;
+          fprintf(stderr,"FlowControlPromotionForStream ConnWindow splitting chunk into "
+                  "%ld.%d and %ld.%d\n",
+                  (*iBuffer)->mOffset, (*iBuffer)->mLen,
+                  tmp->mOffset, tmp->mLen);
+          auto iterReg = iBuffer++;
+          out->mStreamUnWritten.insert(iBuffer, std::move(tmp));
+          iBuffer = iterReg;
+
+          newConnectionCharge = CalculateConnectionCharge((*iBuffer).get(), out);
+        }
+      }
+              
       if ((*iBuffer)->mOffset >= out->mFlowControlLimit) {
         iBuffer++;
         if (!out->mBlocked) {
-          fprintf(stderr,"Stream %d BLOCKED flow control\n",
-                  (*iBuffer)->mStreamID);
+          fprintf(stderr,"Stream %d BLOCKED flow control\n", (*iBuffer)->mStreamID);
           out->mBlocked = true;
           std::unique_ptr<ReliableData> tmp(new ReliableData((*iBuffer)->mStreamID, 0, nullptr, 0, 0));
           tmp->MakeStreamBlocked();
-          return ConnectionWrite(tmp);
+          ConnectionWrite(tmp);
         }
         continue;
       }
@@ -211,21 +312,33 @@ StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
                                      (*iBuffer)->mFin));
         (*iBuffer)->mLen = room;
         (*iBuffer)->mFin = false;
-        fprintf(stderr,"FlowControlPromotionForStream splitting chunk into "
+        fprintf(stderr,"FlowControlPromotionForStream StreamWindow splitting chunk into "
                 "%ld.%d and %ld.%d\n",
                 (*iBuffer)->mOffset, (*iBuffer)->mLen,
                 tmp->mOffset, tmp->mLen);
         auto iterReg = iBuffer++;
         out->mStreamUnWritten.insert(iBuffer, std::move(tmp));
         iBuffer = iterReg;
+        newConnectionCharge = CalculateConnectionCharge((*iBuffer).get(), out);
       }
     }
     
     assert((*iBuffer)->mOffset + (*iBuffer)->mLen <= out->mFlowControlLimit);
-    out->mBlocked = false;
-    fprintf(stderr,"promoting chunk stream %d %ld.%d [limit=%ld]\n",
+    out->mOffsetChargedToConnFlowControl += newConnectionCharge;
+    mMaxDataSent += newConnectionCharge;
+    assert(mMaxDataSent <= mPeerMaxData);
+
+    if ((*iBuffer)->mLen) {
+      out->mBlocked = false;
+      if (((*iBuffer)->mStreamID)) {
+        mMaxDataBlocked = false;
+      }
+    }
+    uint64_t pmd = mPeerMaxData;
+    uint64_t mds = mMaxDataSent;
+    fprintf(stderr,"promoting chunk stream %d %ld.%d [stream limit=%ld] [conn limit %llu of %lld]\n",
             (*iBuffer)->mStreamID, (*iBuffer)->mOffset, (*iBuffer)->mLen,
-            out->mFlowControlLimit);
+            out->mFlowControlLimit, mds, pmd);
     assert((*iBuffer)->mOffset + (*iBuffer)->mLen <= out->mFlowControlLimit);
     std::unique_ptr<ReliableData> x(std::move(*iBuffer));
     mConnUnWritten.push_back(std::move(x));
@@ -240,6 +353,7 @@ StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
 uint32_t
 StreamState::FlowControlPromotion()
 {
+  // todo something better than polling
   if (mStream0) {
     FlowControlPromotionForStream(&mStream0->mOut);
   }
@@ -272,8 +386,16 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       if (CreateMaxStreamDataFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
+    } else if ((*iter)->mType == ReliableData::kMaxData) {
+      if (CreateMaxDataFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+        break;
+      }
     } else if ((*iter)->mType == ReliableData::kStreamBlocked) {
       if (CreateStreamBlockedFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+        break;
+      }
+    } else if ((*iter)->mType == ReliableData::kBlocked) {
+      if (CreateBlockedFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
     } else {
@@ -442,7 +564,7 @@ StreamState::GetIncrement()
   if (mLocalMaxStreamData < 1024 * 1024) {
     return mLocalMaxStreamData;
   }
-  return 1024 * 1024; // todo
+  return 4 * 1024 * 1024; // todo
 }
 
 uint32_t
@@ -452,11 +574,46 @@ StreamState::IssueStreamCredit(uint32_t streamID, uint64_t newMax)
       (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED)) {
     return MOZQUIC_ERR_GENERAL;
   }
-          
+
   fprintf(stderr,"Issue a stream credit id=%d maxoffset=%ld\n", streamID, newMax);
 
   std::unique_ptr<ReliableData> tmp(new ReliableData(streamID, 0, nullptr, 0, 0));
   tmp->MakeMaxStreamData(newMax);
+  return ConnectionWrite(tmp);
+}
+
+uint32_t
+StreamState::ConnectionReadBytes(uint64_t amt)
+{
+  if ((mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED) &&
+      (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED)) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  if (mLocalMaxDataUsed + amt > mLocalMaxData) {
+    fprintf(stderr, "Peer violated connection flow control\n");
+    mMozQuic->Shutdown(MozQuic::FLOW_CONTROL_ERROR,
+                       "peer violated connection flow control\n");
+    return MOZQUIC_ERR_IO;
+  }
+  mLocalMaxDataUsed += amt;
+
+  // todo - credit scheme should be based on how much is queued here.
+  // todo - autotuning
+  uint64_t available = mLocalMaxData - mLocalMaxDataUsed;
+
+  if (available > 4 * 1024 * 1024) {
+    return MOZQUIC_OK;
+  }
+
+  mLocalMaxData += 8 * 1024 * 1024;
+  mLocalMaxData -= mLocalMaxData & 0x3ff;
+  uint64_t lmd = mLocalMaxData;
+  fprintf(stderr, "Issue a connection credit newmax %ld\n", lmd);
+
+  std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
+  assert(!(mLocalMaxData & 0x3ff));
+  tmp->MakeMaxData(mLocalMaxData >> 10);
   return ConnectionWrite(tmp);
 }
 
@@ -553,6 +710,27 @@ StreamState::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned c
 }
 
 uint32_t
+StreamState::CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                ReliableData *chunk)
+{
+  fprintf(stderr,"generating max data val=%ld (KB)\n", chunk->mConnectionCreditKB);
+  assert(chunk->mType == ReliableData::kMaxData);
+  assert(chunk->mConnectionCreditKB);
+  assert(!chunk->mLen);
+  assert(!chunk->mStreamID);
+
+  uint32_t room = endpkt - framePtr;
+  if (room < 9) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr[0] = FRAME_TYPE_MAX_DATA;
+  uint64_t tmp64 = PR_htonll(chunk->mConnectionCreditKB);
+  memcpy(framePtr + 1, &tmp64, 8);
+  framePtr += 9;
+  return MOZQUIC_OK;
+}
+
+uint32_t
 StreamState::CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                       ReliableData *chunk)
 {
@@ -571,13 +749,35 @@ StreamState::CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned c
   return MOZQUIC_OK;
 }
 
-StreamState::StreamState(MozQuic *q)
+uint32_t
+StreamState::CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                ReliableData *chunk)
+{
+  fprintf(stderr,"generating blocked\n");
+  assert(chunk->mType == ReliableData::kBlocked);
+  assert(!chunk->mLen);
+
+  uint32_t room = endpkt - framePtr;
+  if (room < 1) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr[0] = FRAME_TYPE_BLOCKED;
+  framePtr += 1;
+  return MOZQUIC_OK;
+}
+
+StreamState::StreamState(MozQuic *q, uint64_t initialStreamWindow,
+                         uint64_t initialConnectionWindowKB)
   : mMozQuic(q)
   , mNextStreamId(1)
   , mNextRecvStreamId(1)
   , mPeerMaxStreamData(kMaxStreamDataDefault)
-  , mLocalMaxStreamData(5000) // todo config
+  , mLocalMaxStreamData(initialStreamWindow)
   , mPeerMaxData(kMaxDataDefault)
+  , mMaxDataSent(0)
+  , mMaxDataBlocked(false)
+  , mLocalMaxData(initialConnectionWindowKB << 10)
+  , mLocalMaxDataUsed(0)
   , mPeerMaxStreamID(kMaxStreamIDDefault)
 {
 }

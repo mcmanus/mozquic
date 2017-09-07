@@ -62,6 +62,8 @@ MozQuic::MozQuic(bool handleIO)
   , mPMTUD1PacketNumber(0)
   , mDecodedOK(false)
   , mPeerIdleTimeout(kIdleTimeoutDefault)
+  , mAdvertiseStreamWindow(kMaxStreamDataDefault)
+  , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
 {
   assert(!handleIO); // todo
   unsigned char seed[4];
@@ -74,7 +76,6 @@ MozQuic::MozQuic(bool handleIO)
   memset(&mPeer, 0, sizeof(mPeer));
   memset(mStatelessResetKey, 0, sizeof(mStatelessResetKey));
   memset(mStatelessResetToken, 0x80, sizeof(mStatelessResetToken));
-  mStreamState.reset(new StreamState(this));
 }
 
 MozQuic::~MozQuic()
@@ -257,6 +258,7 @@ MozQuic::StartClient()
 {
   assert(!mHandleIO); // todo
   mIsClient = true;
+  mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
   mStreamState->InitIDs(1,2);
   mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
   mStreamState->mStream0.reset(new MozQuicStreamPair(0, this, mStreamState.get(),
@@ -315,6 +317,7 @@ MozQuic::StartServer()
 {
   assert(!mHandleIO); // todo
   mIsClient = false;
+  mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
   mStreamState->InitIDs(2, 1);
 
   StatelessResetEnsureKey();
@@ -404,7 +407,7 @@ MozQuic::Client1RTT()
         EncodeClientTransportParameters(te, teLength, 2048,
                                         mVersion, mClientOriginalOfferedVersion,
                                         mStreamState->mLocalMaxStreamData,
-                                        kMaxDataDefault,
+                                        mStreamState->mLocalMaxData,
                                         kMaxStreamIDDefault, kIdleTimeoutDefault);
       mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
       mSetupTransportExtension = true;
@@ -448,7 +451,7 @@ MozQuic::Server1RTT()
       EncodeServerTransportParameters(te, teLength, 2048,
                                       VersionNegotiationList, sizeof(VersionNegotiationList) / sizeof (uint32_t),
                                       mStreamState->mLocalMaxStreamData,
-                                      kMaxDataDefault,
+                                      mStreamState->mLocalMaxData,
                                       kMaxStreamIDDefault, kIdleTimeoutDefault, resetToken);
     mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
     mSetupTransportExtension = true;
@@ -811,13 +814,16 @@ MozQuic::ClientConnected()
     decodeResult = MOZQUIC_OK;
   } else {
     assert(sizeof(mStatelessResetToken) == 16);
+    uint32_t peerMaxDataKB;
     decodeResult =
       TransportExtension::
       DecodeServerTransportParameters(extensionInfo, extensionInfoLen,
                                       peerVersionList, versionSize,
-                                      mStreamState->mPeerMaxStreamData, mStreamState->mPeerMaxData,
+                                      mStreamState->mPeerMaxStreamData,
+                                      peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
                                       mStatelessResetToken);
+    mStreamState->mPeerMaxData = peerMaxDataKB * 1024;
     fprintf(stderr,"Decoding Server Transport Parameters: %s\n",
             decodeResult == MOZQUIC_OK ? "passed" : "failed");
     if (decodeResult != MOZQUIC_OK) {
@@ -890,13 +896,15 @@ MozQuic::ServerConnected()
     fprintf(stderr,"Decoding Client Transport Parameters: tolerated empty by config\n");
     decodeResult = MOZQUIC_OK;
   } else {
+    uint32_t peerMaxDataKB;
     decodeResult =
       TransportExtension::
       DecodeClientTransportParameters(extensionInfo, extensionInfoLen,
                                       peerNegotiatedVersion, peerInitialVersion,
-                                      mStreamState->mPeerMaxStreamData, mStreamState->mPeerMaxData,
+                                      mStreamState->mPeerMaxStreamData,
+                                      peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
-
+    mStreamState->mPeerMaxData = peerMaxDataKB * 1024;
     fprintf(stderr,"Decoding Client Transport Parameters: %s\n",
             decodeResult == MOZQUIC_OK ? "passed" : "failed");
     mStreamState->mStream0->NewFlowControlLimit(mStreamState->mPeerMaxStreamData);
@@ -1008,7 +1016,7 @@ MozQuic::HandleResetFrame(FrameHeaderData *result, bool fromCleartext,
           result->u.mRstStream.mFinalOffset);
 
   if (!result->u.mRstStream.mStreamID) {
-    // todo need to respond with a connection error PROTOCOL_VIOLATION 12.2
+    Shutdown(PROTOCOL_VIOLATION, "rst_stream frames not allowed on stream 0\n");
     RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed on stream 0\n");
     return MOZQUIC_ERR_GENERAL;
   }
@@ -1094,9 +1102,25 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
+    case FRAME_TYPE_MAX_DATA:
+      sendAck = true;
+      rv = mStreamState->HandleMaxDataFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
     case FRAME_TYPE_STREAM_BLOCKED:
       sendAck = true;
       rv = mStreamState->HandleStreamBlockedFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
+    case FRAME_TYPE_BLOCKED:
+      sendAck = true;
+      rv = mStreamState->HandleBlockedFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {
         return rv;
       }
@@ -1144,6 +1168,7 @@ MozQuic *
 MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t aCIPacketNumber)
 {
   MozQuic *child = new MozQuic(mHandleIO);
+  child->mStreamState.reset(new StreamState(child, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
   child->mIsChild = true;
   child->mIsClient = false;
   child->mParent = this;

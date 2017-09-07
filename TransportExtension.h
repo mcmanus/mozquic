@@ -38,7 +38,7 @@ public:
                                               uint32_t negotiatedVersion,
                                               uint32_t initialVersion,
                                               uint32_t initialMaxStreamData,
-                                              uint32_t initialMaxData,
+                                              __uint128_t initialMaxData,
                                               uint32_t initialMaxStreamID,
                                               uint16_t idleTimeout);
   static uint32_t DecodeClientTransportParameters(unsigned char *input, uint16_t inputSize,
@@ -52,7 +52,7 @@ public:
   static void EncodeServerTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
                                               const uint32_t *versionList, uint16_t versionListSize,
                                               uint32_t initialMaxStreamData,
-                                              uint32_t initialMaxData,
+                                              __uint128_t initialMaxData,
                                               uint32_t initialMaxStreamID,
                                               uint16_t idleTimeout,
                                               unsigned char *statelessResetToken /* 16 bytes */);

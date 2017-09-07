@@ -216,6 +216,8 @@ int main(int argc, char **argv)
   config.handleIO = 0; // todo mvp
   config.sabotageVN = 0;
   config.forceAddressValidation = 0;
+  config.streamWindow = 4900;
+  config.connWindowKB = 8;
 
   mozquic_new_connection(&c, &config);
   mozquic_set_event_callback(c, connEventCB);

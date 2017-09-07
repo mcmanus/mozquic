@@ -18,8 +18,8 @@ MozQuicStreamPair::MozQuicStreamPair(uint32_t id, MozQuic *m,
                                      FlowController *flowController,
                                      uint64_t peerMaxStreamData, uint64_t localMaxStreamData)
   : mStreamID(id)
-  , mOut(id, flowController, peerMaxStreamData)
-  , mIn(id, flowController, localMaxStreamData)
+  , mOut(m, id, flowController, peerMaxStreamData)
+  , mIn(m, id, flowController, localMaxStreamData)
   , mMozQuic(m)
 {
 }
@@ -55,9 +55,10 @@ MozQuicStreamPair::Write(const unsigned char *data, uint32_t len, bool fin)
   return mOut.Write(data, len, fin);
 }
 
-MozQuicStreamIn::MozQuicStreamIn(uint32_t id,
+MozQuicStreamIn::MozQuicStreamIn(MozQuic *m, uint32_t id,
                                  FlowController *flowcontroller, uint64_t localMaxStreamData)
-  : mStreamID(id)
+  : mMozQuic(m)
+  , mStreamID(id)
   , mOffset(0)
   , mFinOffset(0)
   , mLocalMaxStreamData(localMaxStreamData)
@@ -153,6 +154,8 @@ MozQuicStreamIn::Supply(std::unique_ptr<ReliableData> &d)
     mRstRecvd = true;
     assert(d->mLen == 0);
     mFinOffset = d->mOffset;
+    // make sure to keep processing so connection
+    // flow control window updates correctly
   }
 
   if (d->mFin && !mFinRecvd) {
@@ -168,12 +171,21 @@ MozQuicStreamIn::Supply(std::unique_ptr<ReliableData> &d)
   }
   
   if (endData > mNextStreamDataExpected) {
+    if (mStreamID) {
+      mFlowController->ConnectionReadBytes(endData - mNextStreamDataExpected);
+    }
+
     mNextStreamDataExpected = endData;
     // todo - credit scheme should be based on how much is queued here.
     // todo - autotuning
+    if (endData > mLocalMaxStreamData) {
+      mMozQuic->Shutdown(MozQuic::FLOW_CONTROL_ERROR, "stream flow control error");
+      fprintf(stderr,"stream flow control recvd too much data\n");
+      return MOZQUIC_ERR_IO;
+    }
     uint64_t available = mLocalMaxStreamData - endData;
     uint32_t increment = mFlowController->GetIncrement();
-    fprintf(stderr,"peer has %ld flow control credits available on stream %d\n",
+    fprintf(stderr,"peer has %ld stream flow control credits available on stream %d\n",
             available, mStreamID);
 
     if ((available < 32 * 1024) ||
@@ -182,7 +194,7 @@ MozQuicStreamIn::Supply(std::unique_ptr<ReliableData> &d)
         return MOZQUIC_ERR_IO;
       }
       mLocalMaxStreamData += increment;
-      if (mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData) != MOZQUIC_OK) {
+      if (!mRstRecvd && mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData) != MOZQUIC_OK) {
         mLocalMaxStreamData -= increment;
       }
     }
@@ -289,12 +301,14 @@ MozQuicStreamIn::Empty()
   return false;
 }
 
-MozQuicStreamOut::MozQuicStreamOut(uint32_t id, FlowController *fc,
+MozQuicStreamOut::MozQuicStreamOut(MozQuic *m, uint32_t id, FlowController *fc,
                                    uint64_t flowControlLimit)
-  : mWriter(fc)
+  : mMozQuic(m)
+  , mWriter(fc)
   , mStreamID(id)
   , mOffset(0)
   , mFlowControlLimit(flowControlLimit)
+  , mOffsetChargedToConnFlowControl(0)
   , mFin(false)
   , mBlocked(false)
   , mPeerRst(false)
@@ -369,6 +383,7 @@ ReliableData::ReliableData(uint32_t id, uint64_t offset,
   , mFin(fin)
   , mRstCode(0)
   , mStreamCreditValue(0)
+  , mConnectionCreditKB(0)
   , mTransmitTime(0)
   , mTransmitCount(1)
   , mRetransmitted(false)
@@ -390,6 +405,7 @@ ReliableData::ReliableData(ReliableData &orig)
   , mFin(orig.mFin)
   , mRstCode(orig.mRstCode)
   , mStreamCreditValue(orig.mStreamCreditValue)
+  , mConnectionCreditKB(orig.mConnectionCreditKB)
   , mTransmitTime(0)
   , mTransmitCount(orig.mTransmitCount + 1)
   , mRetransmitted(false)

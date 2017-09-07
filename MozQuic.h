@@ -75,6 +75,8 @@ extern "C" {
     unsigned int tolerateNoTransportParams; // flag
     unsigned int sabotageVN; // flag
     unsigned int forceAddressValidation; // flag
+    uint64_t streamWindow;
+    uint64_t connWindowKB;
   };
 
   // this is a hack. it will be come a 'crypto config' and allow server key/cert and
