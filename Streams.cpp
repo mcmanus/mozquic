@@ -14,10 +14,10 @@
 namespace mozquic  {
 
 uint32_t
-StreamState::StartNewStream(MozQuicStreamPair **outStream, const void *data,
+StreamState::StartNewStream(StreamPair **outStream, const void *data,
                             uint32_t amount, bool fin)
 {
-  *outStream = new MozQuicStreamPair(mNextStreamId, mMozQuic, this,
+  *outStream = new StreamPair(mNextStreamId, mMozQuic, this,
                                      mPeerMaxStreamData, mLocalMaxStreamData);
   mStreams.insert( { mNextStreamId, *outStream } );
   mNextStreamId += 2;
@@ -34,7 +34,7 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
   // streamID that are not already opened.
   while (streamID >= mNextRecvStreamId) {
     fprintf(stderr, "Add new stream %d\n", mNextRecvStreamId);
-    MozQuicStreamPair *stream = new MozQuicStreamPair(mNextRecvStreamId,
+    StreamPair *stream = new StreamPair(mNextRecvStreamId,
                                                       mMozQuic, this,
                                                       mPeerMaxStreamData, mLocalMaxStreamData);
     mStreams.insert( { mNextRecvStreamId, stream } );
@@ -212,7 +212,7 @@ StreamState::ScrubUnWritten(uint32_t streamID)
 }
 
 uint64_t
-StreamState::CalculateConnectionCharge(ReliableData *data, MozQuicStreamOut *out)
+StreamState::CalculateConnectionCharge(ReliableData *data, StreamOut *out)
 {
   uint64_t newConnectionCharge = 0;
   if (data->mStreamID &&
@@ -223,7 +223,7 @@ StreamState::CalculateConnectionCharge(ReliableData *data, MozQuicStreamOut *out
 }
 
 uint32_t
-StreamState::FlowControlPromotionForStream(MozQuicStreamOut *out)
+StreamState::FlowControlPromotionForStream(StreamOut *out)
 {
   for (auto iBuffer = out->mStreamUnWritten.begin();
        iBuffer != out->mStreamUnWritten.end(); ) {
@@ -782,5 +782,409 @@ StreamState::StreamState(MozQuic *q, uint64_t initialStreamWindow,
 {
 }
 
+StreamPair::StreamPair(uint32_t id, MozQuic *m,
+                       FlowController *flowController,
+                       uint64_t peerMaxStreamData, uint64_t localMaxStreamData)
+  : mStreamID(id)
+  , mOut(m, id, flowController, peerMaxStreamData)
+  , mIn(m, id, flowController, localMaxStreamData)
+  , mMozQuic(m)
+{
 }
+
+StreamPair::~StreamPair()
+{
+}
+
+bool
+StreamPair::Done()
+{
+  return mOut.Done() && mIn.Done();
+}
+
+uint32_t
+StreamPair::Supply(std::unique_ptr<ReliableData> &p) {
+  if (p->mType == ReliableData::kStreamRst) {
+    if (!mOut.Done() && !mIn.Done()) {
+      RstStream(MozQuic::ERROR_NO_ERROR);
+    }
+    mOut.mPeerRst = true;
+    mOut.ScrubUnWritten(p->mStreamID);
+  }
+  return mIn.Supply(p);
+}
+
+uint32_t
+StreamPair::Write(const unsigned char *data, uint32_t len, bool fin)
+{
+  if (!mMozQuic->IsOpen()) {
+    return MOZQUIC_ERR_IO;
+  }
+  return mOut.Write(data, len, fin);
+}
+
+StreamIn::StreamIn(MozQuic *m, uint32_t id,
+                   FlowController *flowcontroller, uint64_t localMaxStreamData)
+  : mMozQuic(m)
+  , mStreamID(id)
+  , mOffset(0)
+  , mFinOffset(0)
+  , mLocalMaxStreamData(localMaxStreamData)
+  , mNextStreamDataExpected(0)
+  , mFlowController(flowcontroller)
+  , mFinRecvd(false)
+  , mRstRecvd(false)
+  , mEndGivenToApp(false)
+{
+}
+
+StreamIn::~StreamIn()
+{
+}
+
+uint32_t
+StreamPair::ResetInbound()
+{
+  // this is used in a very peculiar circumstance after HRR on stream 0 only
+  assert(mStreamID == 0);
+  return mIn.ResetInbound();
+}
+
+uint32_t
+StreamIn::ResetInbound()
+{
+  assert(Empty());
+  mOffset = 0;
+  mFinOffset = 0;
+  mFinRecvd = false;
+  mRstRecvd = false;
+  mEndGivenToApp = false;
+  return MOZQUIC_OK;
+}
+
+// returning amt = 0 is not a fin or an error on its own
+uint32_t
+StreamIn::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin)
+{
+  amt = 0;
+  fin = false;
+  if (mFinRecvd && mFinOffset == mOffset) {
+    fin = true;
+    mEndGivenToApp = true;
+    return mRstRecvd ? MOZQUIC_ERR_IO : MOZQUIC_OK;
+  }
+  if (Empty()) {
+    return MOZQUIC_OK;
+  }
+
+  auto i = mAvailable.begin();
+  if ((*i)->mOffset > mOffset) {
+    assert (mRstRecvd);
+    mEndGivenToApp = true;
+    return MOZQUIC_ERR_IO;
+  }
+
+  uint64_t skip = mOffset - (*i)->mOffset;
+  const unsigned char *src = (*i)->mData.get() + skip;
+  assert((*i)->mLen > skip);
+  uint64_t copyLen = (*i)->mLen - skip;
+  if (copyLen > avail) {
+    copyLen = avail;
+  }
+  memcpy (buffer, src, copyLen);
+  amt = copyLen;
+  mOffset += copyLen;
+  if (mFinRecvd && mFinOffset == mOffset) {
+    fin = true;
+    mEndGivenToApp = true;
+  }
+  assert(mOffset <= (*i)->mOffset + (*i)->mLen);
+  if (mOffset == (*i)->mOffset + (*i)->mLen) {
+    // we dont need this buffer anymore
+    mAvailable.erase(i);
+  }
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamIn::Supply(std::unique_ptr<ReliableData> &d)
+{
+  // new frame segment goes into a linked list ordered by seqno
+  // any overlapping data is dropped
+
+  if (mRstRecvd) {
+    d.reset(); // drop it
+    return MOZQUIC_OK;
+  }
+
+  if (d->mType == ReliableData::kStreamRst && !mFinRecvd) {
+    mFinRecvd = true;
+    mRstRecvd = true;
+    assert(d->mLen == 0);
+    mFinOffset = d->mOffset;
+    // make sure to keep processing so connection
+    // flow control window updates correctly
+  }
+
+  if (d->mFin && !mFinRecvd) {
+    mFinRecvd = true;
+    mFinOffset = d->mOffset + d->mLen;
+  }
+
+  uint64_t endData = d->mOffset + d->mLen;
+  if (endData <= mOffset) {
+    // this is 100% old data. we can drop it
+    d.reset();
+    return MOZQUIC_OK;
+  }
+  
+  if (endData > mNextStreamDataExpected) {
+    if (mStreamID) {
+      mFlowController->ConnectionReadBytes(endData - mNextStreamDataExpected);
+    }
+
+    mNextStreamDataExpected = endData;
+    // todo - credit scheme should be based on how much is queued here.
+    // todo - autotuning
+    if (endData > mLocalMaxStreamData) {
+      mMozQuic->Shutdown(MozQuic::FLOW_CONTROL_ERROR, "stream flow control error");
+      fprintf(stderr,"stream flow control recvd too much data\n");
+      return MOZQUIC_ERR_IO;
+    }
+    uint64_t available = mLocalMaxStreamData - endData;
+    uint32_t increment = mFlowController->GetIncrement();
+    fprintf(stderr,"peer has %ld stream flow control credits available on stream %d\n",
+            available, mStreamID);
+
+    if ((available < 32 * 1024) ||
+        (available < (increment / 2))) {
+      if (mLocalMaxStreamData > (0xffffffffffffffffULL - increment)) {
+        return MOZQUIC_ERR_IO;
+      }
+      mLocalMaxStreamData += increment;
+      if (!mRstRecvd && mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData) != MOZQUIC_OK) {
+        mLocalMaxStreamData -= increment;
+      }
+    }
+  }
+
+  // if the list is empty, add it to the list!
+  if (mAvailable.empty()) {
+    mAvailable.push_front(std::move(d));
+    return MOZQUIC_OK;
+  }
+
+  // note these are reverse iterators so iter++ moves to the left (earlier seqno)
+  // and insert puts new node to the right (later seqno)
+  auto i = mAvailable.rbegin();
+  auto end = mAvailable.rend();
+
+  while (i != end) {
+    // we don't need empty chunks
+    if (!d->mLen) {
+      // todo log
+      std::unique_ptr<ReliableData> x(std::move(d));
+      return MOZQUIC_OK;
+    }
+
+    // check for dup
+    // if i offset && len == d offset && len drop it
+    if ((d->mOffset == (*i)->mOffset) && (d->mLen == (*i)->mLen)) {
+      // todo log
+      // this is a dup. ignore it.
+      std::unique_ptr<ReliableData> x(std::move(d));
+      return MOZQUIC_OK;
+    }
+
+    // check for full append to the right (later seq [d is after i])
+    // if i offset + len <= d.offset then append after
+    if (((*i)->mOffset + (*i)->mLen) <= d->mOffset) {
+      mAvailable.insert(i.base(), std::move(d));
+      return MOZQUIC_OK;
+    }
+
+    // check for full location to the left (earlier seq [d is before i])
+    // if d offset + len <= i.offset then iter left and rpt
+    if ((d->mOffset + d->mLen) <= (*i)->mOffset){
+      i++;
+      continue;
+    }
+
+    // d overlaps with i. Form a new chunk with any portion that
+    // exists to the right and append that (if it exists), and then
+    // adjust the current chunk to only cover data to the left (not
+    // any overlap) and iter to the left.
+    if ((d->mOffset + d->mLen) > ((*i)->mOffset + (*i)->mLen)) {
+      // we need a new chunk
+      uint64_t skip = (*i)->mOffset + (*i)->mLen - d->mOffset;
+      std::unique_ptr<ReliableData>
+        newChunk(new ReliableData(d->mStreamID,
+                                        (*i)->mOffset + (*i)->mLen,
+                                        d->mData.get() + skip,
+                                        d->mLen - skip, false));
+      d->mLen = skip;
+
+      // todo log
+      // append it to the right
+      mAvailable.insert(i.base(), std::move(newChunk));
+      // dont continue or return, still need to deal with remainder
+    }
+
+    if ((*i)->mOffset <= d->mOffset) {
+      // there is no more data to the left. drop it.
+      // todo log
+      std::unique_ptr<ReliableData> x(std::move(d));
+      return MOZQUIC_OK;
+    }
+
+    // adjust data to be non overlapping
+    d->mLen = (*i)->mOffset - d->mOffset;
+    // todo log
+    i++;
+  }
+
+  mAvailable.push_front(std::move(d));
+  return MOZQUIC_OK;
+}
+
+bool
+StreamIn::Empty()
+{
+  if (mRstRecvd) {
+    return false;
+  }
+
+  if (mFinRecvd && mFinOffset == mOffset) {
+    return false;
+  }
+  if (mAvailable.empty()) {
+    return true;
+  }
+
+  auto i = mAvailable.begin();
+  if ((*i)->mOffset > mOffset) {
+    return true;
+  }
+
+  return false;
+}
+
+StreamOut::StreamOut(MozQuic *m, uint32_t id, FlowController *fc,
+                     uint64_t flowControlLimit)
+  : mMozQuic(m)
+  , mWriter(fc)
+  , mStreamID(id)
+  , mOffset(0)
+  , mFlowControlLimit(flowControlLimit)
+  , mOffsetChargedToConnFlowControl(0)
+  , mFin(false)
+  , mBlocked(false)
+  , mPeerRst(false)
+{
+}
+
+StreamOut::~StreamOut()
+{
+}
+
+uint32_t
+StreamOut::StreamWrite(std::unique_ptr<ReliableData> &p)
+{
+  mStreamUnWritten.push_back(std::move(p));
+
+  return MOZQUIC_OK;
+}
+
+
+uint32_t
+StreamOut::Write(const unsigned char *data, uint32_t len, bool fin)
+{
+  if (mPeerRst) {
+    return MOZQUIC_ERR_IO;
+  }
+  
+  if (mFin) {
+    return MOZQUIC_ERR_ALREADY_FINISHED;
+  }
+
+  std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, mOffset, data, len, fin));
+  mOffset += len;
+  mFin = fin;
+  return StreamWrite(tmp);
+}
+
+int
+StreamOut::EndStream()
+{
+  if (mFin) {
+    return MOZQUIC_ERR_ALREADY_FINISHED;
+  }
+  mFin = true;
+
+  std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, mOffset, nullptr, 0, true));
+  return StreamWrite(tmp);
+}
+
+int
+StreamOut::RstStream(uint32_t code)
+{
+  if (mFin) {
+    return MOZQUIC_ERR_ALREADY_FINISHED;
+  }
+  mFin = true;
+
+  // empty local queue before sending rst
+  mStreamUnWritten.clear();
+  std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, mOffset, nullptr, 0, 0));
+  tmp->MakeStreamRst(code);
+  return mWriter->ConnectionWrite(tmp);
+}
+
+ReliableData::ReliableData(uint32_t id, uint64_t offset,
+                           const unsigned char *data, uint32_t len,
+                           bool fin)
+  : mType(kStream)
+  , mData(new unsigned char[len])
+  , mLen(len)
+  , mStreamID(id)
+  , mOffset(offset)
+  , mFin(fin)
+  , mRstCode(0)
+  , mStreamCreditValue(0)
+  , mConnectionCreditKB(0)
+  , mTransmitTime(0)
+  , mTransmitCount(1)
+  , mRetransmitted(false)
+  , mTransmitKeyPhase(keyPhaseUnknown)
+{
+  if ((0xfffffffffffffffe - offset) < len) {
+    // todo should not silently truncate like this
+    len = 0xfffffffffffffffe - offset;
+  }
+
+  memcpy((void *)mData.get(), data, len);
+}
+
+ReliableData::ReliableData(ReliableData &orig)
+  : mType(orig.mType)
+  , mLen(orig.mLen)
+  , mStreamID(orig.mStreamID)
+  , mOffset(orig.mOffset)
+  , mFin(orig.mFin)
+  , mRstCode(orig.mRstCode)
+  , mStreamCreditValue(orig.mStreamCreditValue)
+  , mConnectionCreditKB(orig.mConnectionCreditKB)
+  , mTransmitTime(0)
+  , mTransmitCount(orig.mTransmitCount + 1)
+  , mRetransmitted(false)
+  , mTransmitKeyPhase(keyPhaseUnknown)
+{
+  mData = std::move(orig.mData);
+}
+
+ReliableData::~ReliableData()
+{
+}
+
+} // namespace
 

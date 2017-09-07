@@ -27,7 +27,6 @@ OBJS += Ack.o
 OBJS += API.o
 OBJS += ClearText.o
 OBJS += MozQuic.o
-OBJS += MozQuicStream.o
 OBJS += NSSHelper.o
 OBJS += Packetization.o
 OBJS += Ping.o

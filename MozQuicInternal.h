@@ -62,15 +62,15 @@ enum keyPhase {
   keyPhase1Rtt
 };
 
-class MozQuicStreamPair;
-class MozQuicStreamAck;
+class StreamPair;
+class StreamAck;
 class NSSHelper;
 class StreamState;
 class ReliableData;
 
 class MozQuic final
 {
-friend class MozQuicStreamPair;
+friend class StreamPair;
 friend class FrameHeaderData;
 friend class StreamState;
 public:
@@ -84,7 +84,7 @@ public:
   int StartClient();
   int StartServer();
   void SetInitialPacketNumber();
-  uint32_t StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin);
+  uint32_t StartNewStream(StreamPair **outStream, const void *data, uint32_t amount, bool fin);
   void DeleteStream(uint32_t streamID);
   int IO();
   void HandshakeOutput(unsigned char *, uint32_t amt);

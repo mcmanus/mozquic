@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include "MozQuicStream.h"
-
 namespace mozquic  {
 
 enum  {
@@ -17,10 +15,10 @@ enum  {
   kForgetUnAckedThresh  = 4000, // ms
 };
 
-class MozQuicStreamAck
+class StreamAck
 {
 public:
-  MozQuicStreamAck(uint64_t num, uint64_t rtime, enum keyPhase kp)
+  StreamAck(uint64_t num, uint64_t rtime, enum keyPhase kp)
     : mPacketNumber(num)
     , mExtra(0)
     , mPhase (kp)
@@ -44,6 +42,49 @@ public:
   bool Transmitted() { return !mTransmits.empty(); }
 };
 
+class FlowController
+{
+public:
+  // the caller owns the unique_ptr if it returns 0
+  virtual uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) = 0;
+  virtual uint32_t ScrubUnWritten(uint32_t id) = 0;
+  virtual uint32_t GetIncrement() = 0;
+  virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) = 0;
+  virtual uint32_t ConnectionReadBytes(uint64_t amt) = 0;
+};
+
+class StreamOut
+{
+  friend class StreamState;
+public:
+  StreamOut(MozQuic *m, uint32_t id, FlowController *f, uint64_t limit);
+  ~StreamOut();
+  uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
+  int EndStream();
+  int RstStream(uint32_t code);
+  bool Done() { return mFin || mPeerRst; }
+  uint32_t ScrubUnWritten(uint32_t id) { return mWriter->ScrubUnWritten(id); }
+  void NewFlowControlLimit(uint64_t limit) {
+    mFlowControlLimit = limit;
+  }
+
+private:
+  MozQuic *mMozQuic;
+  uint32_t StreamWrite(std::unique_ptr<ReliableData> &p);
+  
+  FlowController *mWriter;
+  std::list<std::unique_ptr<ReliableData>> mStreamUnWritten;
+  uint32_t mStreamID;
+  uint64_t mOffset;
+  uint64_t mFlowControlLimit;
+  uint64_t mOffsetChargedToConnFlowControl;
+
+  bool mFin;
+  bool mBlocked; // blocked on stream based flow control
+public:
+  bool mPeerRst;
+};
+
 class StreamState : public FlowController
 {
   friend class MozQuic;
@@ -58,7 +99,7 @@ public:
   uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) override;
   uint32_t ConnectionReadBytes(uint64_t amt) override;
   
-  uint32_t StartNewStream(MozQuicStreamPair **outStream, const void *data, uint32_t amount, bool fin);
+  uint32_t StartNewStream(StreamPair **outStream, const void *data, uint32_t amount, bool fin);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
   void DeleteStream(uint32_t streamID);
@@ -95,8 +136,8 @@ public:
 
 private:
   uint32_t FlowControlPromotion();
-  uint32_t FlowControlPromotionForStream(MozQuicStreamOut *out);
-  uint64_t CalculateConnectionCharge(ReliableData *data, MozQuicStreamOut *out);
+  uint32_t FlowControlPromotionForStream(StreamOut *out);
+  uint64_t CalculateConnectionCharge(ReliableData *data, StreamOut *out);
   
   MozQuic *mMozQuic;
   uint32_t mNextStreamId;
@@ -117,8 +158,8 @@ private: // these still need friend mozquic
   
   uint32_t mPeerMaxStreamID;
 
-  std::unique_ptr<MozQuicStreamPair> mStream0;
-  std::unordered_map<uint32_t, MozQuicStreamPair *> mStreams;
+  std::unique_ptr<StreamPair> mStream0;
+  std::unordered_map<uint32_t, StreamPair *> mStreams;
 
   // retransmit happens off of mUnAckedData by
   // duplicating it and placing it in mConnUnWritten. The
@@ -139,7 +180,125 @@ private: // these still need friend mozquic
   // now iterate from rear (oldest data being acknowledged).
   //
   // acks ordered {1,2,5,6,7} as 7/2, 2/1 (biggest at head)
-  std::list<MozQuicStreamAck>                    mAckList;
+  std::list<StreamAck>                    mAckList;
+};
+
+class ReliableData
+{
+public:
+  ReliableData(uint32_t id, uint64_t offset, const unsigned char *data,
+               uint32_t len, bool fin);
+
+  // This form of ctor steals the data pointer. used for retransmit
+  ReliableData(ReliableData &);
+  ~ReliableData();
+
+  void MakeStreamRst(uint32_t code) { mType = kStreamRst; mRstCode = code;}
+  void MakeMaxStreamData(uint64_t offset) { mType = kMaxStreamData; mStreamCreditValue = offset;}
+  void MakeMaxData(uint64_t kb) { mType = kMaxData; mConnectionCreditKB = kb;}
+  void MakeStreamBlocked() { mType = kStreamBlocked; }
+  void MakeBlocked() { mType = kBlocked; }
+
+  enum 
+  {
+    kStream, kStreamRst, kMaxStreamData, kStreamBlocked, kMaxData, kBlocked,
+  } mType;
+  
+  std::unique_ptr<const unsigned char []>mData;
+  uint32_t mLen;
+  uint32_t mStreamID;
+  uint64_t mOffset;
+  bool     mFin;
+
+  uint32_t mRstCode; // for kStreamRst
+
+  uint64_t mStreamCreditValue; // for kMaxStreamData
+
+  uint64_t mConnectionCreditKB; // for kMaxData 
+
+  // when unacked these are set
+  uint64_t mPacketNumber;
+  uint64_t mTransmitTime; // todo.. hmm if this gets queued for any cc/fc reason (same for ack)
+  uint16_t mTransmitCount;
+  bool     mRetransmitted; // no data after retransmitted
+  enum keyPhase mTransmitKeyPhase;
+};
+
+class StreamIn
+{
+public:
+  StreamIn(MozQuic *m, uint32_t id, FlowController *flowController, uint64_t localMSD);
+  ~StreamIn();
+  uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin);
+  uint32_t Supply(std::unique_ptr<ReliableData> &p);
+  bool     Empty();
+
+  bool Done() {
+    return mEndGivenToApp;
+  }
+  uint32_t ResetInbound();
+
+private:
+  MozQuic *mMozQuic;
+  uint32_t mStreamID;
+  uint64_t mOffset;
+  uint64_t mFinOffset;
+
+  uint64_t mLocalMaxStreamData; // highest flow control we have sent to peer
+  uint64_t mNextStreamDataExpected;
+
+  FlowController *mFlowController;
+
+  bool     mFinRecvd;
+  bool     mRstRecvd;
+  bool     mEndGivenToApp;
+
+  std::list<std::unique_ptr<ReliableData>> mAvailable;
+};
+
+class StreamPair
+{
+public:
+  StreamPair(uint32_t id, MozQuic *, FlowController *,
+                    uint64_t peerMSD, uint64_t localMSD);
+  ~StreamPair();
+
+  // Supply places data on the input (i.e. read()) queue
+  uint32_t Supply(std::unique_ptr<ReliableData> &p);
+
+  // todo it would be nice to have a zero copy interface
+  uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin) {
+    return mIn.Read(buffer, avail, amt, fin);
+  }
+
+  bool Empty() {
+    return mIn.Empty();
+  }
+
+  uint32_t ResetInbound();
+
+  void NewFlowControlLimit(uint64_t limit) {
+    mOut.NewFlowControlLimit(limit);
+  }
+
+  uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
+
+  int EndStream() {
+    return mOut.EndStream();
+  }
+
+  int RstStream(uint32_t code) {
+    return mOut.RstStream(code);
+  }
+
+  bool Done(); // All data and fin bit given to an application and all data are transmitted and acked.
+               // todo(or stream has been reseted)
+               // the stream can be removed from the stream list.
+
+  uint32_t mStreamID;
+  StreamOut mOut;
+  StreamIn  mIn;
+  MozQuic *mMozQuic;
 };
 
 }

@@ -6,7 +6,6 @@
 #include <array>
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
-#include "MozQuicStream.h"
 #include "NSSHelper.h"
 #include "Streams.h"
 #include "TransportExtension.h"
@@ -261,9 +260,9 @@ MozQuic::StartClient()
   mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
   mStreamState->InitIDs(1,2);
   mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
-  mStreamState->mStream0.reset(new MozQuicStreamPair(0, this, mStreamState.get(),
-                                                     kMaxStreamDataDefault,
-                                                     mStreamState->mLocalMaxStreamData));
+  mStreamState->mStream0.reset(new StreamPair(0, this, mStreamState.get(),
+                                              kMaxStreamDataDefault,
+                                              mStreamState->mLocalMaxStreamData));
 
   assert(!mClientOriginalOfferedVersion);
   mClientOriginalOfferedVersion = mVersion;
@@ -1177,9 +1176,9 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
   child->mFD = mFD;
   child->mClientInitialPacketNumber = aCIPacketNumber;
 
-  child->mStreamState->mStream0.reset(new MozQuicStreamPair(0, child, child->mStreamState.get(),
-                                                            kMaxStreamDataDefault,
-                                                            child->mStreamState->mLocalMaxStreamData));
+  child->mStreamState->mStream0.reset(new StreamPair(0, child, child->mStreamState.get(),
+                                                     kMaxStreamDataDefault,
+                                                     child->mStreamState->mLocalMaxStreamData));
   
   do {
     for (int i=0; i < 4; i++) {
@@ -1214,7 +1213,7 @@ MozQuic::VersionOK(uint32_t proposed)
 }
 
 uint32_t
-MozQuic::StartNewStream(MozQuicStreamPair **outStream, const void *data,
+MozQuic::StartNewStream(StreamPair **outStream, const void *data,
                         uint32_t amount, bool fin)
 {
   if (mStreamState) {

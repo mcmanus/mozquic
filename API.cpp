@@ -7,7 +7,7 @@ static int mozQuicInit = 0;
 
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
-#include "MozQuicStream.h"
+#include "Streams.h"
 #include "NSSHelper.h"
 #include <assert.h>
 
@@ -105,7 +105,7 @@ int mozquic_start_new_stream(mozquic_stream_t **outStream,
                              int fin)
 {
   mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
-  mozquic::MozQuicStreamPair *stream;
+  mozquic::StreamPair *stream;
   int rv = self->StartNewStream(&stream, data, amount, fin);
   if (!rv) {
     *outStream = (void *)stream;
@@ -116,7 +116,7 @@ int mozquic_start_new_stream(mozquic_stream_t **outStream,
 int mozquic_send(mozquic_stream_t *stream, void *data, uint32_t amount,
                  int fin)
 {
-  mozquic::MozQuicStreamPair *self(reinterpret_cast<mozquic::MozQuicStreamPair *>(stream));
+  mozquic::StreamPair *self(reinterpret_cast<mozquic::StreamPair *>(stream));
   int rv = self->Write((const unsigned char *)data, amount, fin);
   if (fin && self->Done()) {
     self->mMozQuic->DeleteStream(self->mStreamID);
@@ -126,7 +126,7 @@ int mozquic_send(mozquic_stream_t *stream, void *data, uint32_t amount,
 
 int mozquic_end_stream(mozquic_stream_t *stream)
 {
-  mozquic::MozQuicStreamPair *self(reinterpret_cast<mozquic::MozQuicStreamPair *>(stream));
+  mozquic::StreamPair *self(reinterpret_cast<mozquic::StreamPair *>(stream));
   int rv = self->EndStream();
   if (self->Done()) {
     self->mMozQuic->DeleteStream(self->mStreamID);
@@ -136,7 +136,7 @@ int mozquic_end_stream(mozquic_stream_t *stream)
 
 int mozquic_reset_stream(mozquic_stream_t *stream)
 {
-  mozquic::MozQuicStreamPair *self(reinterpret_cast<mozquic::MozQuicStreamPair *>(stream));
+  mozquic::StreamPair *self(reinterpret_cast<mozquic::StreamPair *>(stream));
   int rv = self->RstStream(mozquic::MozQuic::ERROR_CANCELLED);
   if (self->Done()) {
     self->mMozQuic->DeleteStream(self->mStreamID);
@@ -147,7 +147,7 @@ int mozquic_reset_stream(mozquic_stream_t *stream)
 int mozquic_recv(mozquic_stream_t *stream, void *data, uint32_t avail,
                  uint32_t *amount, int *fin)
 {
-  mozquic::MozQuicStreamPair *self(reinterpret_cast<mozquic::MozQuicStreamPair *>(stream));
+  mozquic::StreamPair *self(reinterpret_cast<mozquic::StreamPair *>(stream));
   bool f;
   uint32_t a;
   int rv = self->Read((unsigned char *)data, avail, a, f);
