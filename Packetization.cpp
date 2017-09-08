@@ -227,25 +227,6 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
       mFrameLen = FRAME_TYPE_CLOSE_LENGTH + len;
       return;
 
-    case FRAME_TYPE_GOAWAY:
-      if (pktSize < FRAME_TYPE_GOAWAY_LENGTH) {
-        session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "GOAWAY frame length expected");
-        return;
-      }
-
-      mType = FRAME_TYPE_GOAWAY;
-
-      memcpy(&u.mGoaway.mClientStreamID, framePtr, 4);
-      u.mGoaway.mClientStreamID = ntohl(u.mGoaway.mClientStreamID);
-      framePtr += 4;
-      memcpy(&u.mGoaway.mServerStreamID, framePtr, 4);
-      u.mGoaway.mServerStreamID = ntohl(u.mGoaway.mServerStreamID);
-      framePtr += 4;
-      mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_GOAWAY_LENGTH;
-      return;
-
     case FRAME_TYPE_MAX_DATA:
       if (pktSize < FRAME_TYPE_MAX_DATA_LENGTH) {
         session->RaiseError(MOZQUIC_ERR_GENERAL,

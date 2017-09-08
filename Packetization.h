@@ -54,7 +54,7 @@ enum FrameType {
   FRAME_TYPE_PADDING           = 0x0,
   FRAME_TYPE_RST_STREAM        = 0x1,
   FRAME_TYPE_CLOSE             = 0x2,
-  FRAME_TYPE_GOAWAY            = 0x3,
+  // 3 was goaway
   FRAME_TYPE_MAX_DATA          = 0x4,
   FRAME_TYPE_MAX_STREAM_DATA   = 0x5,
   FRAME_TYPE_MAX_STREAM_ID     = 0x6,
@@ -130,7 +130,6 @@ enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
   FRAME_TYPE_RST_STREAM_LENGTH        = 17,
   FRAME_TYPE_CLOSE_LENGTH             = 7,
-  FRAME_TYPE_GOAWAY_LENGTH            = 9,
   FRAME_TYPE_MAX_DATA_LENGTH          = 9,
   FRAME_TYPE_MAX_STREAM_DATA_LENGTH   = 13,
   FRAME_TYPE_MAX_STREAM_ID_LENGTH     = 5,
