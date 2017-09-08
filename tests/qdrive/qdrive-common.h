@@ -32,6 +32,7 @@ void config_tests(struct testParam *testList, int numTests,
                   int argc, char **argv, struct mozquic_config_t *c);
 int setup_tests(struct testParam *testList, int numTests,
                 int argc, char **argv, struct mozquic_connection_t *c);
+uint64_t Timestamp();
 
 static inline void test_assert(int test_assertion) 
 {

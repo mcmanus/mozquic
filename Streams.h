@@ -133,6 +133,7 @@ public:
                               ReliableData *chunk);
 
   void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamId = next; mNextRecvStreamId = nextR; }
+  void MaybeIssueFlowControlCredit();
 
 private:
   uint32_t FlowControlPromotion();
@@ -231,6 +232,7 @@ public:
   ~StreamIn();
   uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin);
   uint32_t Supply(std::unique_ptr<ReliableData> &p);
+  void MaybeIssueFlowControlCredit();
   bool     Empty();
 
   bool Done() {

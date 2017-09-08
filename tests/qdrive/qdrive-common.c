@@ -7,6 +7,7 @@
 #include <strings.h>
 #include "qdrive-common.h"
 #include "MozQuic.h"
+#include <sys/time.h>
 
 #define TEST_PARAMS(N) {"-qdrive-test"#N, testConfig##N, testEvent##N, testGetClosure##N}
 #define TEST_EXPORT(N) void testConfig##N(struct mozquic_config_t *_c);\
@@ -14,12 +15,12 @@
   void *testGetClosure##N();
 
 TEST_EXPORT(0) TEST_EXPORT(1) TEST_EXPORT(2) TEST_EXPORT(3) TEST_EXPORT(4)
-TEST_EXPORT(5) TEST_EXPORT(6)
+TEST_EXPORT(5) TEST_EXPORT(6) TEST_EXPORT(7)
 
 struct testParam testList[] =
 {
   TEST_PARAMS(0), TEST_PARAMS(1), TEST_PARAMS(2), TEST_PARAMS(3), TEST_PARAMS(4),
-  TEST_PARAMS(5), TEST_PARAMS(6),
+  TEST_PARAMS(5), TEST_PARAMS(6), TEST_PARAMS(7),
 
   { NULL, NULL, NULL, NULL } // eof sentinel
 };
@@ -68,4 +69,13 @@ setup_tests(struct testParam *testList, int numTests, int argc, char **argv, str
   test_assert(rv);
   return rv;
 }
-  
+
+uint64_t
+Timestamp()
+{
+  // ms since epoch
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+}
+

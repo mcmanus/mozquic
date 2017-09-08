@@ -99,6 +99,20 @@ int mozquic_start_server(mozquic_connection_t *conn)
   return self->StartServer();
 }
 
+int mozquic_start_backpressure(mozquic_connection_t *conn)
+{
+  mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
+  self->StartBackPressure();
+  return MOZQUIC_OK;
+}
+
+int mozquic_release_backpressure(mozquic_connection_t *conn)
+{
+  mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
+  self->ReleaseBackPressure();
+  return MOZQUIC_OK;
+}
+  
 int mozquic_start_new_stream(mozquic_stream_t **outStream,
                              mozquic_connection_t *conn, void *data,
                              uint32_t amount,

@@ -127,6 +127,9 @@ public:
   static uint64_t Timestamp();
   void Shutdown(uint32_t, const char *);
 
+  void StartBackPressure() { mBackPressure = true; }
+  void ReleaseBackPressure();
+  
 private:
   void RaiseError(uint32_t err, char *reason);
 
@@ -208,6 +211,8 @@ private:
   bool mAppHandlesSendRecv;
   bool mIsLoopback;
   bool mProcessedVN;
+  bool mBackPressure;
+
   enum connectionState mConnectionState;
   int mOriginPort;
   std::unique_ptr<char []> mOriginName;

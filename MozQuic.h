@@ -96,6 +96,10 @@ extern "C" {
   int mozquic_set_event_callback_closure(mozquic_connection_t *conn, void *closure);
   int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMS);
 
+  // this is also experimental/testing
+  int mozquic_start_backpressure(mozquic_connection_t *conn);
+  int mozquic_release_backpressure(mozquic_connection_t *conn);
+  
   ////////////////////////////////////////////////////
   // IO handlers
   // if library is handling IO this does not need to be called

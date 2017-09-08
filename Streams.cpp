@@ -236,7 +236,6 @@ StreamState::FlowControlPromotionForStream(StreamOut *out)
       if (newConnectionCharge) {
         
         if (mMaxDataSent >= mPeerMaxData) {
-          iBuffer++;
           if (!mMaxDataBlocked) {
             mMaxDataBlocked = true;
             fprintf(stderr,"BLOCKED by connection window 1\n");
@@ -244,6 +243,7 @@ StreamState::FlowControlPromotionForStream(StreamOut *out)
             tmp->MakeBlocked();
             ConnectionWrite(tmp);
           }
+          iBuffer++;
           continue;
         }
         
@@ -254,7 +254,6 @@ StreamState::FlowControlPromotionForStream(StreamOut *out)
             minCharge = (*iBuffer)->mOffset + 1 - out->mOffsetChargedToConnFlowControl;
           }
           if (mMaxDataSent + minCharge > mPeerMaxData) {
-            iBuffer++;
             if (!mMaxDataBlocked) {
               mMaxDataBlocked = true;
               fprintf(stderr,"BLOCKED by connection window 2\n");
@@ -262,6 +261,7 @@ StreamState::FlowControlPromotionForStream(StreamOut *out)
               tmp->MakeBlocked();
               ConnectionWrite(tmp);
             }
+            iBuffer++;
             continue;
           }
           uint64_t maxCharge = mPeerMaxData - mMaxDataSent;
@@ -289,7 +289,6 @@ StreamState::FlowControlPromotionForStream(StreamOut *out)
       }
               
       if ((*iBuffer)->mOffset >= out->mFlowControlLimit) {
-        iBuffer++;
         if (!out->mBlocked) {
           fprintf(stderr,"Stream %d BLOCKED flow control\n", (*iBuffer)->mStreamID);
           out->mBlocked = true;
@@ -297,6 +296,7 @@ StreamState::FlowControlPromotionForStream(StreamOut *out)
           tmp->MakeStreamBlocked();
           ConnectionWrite(tmp);
         }
+        iBuffer++;
         continue;
       }
       if ((*iBuffer)->mOffset + (*iBuffer)->mLen > out->mFlowControlLimit) {
@@ -362,6 +362,20 @@ StreamState::FlowControlPromotion()
   }
   return MOZQUIC_OK;
 }
+
+void
+StreamState::MaybeIssueFlowControlCredit()
+{
+  // todo something better than polling
+  ConnectionReadBytes(0);
+  if (mStream0) {
+    mStream0->mIn.MaybeIssueFlowControlCredit();
+  }
+  for (auto iStreamPair = mStreams.begin(); iStreamPair != mStreams.end(); iStreamPair++) {
+    iStreamPair->second->mIn.MaybeIssueFlowControlCredit();
+  }
+}
+
 
 static uint8_t varSize(uint64_t input)
 {
@@ -574,6 +588,9 @@ StreamState::IssueStreamCredit(uint32_t streamID, uint64_t newMax)
       (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED)) {
     return MOZQUIC_ERR_GENERAL;
   }
+  if (mMozQuic->mBackPressure) {
+    return MOZQUIC_ERR_GENERAL;
+  }
 
   fprintf(stderr,"Issue a stream credit id=%d maxoffset=%ld\n", streamID, newMax);
 
@@ -602,7 +619,7 @@ StreamState::ConnectionReadBytes(uint64_t amt)
   // todo - autotuning
   uint64_t available = mLocalMaxData - mLocalMaxDataUsed;
 
-  if (available > 4 * 1024 * 1024) {
+  if (mMozQuic->mBackPressure || (available > 4 * 1024 * 1024)) {
     return MOZQUIC_OK;
   }
 
@@ -906,6 +923,26 @@ StreamIn::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin)
   return MOZQUIC_OK;
 }
 
+void
+StreamIn::MaybeIssueFlowControlCredit()
+{
+  uint64_t available = mLocalMaxStreamData - mNextStreamDataExpected;
+  uint32_t increment = mFlowController->GetIncrement();
+  fprintf(stderr,"peer has %ld stream flow control credits available on stream %d\n",
+          available, mStreamID);
+
+  if ((available < 32 * 1024) ||
+      (available < (increment / 2))) {
+    if (mLocalMaxStreamData > (0xffffffffffffffffULL - increment)) {
+      return;
+    }
+    mLocalMaxStreamData += increment;
+    if (!mRstRecvd && (mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData) != MOZQUIC_OK)) {
+      mLocalMaxStreamData -= increment;
+    }
+  }
+}
+
 uint32_t
 StreamIn::Supply(std::unique_ptr<ReliableData> &d)
 {
@@ -946,26 +983,12 @@ StreamIn::Supply(std::unique_ptr<ReliableData> &d)
     mNextStreamDataExpected = endData;
     // todo - credit scheme should be based on how much is queued here.
     // todo - autotuning
-    if (endData > mLocalMaxStreamData) {
+    if (mNextStreamDataExpected > mLocalMaxStreamData) {
       mMozQuic->Shutdown(MozQuic::FLOW_CONTROL_ERROR, "stream flow control error");
       fprintf(stderr,"stream flow control recvd too much data\n");
       return MOZQUIC_ERR_IO;
     }
-    uint64_t available = mLocalMaxStreamData - endData;
-    uint32_t increment = mFlowController->GetIncrement();
-    fprintf(stderr,"peer has %ld stream flow control credits available on stream %d\n",
-            available, mStreamID);
-
-    if ((available < 32 * 1024) ||
-        (available < (increment / 2))) {
-      if (mLocalMaxStreamData > (0xffffffffffffffffULL - increment)) {
-        return MOZQUIC_ERR_IO;
-      }
-      mLocalMaxStreamData += increment;
-      if (!mRstRecvd && mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData) != MOZQUIC_OK) {
-        mLocalMaxStreamData -= increment;
-      }
-    }
+    MaybeIssueFlowControlCredit();
   }
 
   // if the list is empty, add it to the list!

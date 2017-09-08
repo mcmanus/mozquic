@@ -40,6 +40,7 @@ MozQuic::MozQuic(bool handleIO)
   , mAppHandlesSendRecv(false)
   , mIsLoopback(false)
   , mProcessedVN(false)
+  , mBackPressure(false)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mVersion(kMozQuicVersion1)
@@ -239,6 +240,15 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, used - headerLen,
                     mMTU - headerLen - kTagLen, false);
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
+}
+
+void
+MozQuic::ReleaseBackPressure()
+{
+  mBackPressure = false;
+  if (mStreamState) {
+    mStreamState->MaybeIssueFlowControlCredit();
+  }
 }
 
 void
