@@ -122,9 +122,9 @@ public:
   uint32_t HandleBlockedFrame(FrameHeaderData *result, bool fromCleartext,
                               const unsigned char *pkt, const unsigned char *endpkt,
                               uint32_t &_ptr);
-  uint32_t HandleStreamIDNeededFrame(FrameHeaderData *result, bool fromCleartext,
-                                     const unsigned char *pkt, const unsigned char *endpkt,
-                                     uint32_t &_ptr);
+  uint32_t HandleStreamIDBlockedFrame(FrameHeaderData *result, bool fromCleartext,
+                                      const unsigned char *pkt, const unsigned char *endpkt,
+                                      uint32_t &_ptr);
   uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt,
                               bool justZero);
   uint32_t CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
@@ -139,8 +139,8 @@ public:
                                     ReliableData *chunk);
   uint32_t CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                               ReliableData *chunk);
-  uint32_t CreateStreamIDNeededFrame(unsigned char *&framePtr, const unsigned char *endpkt,
-                                     ReliableData *chunk);
+  uint32_t CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                      ReliableData *chunk);
 
   void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamID = next; mNextRecvStreamID = nextR; }
   void MaybeIssueFlowControlCredit();
@@ -211,12 +211,12 @@ public:
   void MakeMaxStreamID(uint32_t maxID) {mType = kMaxStreamID; mMaxStreamID = maxID; }
   void MakeStreamBlocked() { mType = kStreamBlocked; }
   void MakeBlocked() { mType = kBlocked; }
-  void MakeStreamIDNeeded() { mType = kStreamIDNeeded; }
+  void MakeStreamIDBlocked() { mType = kStreamIDBlocked; }
 
   enum 
   {
     kStream, kStreamRst, kMaxStreamData, kStreamBlocked, kMaxData, kBlocked,
-    kStreamIDNeeded, kMaxStreamID
+    kStreamIDBlocked, kMaxStreamID
   } mType;
   
   std::unique_ptr<const unsigned char []>mData;

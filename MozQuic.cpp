@@ -1146,9 +1146,9 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
-    case FRAME_TYPE_STREAM_ID_NEEDED:
+    case FRAME_TYPE_STREAM_ID_BLOCKED:
       sendAck = true;
-      rv = mStreamState->HandleStreamIDNeededFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      rv = mStreamState->HandleStreamIDBlockedFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {
         return rv;
       }

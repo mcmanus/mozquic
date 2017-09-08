@@ -304,10 +304,10 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
       mFrameLen = FRAME_TYPE_STREAM_BLOCKED_LENGTH;
       return;
 
-    case FRAME_TYPE_STREAM_ID_NEEDED:
-      mType = FRAME_TYPE_STREAM_ID_NEEDED;
+    case FRAME_TYPE_STREAM_ID_BLOCKED:
+      mType = FRAME_TYPE_STREAM_ID_BLOCKED;
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_STREAM_ID_NEEDED_LENGTH;
+      mFrameLen = FRAME_TYPE_STREAM_ID_BLOCKED_LENGTH;
       return;
 
     case FRAME_TYPE_NEW_CONNECTION_ID:

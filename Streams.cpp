@@ -23,7 +23,7 @@ StreamState::StartNewStream(StreamPair **outStream, const void *data,
       fprintf(stderr,"new stream BLOCKED on stream id flow control %d\n",
               mPeerMaxStreamID);
       std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
-      tmp->MakeStreamIDNeeded();
+      tmp->MakeStreamIDBlocked();
       ConnectionWrite(tmp);
     }
     return MOZQUIC_ERR_IO;
@@ -214,9 +214,9 @@ StreamState::HandleBlockedFrame(FrameHeaderData *result, bool fromCleartext,
 }
 
 uint32_t
-StreamState::HandleStreamIDNeededFrame(FrameHeaderData *result, bool fromCleartext,
-                                       const unsigned char *pkt, const unsigned char *endpkt,
-                                       uint32_t &_ptr)
+StreamState::HandleStreamIDBlockedFrame(FrameHeaderData *result, bool fromCleartext,
+                                        const unsigned char *pkt, const unsigned char *endpkt,
+                                        uint32_t &_ptr)
 {
   if (fromCleartext) {
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "streamidneeded frames not allowed in cleartext\n");
@@ -461,8 +461,8 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       if (CreateBlockedFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
-    } else if ((*iter)->mType == ReliableData::kStreamIDNeeded) {
-      if (CreateStreamIDNeededFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+    } else if ((*iter)->mType == ReliableData::kStreamIDBlocked) {
+      if (CreateStreamIDBlockedFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
     } else {
@@ -858,18 +858,18 @@ StreamState::CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *e
 }
 
 uint32_t
-StreamState::CreateStreamIDNeededFrame(unsigned char *&framePtr, const unsigned char *endpkt,
-                                       ReliableData *chunk)
+StreamState::CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                        ReliableData *chunk)
 {
   fprintf(stderr,"generating streamID needed\n");
-  assert(chunk->mType == ReliableData::kStreamIDNeeded);
+  assert(chunk->mType == ReliableData::kStreamIDBlocked);
   assert(!chunk->mLen);
 
   uint32_t room = endpkt - framePtr;
   if (room < 1) {
     return MOZQUIC_ERR_GENERAL;
   }
-  framePtr[0] = FRAME_TYPE_STREAM_ID_NEEDED;
+  framePtr[0] = FRAME_TYPE_STREAM_ID_BLOCKED;
   framePtr += 1;
   return MOZQUIC_OK;
 }
