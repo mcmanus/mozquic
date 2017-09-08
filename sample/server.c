@@ -61,7 +61,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
   case MOZQUIC_EVENT_NEW_STREAM_DATA:
   {
     mozquic_stream_t *stream = param;
-    char buf[100];
+    char buf[5000];
     int finStream = 0;
     uint32_t read = 0;
     int fin = 0;
@@ -72,7 +72,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
       return MOZQUIC_ERR_GENERAL;
       
     do {
-      uint32_t code = mozquic_recv(stream, buf, 100, &read, &fin);
+      uint32_t code = mozquic_recv(stream, buf, sizeof(buf), &read, &fin);
       if (code != MOZQUIC_OK) {
         fprintf(stderr,"Read stream error %d\n", code);
         return MOZQUIC_OK;
