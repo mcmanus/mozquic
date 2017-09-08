@@ -417,7 +417,8 @@ MozQuic::Client1RTT()
                                         mVersion, mClientOriginalOfferedVersion,
                                         mStreamState->mLocalMaxStreamData,
                                         mStreamState->mLocalMaxData,
-                                        kMaxStreamIDDefault, kIdleTimeoutDefault);
+                                        mStreamState->mLocalMaxStreamID,
+                                        kIdleTimeoutDefault);
       mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
       mSetupTransportExtension = true;
     }
@@ -461,7 +462,8 @@ MozQuic::Server1RTT()
                                       VersionNegotiationList, sizeof(VersionNegotiationList) / sizeof (uint32_t),
                                       mStreamState->mLocalMaxStreamData,
                                       mStreamState->mLocalMaxData,
-                                      kMaxStreamIDDefault, kIdleTimeoutDefault, resetToken);
+                                      mStreamState->mLocalMaxStreamID,
+                                      kIdleTimeoutDefault, resetToken);
     mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
     mSetupTransportExtension = true;
   }
@@ -1059,18 +1061,6 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
     }
     ptr += result.mFrameLen;
     switch(result.mType) {
-    case FRAME_TYPE_PADDING:
-      break;
-
-    case FRAME_TYPE_PING:
-      // basically padding with an ack
-      if (fromCleartext) {
-        fprintf(stderr, "ping frames not allowed in cleartext\n");
-        return MOZQUIC_ERR_GENERAL;
-      }
-      fprintf(stderr,"recvd ping\n");
-      sendAck = true;
-      break;
 
     case FRAME_TYPE_STREAM:
       sendAck = true;
@@ -1087,12 +1077,7 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
-    case FRAME_TYPE_CLOSE:
-      sendAck = true;
-      rv = HandleCloseFrame(&result, fromCleartext, pkt, endpkt, ptr);
-      if (rv != MOZQUIC_OK) {
-        return rv;
-      }
+    case FRAME_TYPE_PADDING:
       break;
 
     case FRAME_TYPE_RST_STREAM:
@@ -1103,9 +1088,9 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
-    case FRAME_TYPE_MAX_STREAM_DATA:
+    case FRAME_TYPE_CLOSE:
       sendAck = true;
-      rv = mStreamState->HandleMaxStreamDataFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      rv = HandleCloseFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {
         return rv;
       }
@@ -1119,6 +1104,40 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
+    case FRAME_TYPE_MAX_STREAM_DATA:
+      sendAck = true;
+      rv = mStreamState->HandleMaxStreamDataFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
+    case FRAME_TYPE_MAX_STREAM_ID:
+      sendAck = true;
+      rv = mStreamState->HandleMaxStreamIDFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+      
+    case FRAME_TYPE_PING:
+      // basically padding with an ack
+      if (fromCleartext) {
+        fprintf(stderr, "ping frames not allowed in cleartext\n");
+        return MOZQUIC_ERR_GENERAL;
+      }
+      fprintf(stderr,"recvd ping\n");
+      sendAck = true;
+      break;
+
+    case FRAME_TYPE_BLOCKED:
+      sendAck = true;
+      rv = mStreamState->HandleBlockedFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
     case FRAME_TYPE_STREAM_BLOCKED:
       sendAck = true;
       rv = mStreamState->HandleStreamBlockedFrame(&result, fromCleartext, pkt, endpkt, ptr);
@@ -1127,9 +1146,9 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
-    case FRAME_TYPE_BLOCKED:
+    case FRAME_TYPE_STREAM_ID_NEEDED:
       sendAck = true;
-      rv = mStreamState->HandleBlockedFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      rv = mStreamState->HandleStreamIDNeededFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {
         return rv;
       }

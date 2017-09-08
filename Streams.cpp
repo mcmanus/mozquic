@@ -17,10 +17,22 @@ uint32_t
 StreamState::StartNewStream(StreamPair **outStream, const void *data,
                             uint32_t amount, bool fin)
 {
-  *outStream = new StreamPair(mNextStreamId, mMozQuic, this,
+  if (mNextStreamID > mPeerMaxStreamID) {
+    if (!mMaxStreamIDBlocked) {
+      mMaxStreamIDBlocked = true;
+      fprintf(stderr,"new stream BLOCKED on stream id flow control %d\n",
+              mPeerMaxStreamID);
+      std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
+      tmp->MakeStreamIDNeeded();
+      ConnectionWrite(tmp);
+    }
+    return MOZQUIC_ERR_IO;
+  }
+
+  *outStream = new StreamPair(mNextStreamID, mMozQuic, this,
                                      mPeerMaxStreamData, mLocalMaxStreamData);
-  mStreams.insert( { mNextStreamId, *outStream } );
-  mNextStreamId += 2;
+  mStreams.insert( { mNextStreamID, *outStream } );
+  mNextStreamID += 2;
   if ( amount || fin) {
     return (*outStream)->Write((const unsigned char *)data, amount, fin);
   }
@@ -32,13 +44,13 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
 {
   // Open a new stream and implicitly open all streams with ID smaller than
   // streamID that are not already opened.
-  while (streamID >= mNextRecvStreamId) {
-    fprintf(stderr, "Add new stream %d\n", mNextRecvStreamId);
-    StreamPair *stream = new StreamPair(mNextRecvStreamId,
+  while (streamID >= mNextRecvStreamID) {
+    fprintf(stderr, "Add new stream %d\n", mNextRecvStreamID);
+    StreamPair *stream = new StreamPair(mNextRecvStreamID,
                                                       mMozQuic, this,
                                                       mPeerMaxStreamData, mLocalMaxStreamData);
-    mStreams.insert( { mNextRecvStreamId, stream } );
-    mNextRecvStreamId += 2;
+    mStreams.insert( { mNextRecvStreamID, stream } );
+    mNextRecvStreamID += 2;
   }
 
   auto i = mStreams.find(streamID);
@@ -154,6 +166,25 @@ StreamState::HandleMaxDataFrame(FrameHeaderData *result, bool fromCleartext,
 }
 
 uint32_t
+StreamState::HandleMaxStreamIDFrame(FrameHeaderData *result, bool fromCleartext,
+                                    const unsigned char *pkt, const unsigned char *endpkt,
+                                    uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "max stream id frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  fprintf(stderr,"recvd max stream id current %d new %d\n",
+          mPeerMaxStreamID, result->u.mMaxStreamID.mMaximumStreamID);
+  if (result->u.mMaxStreamID.mMaximumStreamID > mPeerMaxStreamID) {
+    mPeerMaxStreamID = result->u.mMaxStreamID.mMaximumStreamID;
+    mMaxStreamIDBlocked = false;
+  }
+  return MOZQUIC_OK;
+}
+
+uint32_t
 StreamState::HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartext,
                                       const unsigned char *pkt, const unsigned char *endpkt,
                                       uint32_t &_ptr)
@@ -179,6 +210,20 @@ StreamState::HandleBlockedFrame(FrameHeaderData *result, bool fromCleartext,
   }
 
   fprintf(stderr,"recvd connection blocked\n");
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamState::HandleStreamIDNeededFrame(FrameHeaderData *result, bool fromCleartext,
+                                       const unsigned char *pkt, const unsigned char *endpkt,
+                                       uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "streamidneeded frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  fprintf(stderr,"recvd streamidneeded\n");
   return MOZQUIC_OK;
 }
 
@@ -404,12 +449,20 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       if (CreateMaxDataFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
+    } else if ((*iter)->mType == ReliableData::kMaxStreamID) {
+      if (CreateMaxStreamIDFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+        break;
+      }
     } else if ((*iter)->mType == ReliableData::kStreamBlocked) {
       if (CreateStreamBlockedFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
     } else if ((*iter)->mType == ReliableData::kBlocked) {
       if (CreateBlockedFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+        break;
+      }
+    } else if ((*iter)->mType == ReliableData::kStreamIDNeeded) {
+      if (CreateStreamIDNeededFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
     } else {
@@ -424,7 +477,7 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       auto typeBytePtr = framePtr;
       framePtr[0] = 0xc1;
 
-      // Determine streamId size without varSize becuase we use 24 bit value
+      // Determine streamID size without varSize becuase we use 24 bit value
       uint32_t tmp32 = (*iter)->mStreamID;
       tmp32 = htonl(tmp32);
       uint8_t idLen = 4;
@@ -459,7 +512,7 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       framePtr[0] |= (offsetSizeType << 1);
       framePtr++;
 
-      // Set streamId
+      // Set streamID
       memcpy(framePtr, ((uint8_t*)(&tmp32)) + (4 - idLen), idLen);
       framePtr += idLen;
 
@@ -727,6 +780,27 @@ StreamState::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned c
 }
 
 uint32_t
+StreamState::CreateMaxStreamIDFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                    ReliableData *chunk)
+{
+  fprintf(stderr,"generating max stream id=%d\n",
+          chunk->mMaxStreamID);
+  assert(chunk->mType == ReliableData::kMaxStreamID);
+  assert(chunk->mMaxStreamID);
+  assert(!chunk->mLen);
+
+  uint32_t room = endpkt - framePtr;
+  if (room < 5) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr[0] = FRAME_TYPE_MAX_STREAM_ID;
+  uint32_t tmp32 = htonl(chunk->mMaxStreamID);
+  memcpy(framePtr + 1, &tmp32, 4);
+  framePtr += 5;
+  return MOZQUIC_OK;
+}
+
+uint32_t
 StreamState::CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk)
 {
@@ -783,11 +857,28 @@ StreamState::CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *e
   return MOZQUIC_OK;
 }
 
+uint32_t
+StreamState::CreateStreamIDNeededFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                       ReliableData *chunk)
+{
+  fprintf(stderr,"generating streamID needed\n");
+  assert(chunk->mType == ReliableData::kStreamIDNeeded);
+  assert(!chunk->mLen);
+
+  uint32_t room = endpkt - framePtr;
+  if (room < 1) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr[0] = FRAME_TYPE_STREAM_ID_NEEDED;
+  framePtr += 1;
+  return MOZQUIC_OK;
+}
+
 StreamState::StreamState(MozQuic *q, uint64_t initialStreamWindow,
                          uint64_t initialConnectionWindowKB)
   : mMozQuic(q)
-  , mNextStreamId(1)
-  , mNextRecvStreamId(1)
+  , mNextStreamID(1)
+  , mNextRecvStreamID(1)
   , mPeerMaxStreamData(kMaxStreamDataDefault)
   , mLocalMaxStreamData(initialStreamWindow)
   , mPeerMaxData(kMaxDataDefault)
@@ -796,6 +887,8 @@ StreamState::StreamState(MozQuic *q, uint64_t initialStreamWindow,
   , mLocalMaxData(initialConnectionWindowKB << 10)
   , mLocalMaxDataUsed(0)
   , mPeerMaxStreamID(kMaxStreamIDDefault)
+  , mLocalMaxStreamID(kMaxStreamIDDefault) // todo config
+  , mMaxStreamIDBlocked(false)
 {
 }
 

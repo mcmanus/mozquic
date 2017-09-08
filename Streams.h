@@ -113,12 +113,18 @@ public:
   uint32_t HandleMaxDataFrame(FrameHeaderData *result, bool fromCleartext,
                               const unsigned char *pkt, const unsigned char *endpkt,
                               uint32_t &_ptr);
+  uint32_t HandleMaxStreamIDFrame(FrameHeaderData *result, bool fromCleartext,
+                              const unsigned char *pkt, const unsigned char *endpkt,
+                              uint32_t &_ptr);
   uint32_t HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartext,
                                     const unsigned char *pkt, const unsigned char *endpkt,
                                     uint32_t &_ptr);
   uint32_t HandleBlockedFrame(FrameHeaderData *result, bool fromCleartext,
                               const unsigned char *pkt, const unsigned char *endpkt,
                               uint32_t &_ptr);
+  uint32_t HandleStreamIDNeededFrame(FrameHeaderData *result, bool fromCleartext,
+                                     const unsigned char *pkt, const unsigned char *endpkt,
+                                     uint32_t &_ptr);
   uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt,
                               bool justZero);
   uint32_t CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
@@ -127,12 +133,16 @@ public:
                                     ReliableData *chunk);
   uint32_t CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                               ReliableData *chunk);
+  uint32_t CreateMaxStreamIDFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                  ReliableData *chunk);
   uint32_t CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                     ReliableData *chunk);
   uint32_t CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                               ReliableData *chunk);
+  uint32_t CreateStreamIDNeededFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                     ReliableData *chunk);
 
-  void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamId = next; mNextRecvStreamId = nextR; }
+  void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamID = next; mNextRecvStreamID = nextR; }
   void MaybeIssueFlowControlCredit();
 
 private:
@@ -141,12 +151,12 @@ private:
   uint64_t CalculateConnectionCharge(ReliableData *data, StreamOut *out);
   
   MozQuic *mMozQuic;
-  uint32_t mNextStreamId;
-  uint32_t mNextRecvStreamId;
+  uint32_t mNextStreamID;
+  uint32_t mNextRecvStreamID;
 
 private: // these still need friend mozquic
-  uint32_t mPeerMaxStreamData;  // max offset we can send from transport params
-  uint32_t mLocalMaxStreamData; // max offset peer can send
+  uint32_t mPeerMaxStreamData;  // max offset we can send from transport params on new stream
+  uint32_t mLocalMaxStreamData; // max offset peer can send on new stream
 
   // I'm sorry if you cannot compile __uint128_t - a c++ class can surely fix it
   __uint128_t mPeerMaxData; // conn limit set by other side
@@ -156,8 +166,9 @@ private: // these still need friend mozquic
   __uint128_t mLocalMaxData; // conn credit announced to peer
   __uint128_t mLocalMaxDataUsed; // conn credit consumed by peer
 
-  
-  uint32_t mPeerMaxStreamID;
+  uint32_t mPeerMaxStreamID;  // id limit set by peer
+  uint32_t mLocalMaxStreamID; // id limit sent to peer
+  bool     mMaxStreamIDBlocked; // blocked from creating by streamID limits
 
   std::unique_ptr<StreamPair> mStream0;
   std::unordered_map<uint32_t, StreamPair *> mStreams;
@@ -197,12 +208,15 @@ public:
   void MakeStreamRst(uint32_t code) { mType = kStreamRst; mRstCode = code;}
   void MakeMaxStreamData(uint64_t offset) { mType = kMaxStreamData; mStreamCreditValue = offset;}
   void MakeMaxData(uint64_t kb) { mType = kMaxData; mConnectionCreditKB = kb;}
+  void MakeMaxStreamID(uint32_t maxID) {mType = kMaxStreamID; mMaxStreamID = maxID; }
   void MakeStreamBlocked() { mType = kStreamBlocked; }
   void MakeBlocked() { mType = kBlocked; }
+  void MakeStreamIDNeeded() { mType = kStreamIDNeeded; }
 
   enum 
   {
     kStream, kStreamRst, kMaxStreamData, kStreamBlocked, kMaxData, kBlocked,
+    kStreamIDNeeded, kMaxStreamID
   } mType;
   
   std::unique_ptr<const unsigned char []>mData;
@@ -212,11 +226,10 @@ public:
   bool     mFin;
 
   uint32_t mRstCode; // for kStreamRst
-
   uint64_t mStreamCreditValue; // for kMaxStreamData
-
   uint64_t mConnectionCreditKB; // for kMaxData 
-
+  uint32_t mMaxStreamID; // for kMaxStreamID
+  
   // when unacked these are set
   uint64_t mPacketNumber;
   uint64_t mTransmitTime; // todo.. hmm if this gets queued for any cc/fc reason (same for ack)
