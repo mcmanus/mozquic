@@ -58,10 +58,13 @@ QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test005.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test006.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test007.o
 
+sample/server-files.o: sample/server.jpg sample/index.html sample/main.js
+	ld -r -b binary -o $@ $^
+
 client: $(OBJS) sample/client.o
 	$(CC) $(LDFLAGS) -o $@ $^
 
-server: $(OBJS) sample/server.o
+server: $(OBJS) sample/server.o sample/server-files.o
 	$(CC) $(LDFLAGS) -o $@ $^
 
 qdrive-client: $(OBJS) $(QDRIVECLIENTOBJS) tests/qdrive/qdrive-client.o

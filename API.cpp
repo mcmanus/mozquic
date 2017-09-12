@@ -240,6 +240,11 @@ int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMs)
   return self->CheckPeer(deadlineMs);
 }
 
+int mozquic_get_streamid(mozquic_stream_t *stream)
+{
+  return (reinterpret_cast<mozquic::StreamPair *>(stream))->mStreamID;
+}
+
 namespace mozquic  {
 
 static const uint32_t kMozQuicVersionGreaseC = 0xfa1a7a3a;

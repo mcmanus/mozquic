@@ -95,6 +95,7 @@ extern "C" {
   int mozquic_set_event_callback(mozquic_connection_t *conn, int (*fx)(void *closure, uint32_t event, void *param));
   int mozquic_set_event_callback_closure(mozquic_connection_t *conn, void *closure);
   int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMS);
+  int mozquic_get_streamid(mozquic_stream_t *stream);
 
   // this is also experimental/testing
   int mozquic_start_backpressure(mozquic_connection_t *conn);
