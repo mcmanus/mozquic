@@ -10,7 +10,7 @@
 
   ./client -peer HOSTNAME to use non localhost peer
 
-Basic client connects to server, does a handshake and and waits 2 seconds.. then..
+Basic client connects to server, does a handshake and and waits 1 seconds.. then..
 
   -streamtest1 will send 3 messages to the server including the keywords PREAMBLE and FIN
                the server will reply with 1 message and close the bidi stream
@@ -20,6 +20,8 @@ Basic client connects to server, does a handshake and and waits 2 seconds.. then
 
   -ignorePKI option will allow handshake with untrusted cert. (localhost always implies ignorePKI)
 
+  -get PATH will get the uri. e.g. -get /main.jpg. You can have N of these
+      
 About Certificate Verifcation::
 The sample/nss-config directory is a sample that can be passed
 to mozquic_nss_config(). It contains a NSS database with a cert
@@ -38,27 +40,26 @@ static int connEventCB(void *closure, uint32_t event, void *param)
 {
   if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
     mozquic_stream_t *stream = param;
-    char buf[100];
-    uint32_t read = 0;
+    char buf[1000];
+    uint32_t amt = 0;
     int fin = 0;
     int line = 0;
     do {
-      uint32_t code = mozquic_recv(stream, buf, 100, &read, &fin);
+      uint32_t code = mozquic_recv(stream, buf, 100, &amt, &fin);
       if (code != MOZQUIC_OK) {
-        fprintf(stderr,"Read stream error %d\n", code);
+        fprintf(stderr,"recv stream error %d\n", code);
         return MOZQUIC_OK;
-      } else if (read > 0) {
+      } else if (amt > 0) {
         if (!line) {
           fprintf(stderr,"Data:\n");
         }
         line++;
-        buf[read] = '\0';
-        fprintf(stderr,"[%s] fin=%d\n", buf, fin);
+        fprintf(stderr,"[%d] fin=%d\n", amt, fin);
         if (fin) {
           recvFin = 1;
         }
       }
-    } while (read > 0);
+    } while (amt > 0);
 
     mozquic_end_stream(stream);
     return MOZQUIC_OK;
@@ -172,6 +173,17 @@ int main(int argc, char **argv)
   mozquic_new_connection(&c, &config);
   mozquic_start_client(c);
 
+  int j;
+  int jx = 0;
+  for (j=0; j < argc - 1; j++) {
+    if (!strcasecmp(argv[j], "-get")) {
+      mozquic_stream_t *stream;
+      mozquic_start_new_stream(&stream, c, "GET ", 4, 0);
+      mozquic_send(stream, argv[j+1], strlen(argv[j+1]), 0);
+      jx++;
+    }
+  }
+
   uint32_t i=0;
   do {
     if (!(i++ & 0xf)) {
@@ -189,8 +201,10 @@ int main(int argc, char **argv)
   if (has_arg(argc, argv, "-streamtest1", &argVal)) {
     streamtest1(c);
   }
+
   if (has_arg(argc, argv, "-send-close", &argVal)) {
     mozquic_destroy_connection(c);
   }
+
   return 0;
 }

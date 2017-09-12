@@ -41,11 +41,14 @@ int send_close = 0;
 int connected = 0;
 
 static int accept_new_connection(mozquic_connection_t *nc);
+static void respond(mozquic_stream_t *stream, char *uri, int uriLen);
 
 struct closure_t
 {
   int i;
   int state;
+  char buf[1024];
+  int accum;
 };
 
 int close_connection(mozquic_connection_t *c)
@@ -54,16 +57,42 @@ int close_connection(mozquic_connection_t *c)
   assert(connected >= 0);
   return mozquic_destroy_connection(c);
 }
+
+static void do09(struct closure_t *data, mozquic_stream_t *stream,
+                 const char *buf, int len)
+{
+  if (data->accum + len > sizeof(data->buf)) {
+    return;
+  }
+  memcpy(data->buf + data->accum, buf, len);
+  data->accum += len;
+
+  char *p = NULL;
   
+  p = memchr(data->buf, ' ', data->accum);
+  if (!p) {
+    p = memchr(data->buf, '\r', data->accum);
+  }
+  if (!p) {
+    p = memchr(data->buf, '\n', data->accum);
+  }
+  if (!p) {
+    return;
+  }
+  *p = 0;
+  
+  respond(stream, p, p - data->buf);
+}
+
 static int connEventCB(void *closure, uint32_t event, void *param)
 {
   switch (event) {
   case MOZQUIC_EVENT_NEW_STREAM_DATA:
   {
     mozquic_stream_t *stream = param;
-    char buf[5000];
-    int finStream = 0;
-    uint32_t read = 0;
+    char buf[1000];
+    int streamtest1 = 0;
+    uint32_t amt = 0;
     int fin = 0;
     int line = 0;
     int i;
@@ -72,39 +101,53 @@ static int connEventCB(void *closure, uint32_t event, void *param)
       return MOZQUIC_ERR_GENERAL;
       
     do {
-      uint32_t code = mozquic_recv(stream, buf, sizeof(buf), &read, &fin);
+      uint32_t code = mozquic_recv(stream, buf, sizeof(buf) - 1, &amt, &fin);
       if (code != MOZQUIC_OK) {
         fprintf(stderr,"Read stream error %d\n", code);
         return MOZQUIC_OK;
-      } else if (read > 0) {
+      } else if (amt > 0) {
         if (!line) {
           fprintf(stderr,"Data:\n");
         }
         line++;
-        buf[read] = '\0';
-        for (i=0; i < read; i++) {
+        buf[amt] = '\0';
+        for (i=0; i < amt; i++) {
           switch (data->state) {
           case 0:
             data->state = (buf[i] == 'F') ? 1 : 0;
+            data->state = (buf[i] == 'G') ? 4 : 0;
             break;
           case 1:
             data->state = (buf[i] == 'I') ? 2 : 0;
             break;
           case 2:
             data->state = (buf[i] == 'N') ? 3 : 0;
-            finStream = 1;
+            streamtest1 = 1;
+            break;
+          case 4:
+            data->state = (buf[i] == 'E') ? 5 : 0;
+            break;
+          case 5:
+            data->state = (buf[i] == 'T') ? 6 : 0;
+            break;
+          case 6:
+            data->state = (buf[i] == ' ') ? 7 : 0;
+            break;
+          case 7:
             break;
           }
         }
-
         fprintf(stderr,"[%s] fin=%d\n", buf, fin);
       } else if (fin) {
         fprintf(stderr,"fin=%d\n", fin);
       }
-    } while (read > 0);
-    if (finStream) {
+    } while (amt > 0 && !fin);
+    if (streamtest1) {
       char msg[] = "Server sending data.";
       mozquic_send(stream, msg, strlen(msg), 1);
+    }
+    if (data->state == 7) {
+      do09(data, stream, buf, amt);
     }
     return MOZQUIC_OK;
   }
@@ -253,3 +296,32 @@ int main(int argc, char **argv)
   } while (1);
   
 }
+
+static const char *js = "/main.js";
+static const char *jpg = "/main.jpg";
+
+extern const unsigned char _binary_sample_index_html_start[];
+extern const unsigned char _binary_sample_index_html_end[];
+extern const unsigned char _binary_sample_main_js_start[];
+extern const unsigned char _binary_sample_main_js_end[];
+extern const unsigned char _binary_sample_server_jpg_start[];
+extern const unsigned char _binary_sample_server_jpg_end[];
+
+static void respondWith(mozquic_stream_t *stream,
+                        const unsigned char *start, const unsigned char *end)
+{
+  mozquic_send(stream, (void *) start, end - start, 1);
+}
+
+
+static void respond(mozquic_stream_t *stream, char *uri, int uriLen)
+{
+  if (uriLen == strlen(js) && !memcmp(js, uri, uriLen) ) {
+    respondWith(stream, _binary_sample_main_js_start, _binary_sample_main_js_end);
+  } else if (uriLen == strlen(jpg) && !memcmp(jpg, uri, uriLen) ) {
+    respondWith(stream, _binary_sample_server_jpg_start, _binary_sample_server_jpg_end);
+  } else {
+    respondWith(stream, _binary_sample_index_html_start, _binary_sample_index_html_end);
+  }
+}
+
