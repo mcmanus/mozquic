@@ -182,6 +182,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
           break;
         }
         *numBlocks = *numBlocks + 1;
+        fprintf(stderr,"gap %d is an empty 255 gap\n", *numBlocks);
         pkt[0] = 255; // empty block
         pkt[1] = 0;
         pkt[2] = 0;
@@ -205,8 +206,8 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       avail -= 3;
     }
 
-    fprintf(stderr,"created ack of %lX (%d extra) into pn=%lX [%d prev transmits]\n",
-            iter->mPacketNumber, iter->mExtra, pktNumOfAck, iter->mTransmits.size());
+    fprintf(stderr,"created ack of %lX (%d extra) into pn=%lX @ block %d [%d prev transmits]\n",
+            iter->mPacketNumber, iter->mExtra, pktNumOfAck, *numBlocks, iter->mTransmits.size());
 
     iter->mTransmits.push_back(std::pair<uint64_t, uint64_t>(pktNumOfAck, Timestamp()));
     ++iter;
@@ -240,30 +241,38 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
   // to read the ackblocks and the tsblocks
   assert (ackMetaInfo->mType == FRAME_TYPE_ACK);
   uint16_t numRanges = 0;
-
+  uint16_t blocksProcessed = 0;
+  bool firstPass = true;
   std::array<std::pair<uint64_t, uint64_t>, 257> ackStack;
 
   uint64_t largestAcked = ackMetaInfo->u.mAck.mLargestAcked;
+  const uint8_t blockLengthLen = ackMetaInfo->u.mAck.mAckBlockLengthLen;
   do {
     uint64_t extra = 0;
-    const uint8_t blockLengthLen = ackMetaInfo->u.mAck.mAckBlockLengthLen;
     memcpy(((char *)&extra) + (8 - blockLengthLen), framePtr, blockLengthLen);
     extra = PR_ntohll(extra);
     framePtr += blockLengthLen;
 
-    fprintf(stderr,"ACK RECVD (%s) FOR %lX -> %lX\n",
-            fromCleartext ? "cleartext" : "protected",
-            largestAcked - extra, largestAcked);
-    // form a stack here so we can process them starting at the
-    // lowest packet number, which is how mStreamState->mUnAckedData is ordered and
-    // do it all in one pass
-    assert(numRanges < 257);
-    ackStack[numRanges] =
-      std::pair<uint64_t, uint64_t>(largestAcked - extra, extra + 1);
+    if (firstPass || extra) {
+      if (!firstPass) {
+        extra--;
+      }
+      firstPass = false;
 
-    largestAcked--;
-    largestAcked -= extra;
-    if (numRanges++ == ackMetaInfo->u.mAck.mNumBlocks) {
+      fprintf(stderr,"ACK RECVD (%s) FOR %lX -> %lX\n",
+              fromCleartext ? "cleartext" : "protected",
+              largestAcked - extra, largestAcked);
+      // form a stack here so we can process them starting at the
+      // lowest packet number, which is how mStreamState->mUnAckedData is ordered and
+      // do it all in one pass
+      assert(numRanges < 257);
+      ackStack[numRanges++] =
+        std::pair<uint64_t, uint64_t>(largestAcked - extra, extra + 1);
+
+      largestAcked--;
+      largestAcked -= extra;
+    }
+    if (blocksProcessed++ == ackMetaInfo->u.mAck.mNumBlocks) {
       break;
     }
     uint8_t gap = *framePtr;
