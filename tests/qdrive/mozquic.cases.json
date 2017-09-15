@@ -39,6 +39,11 @@
             "Name" : "flowControl",
             "ClientArgs": ["-qdrive-test7"],
             "ServerArgs": ["-qdrive-test7"]
+        },
+	{
+            "Name" : "reliable1",
+            "ClientArgs": ["-qdrive-test8"],
+            "ServerArgs": ["-qdrive-test8"]
         }
     ]
 }
