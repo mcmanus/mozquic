@@ -1197,6 +1197,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
 {
   MozQuic *child = new MozQuic(mHandleIO);
   child->mStreamState.reset(new StreamState(child, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
+  child->mStreamState->InitIDs(2, 1);
   child->mIsChild = true;
   child->mIsClient = false;
   child->mParent = this;
