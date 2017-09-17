@@ -39,6 +39,7 @@ static uint8_t recvFin = 0;
 static int _argc;
 static char **_argv;
 static int _getCount = 0;
+static FILE *fd[256];
 
 static int connEventCB(void *closure, uint32_t event, void *param)
 {
@@ -54,6 +55,10 @@ static int connEventCB(void *closure, uint32_t event, void *param)
         code = mozquic_send(stream, "\r\n", 2, 0);
         assert(code == MOZQUIC_OK);
         _getCount++;
+        char pathname[1024];
+        snprintf(pathname, 1024, "/tmp/get-%d", mozquic_get_streamid(stream));
+        fd[mozquic_get_streamid(stream)] = fopen(pathname, "w");
+        assert(fd[mozquic_get_streamid(stream)] != NULL);
       }
     }
   }
@@ -63,19 +68,25 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     char buf[1000];
     uint32_t amt = 0;
     int fin = 0;
-    int line = 0;
     do {
-      uint32_t code = mozquic_recv(stream, buf, 100, &amt, &fin);
+      uint32_t code = mozquic_recv(stream, buf, 1000, &amt, &fin);
       if (code != MOZQUIC_OK) {
         fprintf(stderr,"recv stream error %d\n", code);
         return MOZQUIC_OK;
       } else if (amt > 0) {
-        if (!line) {
-          fprintf(stderr,"Data:\n");
+        fprintf(stderr,"Data: stream %d %d fin=%d\n",
+                mozquic_get_streamid(stream), amt, fin);
+        for (size_t j=0; j < amt; ) {
+          size_t rv = fwrite(buf + j, 1, amt - j, fd[mozquic_get_streamid(stream)]);
+          assert(rv > 0);
+          j += rv;
         }
-        line++;
-        fprintf(stderr,"[%d] fin=%d\n", amt, fin);
+        
         if (fin) {
+          if (fd[mozquic_get_streamid(stream)]) {
+            fclose (fd[mozquic_get_streamid(stream)]);
+            fd[mozquic_get_streamid(stream)] = NULL;
+          }
           recvFin = 1;
           if (_getCount) {
             if (!--_getCount) {
