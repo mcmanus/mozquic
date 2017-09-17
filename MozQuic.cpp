@@ -518,21 +518,23 @@ MozQuic::Intake()
     }
 
     // dispatch to the right MozQuic class.
-    MozQuic *session = this; // default
-
+    std::shared_ptr<MozQuic> session(mAlive); // default
+    MozQuic *tmpSession = nullptr;
+      
     if (!(pkt[0] & 0x80)) {
       ShortHeaderData tmpShortHeader(pkt, pktSize, 0, mConnectionID);
       if (pktSize < tmpShortHeader.mHeaderSize) {
         return rv;
       }
-      session = FindSession(tmpShortHeader.mConnectionID);
-      if (!session) {
+      tmpSession = FindSession(tmpShortHeader.mConnectionID);
+      if (!tmpSession) {
         fprintf(stderr,"no session found for encoded packet id=%lx size=%d\n",
                 tmpShortHeader.mConnectionID, pktSize);
         StatelessResetSend(tmpShortHeader.mConnectionID, &peer);
         rv = MOZQUIC_ERR_GENERAL;
         continue;
       }
+      session = tmpSession->mAlive;
       ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber, mConnectionID);
       assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
       fprintf(stderr,"SHORTFORM PACKET[%d] id=%lx pkt# %lx hdrsize=%d\n",
@@ -584,16 +586,20 @@ MozQuic::Intake()
           rv = MOZQUIC_ERR_GENERAL;
           break;
         }
-        session = FindSession(longHeader.mConnectionID);
-        if (!session) {
+        tmpSession = FindSession(longHeader.mConnectionID);
+        if (!tmpSession) {
           rv = MOZQUIC_ERR_GENERAL;
+        } else {
+          session = tmpSession->mAlive;
         }
         break;
 
       case PACKET_TYPE_1RTT_PROTECTED_KP0:
-        session = FindSession(longHeader.mConnectionID);
-        if (!session) {
+        tmpSession = FindSession(longHeader.mConnectionID);
+        if (!tmpSession) {
           rv = MOZQUIC_ERR_GENERAL;
+        } else {
+          session = tmpSession->mAlive;
         }
         break;
 
@@ -618,12 +624,14 @@ MozQuic::Intake()
         // do not ack
         break;
       case PACKET_TYPE_CLIENT_INITIAL:
-        rv = session->ProcessClientInitial(pkt, pktSize, &peer, longHeader, &session, sendAck);
+        rv = session->ProcessClientInitial(pkt, pktSize, &peer, longHeader, &tmpSession, sendAck);
         // ack after processing - find new session
         if (rv == MOZQUIC_OK) {
+          session = tmpSession->mAlive;
           session->Acknowledge(longHeader.mPacketNumber, keyPhaseUnprotected);
         }
         break;
+
       case PACKET_TYPE_SERVER_STATELESS_RETRY:
         rv = session->ProcessServerStatelessRetry(pkt, pktSize, longHeader);
         // do not ack
