@@ -192,10 +192,10 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
         avail -= 3;
         gap -= 255;
       }
-      assert(gap <= 255);
       if (avail < 3) {
         break;
       }
+      assert(gap <= 255);
       *numBlocks = *numBlocks + 1;
       pkt[0] = gap;
       uint16_t ackBlockLen = htons(iter->mExtra + 1);
