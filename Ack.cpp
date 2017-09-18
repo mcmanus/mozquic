@@ -301,7 +301,8 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       } else {
         do {
           assert ((*dataIter)->mPacketNumber == haveAckFor);
-          fprintf(stderr,"ACK'd data found for %lX\n", haveAckFor);
+          fprintf(stderr,"ACK'd data found for %lX (frame type %d)\n",
+                  haveAckFor, (*dataIter)->mType);
           dataIter = mStreamState->mUnAckedData.erase(dataIter);
         } while ((dataIter != mStreamState->mUnAckedData.end()) &&
                  (*dataIter)->mPacketNumber == haveAckFor);

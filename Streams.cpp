@@ -737,7 +737,9 @@ uint32_t
 StreamState::CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                   ReliableData *chunk)
 {
-  fprintf(stderr,"generating stream reset %d\n", chunk->mOffset);
+  fprintf(stderr,"generating stream reset %d id=%ld pkt=%ld\n",
+          chunk->mOffset, chunk->mStreamID,
+          mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kStreamRst);
   assert(chunk->mStreamID);
   assert(!chunk->mLen);
@@ -760,8 +762,9 @@ uint32_t
 StreamState::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                       ReliableData *chunk)
 {
-  fprintf(stderr,"generating max stream data id=%d val=%ld\n",
-          chunk->mStreamID, chunk->mStreamCreditValue);
+  fprintf(stderr,"generating max stream data id=%d val=%ld into pkt=%lx\n",
+          chunk->mStreamID, chunk->mStreamCreditValue,
+          mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxStreamData);
   assert(chunk->mStreamCreditValue);
   assert(!chunk->mLen);
@@ -783,8 +786,9 @@ uint32_t
 StreamState::CreateMaxStreamIDFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                     ReliableData *chunk)
 {
-  fprintf(stderr,"generating max stream id=%d\n",
-          chunk->mMaxStreamID);
+  fprintf(stderr,"generating max stream id=%d into pkt=%lx\n",
+          chunk->mMaxStreamID,
+          mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxStreamID);
   assert(chunk->mMaxStreamID);
   assert(!chunk->mLen);
@@ -804,7 +808,9 @@ uint32_t
 StreamState::CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk)
 {
-  fprintf(stderr,"generating max data val=%ld (KB)\n", chunk->mConnectionCreditKB);
+  fprintf(stderr,"generating max data val=%ld (KB) into pkt=%lx\n",
+          chunk->mConnectionCreditKB,
+          mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxData);
   assert(chunk->mConnectionCreditKB);
   assert(!chunk->mLen);
@@ -825,7 +831,9 @@ uint32_t
 StreamState::CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                       ReliableData *chunk)
 {
-  fprintf(stderr,"generating stream blocked id=%d\n", chunk->mStreamID);
+  fprintf(stderr,"generating stream blocked id=%d into pkt=%lx\n",
+          chunk->mStreamID,
+          mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kStreamBlocked);
   assert(!chunk->mLen);
 
@@ -844,7 +852,8 @@ uint32_t
 StreamState::CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk)
 {
-  fprintf(stderr,"generating blocked\n");
+  fprintf(stderr,"generating blocked into pkt=%lx\n",
+          mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kBlocked);
   assert(!chunk->mLen);
 
@@ -861,7 +870,8 @@ uint32_t
 StreamState::CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                         ReliableData *chunk)
 {
-  fprintf(stderr,"generating streamID needed\n");
+  fprintf(stderr,"generating streamID needed into pkt=%lx\n",
+          mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kStreamIDBlocked);
   assert(!chunk->mLen);
 

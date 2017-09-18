@@ -319,7 +319,6 @@ static void respondWith(mozquic_stream_t *stream,
   mozquic_send(stream, (void *) start, end - start, 1);
 }
 
-
 static void respond(mozquic_stream_t *stream, char *uri, int uriLen)
 {
   if (uriLen == strlen(js) && !memcmp(js, uri, uriLen) ) {
