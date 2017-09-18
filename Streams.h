@@ -240,6 +240,7 @@ public:
 
 class StreamIn
 {
+  friend class StreamState;
 public:
   StreamIn(MozQuic *m, uint32_t id, FlowController *flowController, uint64_t localMSD);
   ~StreamIn();

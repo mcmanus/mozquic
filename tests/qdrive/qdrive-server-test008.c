@@ -73,30 +73,27 @@ int testEvent8(void *closure, uint32_t event, void *param)
                 mozquic_get_streamid(stream) == 3);
 
     uint32_t amt = 0;
-    uint32_t iter = 0;
     unsigned char buf[760];
-    do {
-      amt = 0;
-      int fin = 0;
-      uint32_t code = mozquic_recv(stream, buf, sizeof(buf), &amt, &fin);
-      test_assert(code == MOZQUIC_OK);
-      int *finptr;
-      if(mozquic_get_streamid(stream) == 1) {
-        state.read1 += amt;
-        finptr = &state.fin1;
-      } else {
-        state.read2 += amt;
-        finptr = &state.fin2;
+
+    int fin = 0;
+    uint32_t code = mozquic_recv(stream, buf, sizeof(buf), &amt, &fin);
+    test_assert(code == MOZQUIC_OK);
+    int *finptr;
+    if(mozquic_get_streamid(stream) == 1) {
+      state.read1 += amt;
+      finptr = &state.fin1;
+    } else {
+      state.read2 += amt;
+      finptr = &state.fin2;
+    }
+    if (fin) {
+      test_assert(!(*finptr));
+      if (!(*finptr)) {
+        state.state++;
       }
-      if (fin) {
-        test_assert(iter || !(*finptr));
-        if (!(*finptr)) {
-          state.state++;
-        }
-        *finptr = 1;
-      }
-      iter++;
-    } while (amt > 0);
+      *finptr = 1;
+    }
+
     return MOZQUIC_OK;
   }
 
