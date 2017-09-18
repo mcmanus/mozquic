@@ -44,6 +44,11 @@
             "Name" : "reliable1",
             "ClientArgs": ["-qdrive-test8"],
             "ServerArgs": ["-qdrive-test8"]
+        },
+	{
+            "Name" : "finonreq",
+            "ClientArgs": ["-qdrive-test9"],
+            "ServerArgs": ["-qdrive-test9"]
         }
     ]
 }
