@@ -62,7 +62,7 @@ public:
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
   int EndStream();
   int RstStream(uint32_t code);
-  bool Done() { return mFin || mPeerRst; }
+  bool Done() { return (mFin && mStreamUnWritten.empty()) || mPeerRst; }
   uint32_t ScrubUnWritten(uint32_t id) { return mWriter->ScrubUnWritten(id); }
   void NewFlowControlLimit(uint64_t limit) {
     mFlowControlLimit = limit;
@@ -102,7 +102,8 @@ public:
   uint32_t StartNewStream(StreamPair **outStream, const void *data, uint32_t amount, bool fin);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
-  void DeleteStream(uint32_t streamID);
+  bool     MaybeDeleteStream(uint32_t streamID);
+
   uint32_t Flush(bool forceAck);
   uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                              const unsigned char *pkt, const unsigned char *endpkt,
@@ -147,7 +148,7 @@ public:
 
 private:
   uint32_t FlowControlPromotion();
-  uint32_t FlowControlPromotionForStream(StreamOut *out);
+  uint32_t FlowControlPromotionForStreamPair(StreamPair *);
   uint64_t CalculateConnectionCharge(ReliableData *data, StreamOut *out);
   
   MozQuic *mMozQuic;
@@ -171,7 +172,7 @@ private: // these still need friend mozquic
   bool     mMaxStreamIDBlocked; // blocked from creating by streamID limits
 
   std::unique_ptr<StreamPair> mStream0;
-  std::unordered_map<uint32_t, StreamPair *> mStreams;
+  std::unordered_map<uint32_t, std::shared_ptr<StreamPair>> mStreams;
 
   // retransmit happens off of mUnAckedData by
   // duplicating it and placing it in mConnUnWritten. The
@@ -277,7 +278,7 @@ class StreamPair
 public:
   StreamPair(uint32_t id, MozQuic *, FlowController *,
                     uint64_t peerMSD, uint64_t localMSD);
-  ~StreamPair();
+  ~StreamPair() {};
 
   // Supply places data on the input (i.e. read()) queue
   uint32_t Supply(std::unique_ptr<ReliableData> &p);

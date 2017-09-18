@@ -85,7 +85,7 @@ public:
   int StartServer();
   void SetInitialPacketNumber();
   uint32_t StartNewStream(StreamPair **outStream, const void *data, uint32_t amount, bool fin);
-  void DeleteStream(uint32_t streamID);
+  void MaybeDeleteStream(StreamPair *sp);
   int IO();
   void HandshakeOutput(unsigned char *, uint32_t amt);
   void HandshakeComplete(uint32_t errCode, struct mozquic_handshake_info *keyInfo);

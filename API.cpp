@@ -132,8 +132,8 @@ int mozquic_send(mozquic_stream_t *stream, void *data, uint32_t amount,
 {
   mozquic::StreamPair *self(reinterpret_cast<mozquic::StreamPair *>(stream));
   int rv = self->Write((const unsigned char *)data, amount, fin);
-  if (fin && self->Done()) {
-    self->mMozQuic->DeleteStream(self->mStreamID);
+  if (fin) {
+    self->mMozQuic->MaybeDeleteStream(self);
   }
   return rv;
 }
@@ -142,9 +142,7 @@ int mozquic_end_stream(mozquic_stream_t *stream)
 {
   mozquic::StreamPair *self(reinterpret_cast<mozquic::StreamPair *>(stream));
   int rv = self->EndStream();
-  if (self->Done()) {
-    self->mMozQuic->DeleteStream(self->mStreamID);
-  }
+  self->mMozQuic->MaybeDeleteStream(self);
   return rv;
 }
 
@@ -152,9 +150,7 @@ int mozquic_reset_stream(mozquic_stream_t *stream)
 {
   mozquic::StreamPair *self(reinterpret_cast<mozquic::StreamPair *>(stream));
   int rv = self->RstStream(mozquic::MozQuic::ERROR_CANCELLED);
-  if (self->Done()) {
-    self->mMozQuic->DeleteStream(self->mStreamID);
-  }
+  self->mMozQuic->MaybeDeleteStream(self);
   return rv;
 }
 
@@ -167,8 +163,8 @@ int mozquic_recv(mozquic_stream_t *stream, void *data, uint32_t avail,
   int rv = self->Read((unsigned char *)data, avail, a, f);
   *fin = f;
   *amount = a;
-  if (f && self->Done()) {
-    self->mMozQuic->DeleteStream(self->mStreamID);
+  if (f) {
+    self->mMozQuic->MaybeDeleteStream(self);
   }
   return rv;
 }

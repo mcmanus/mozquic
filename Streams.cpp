@@ -29,9 +29,11 @@ StreamState::StartNewStream(StreamPair **outStream, const void *data,
     return MOZQUIC_ERR_IO;
   }
 
-  *outStream = new StreamPair(mNextStreamID, mMozQuic, this,
-                                     mPeerMaxStreamData, mLocalMaxStreamData);
-  mStreams.insert( { mNextStreamID, *outStream } );
+  std::shared_ptr<StreamPair> tmp(new StreamPair(mNextStreamID, mMozQuic, this,
+                                                 mPeerMaxStreamData, mLocalMaxStreamData));
+  mStreams.insert( { mNextStreamID, tmp } );
+  *outStream = tmp.get();
+
   mNextStreamID += 2;
   if ( amount || fin) {
     return (*outStream)->Write((const unsigned char *)data, amount, fin);
@@ -46,10 +48,10 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
   // streamID that are not already opened.
   while (streamID >= mNextRecvStreamID) {
     fprintf(stderr, "Add new stream %d\n", mNextRecvStreamID);
-    StreamPair *stream = new StreamPair(mNextRecvStreamID,
-                                                      mMozQuic, this,
-                                                      mPeerMaxStreamData, mLocalMaxStreamData);
-    mStreams.insert( { mNextRecvStreamID, stream } );
+    std::shared_ptr<StreamPair> tmp(new StreamPair(mNextRecvStreamID,
+                                                   mMozQuic, this,
+                                                   mPeerMaxStreamData, mLocalMaxStreamData));
+    mStreams.insert( { mNextRecvStreamID, tmp } );
     mNextRecvStreamID += 2;
   }
 
@@ -60,11 +62,12 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
     d.reset();
     return MOZQUIC_ERR_ALREADY_FINISHED;
   }
+  std::shared_ptr<StreamPair> deleteProtector((*i).second);
   (*i).second->Supply(d);
 
   while (!(*i).second->Empty() && !(*i).second->mIn.Done() && mMozQuic->mConnEventCB) {
     uint64_t offset = (*i).second->mIn.mOffset;
-    mMozQuic->mConnEventCB(mMozQuic->mClosure, MOZQUIC_EVENT_NEW_STREAM_DATA, (*i).second);
+    mMozQuic->mConnEventCB(mMozQuic->mClosure, MOZQUIC_EVENT_NEW_STREAM_DATA, (*i).second.get());
     if (offset == (*i).second->mIn.mOffset) {
       break;
     }
@@ -72,11 +75,19 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
   return MOZQUIC_OK;
 }
 
-void
-StreamState::DeleteStream(uint32_t streamID)
+bool
+StreamState::MaybeDeleteStream(uint32_t streamID)
 {
-  fprintf(stderr, "Delete stream %lu\n", streamID);
-  mStreams.erase(streamID);
+  auto i = mStreams.find(streamID);
+  if (i == mStreams.end()) {
+    return false;
+  }
+  if ((*i).second->Done()) {
+    fprintf(stderr, "Delete stream %lu\n", streamID);
+    mStreams.erase(i);
+    return true;
+  }
+  return false;
 }
 
 uint32_t
@@ -273,8 +284,10 @@ StreamState::CalculateConnectionCharge(ReliableData *data, StreamOut *out)
 }
 
 uint32_t
-StreamState::FlowControlPromotionForStream(StreamOut *out)
+StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
 {
+  StreamOut *out = &sp->mOut;
+
   for (auto iBuffer = out->mStreamUnWritten.begin();
        iBuffer != out->mStreamUnWritten.end(); ) {
 
@@ -326,7 +339,7 @@ StreamState::FlowControlPromotionForStream(StreamOut *out)
                                  (*iBuffer)->mFin));
           (*iBuffer)->mLen = room;
           (*iBuffer)->mFin = false;
-          fprintf(stderr,"FlowControlPromotionForStream ConnWindow splitting chunk into "
+          fprintf(stderr,"FlowControlPromotionForStreamPair ConnWindow splitting chunk into "
                   "%ld.%d and %ld.%d\n",
                   (*iBuffer)->mOffset, (*iBuffer)->mLen,
                   tmp->mOffset, tmp->mLen);
@@ -362,7 +375,7 @@ StreamState::FlowControlPromotionForStream(StreamOut *out)
                                      (*iBuffer)->mFin));
         (*iBuffer)->mLen = room;
         (*iBuffer)->mFin = false;
-        fprintf(stderr,"FlowControlPromotionForStream StreamWindow splitting chunk into "
+        fprintf(stderr,"FlowControlPromotionForStreamPair StreamWindow splitting chunk into "
                 "%ld.%d and %ld.%d\n",
                 (*iBuffer)->mOffset, (*iBuffer)->mLen,
                 tmp->mOffset, tmp->mLen);
@@ -392,6 +405,7 @@ StreamState::FlowControlPromotionForStream(StreamOut *out)
     assert((*iBuffer)->mOffset + (*iBuffer)->mLen <= out->mFlowControlLimit);
     std::unique_ptr<ReliableData> x(std::move(*iBuffer));
     mConnUnWritten.push_back(std::move(x));
+
     iBuffer = out->mStreamUnWritten.erase(iBuffer);
   }
   return MOZQUIC_OK;
@@ -405,10 +419,13 @@ StreamState::FlowControlPromotion()
 {
   // todo something better than polling
   if (mStream0) {
-    FlowControlPromotionForStream(&mStream0->mOut);
+    FlowControlPromotionForStreamPair(mStream0.get());
   }
   for (auto iStreamPair = mStreams.begin(); iStreamPair != mStreams.end(); iStreamPair++) {
-    FlowControlPromotionForStream(&iStreamPair->second->mOut);
+    FlowControlPromotionForStreamPair(iStreamPair->second.get());
+    if (MaybeDeleteStream(iStreamPair->second->mStreamID)) {
+      return FlowControlPromotion(); // vector needs to be restarted
+    }
   }
   return MOZQUIC_OK;
 }
@@ -914,10 +931,6 @@ StreamPair::StreamPair(uint32_t id, MozQuic *m,
   , mOut(m, id, flowController, peerMaxStreamData)
   , mIn(m, id, flowController, localMaxStreamData)
   , mMozQuic(m)
-{
-}
-
-StreamPair::~StreamPair()
 {
 }
 

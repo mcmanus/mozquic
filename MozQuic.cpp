@@ -1261,10 +1261,10 @@ MozQuic::StartNewStream(StreamPair **outStream, const void *data,
 }
 
 void
-MozQuic::DeleteStream(uint32_t id)
+MozQuic::MaybeDeleteStream(StreamPair *sp)
 {
-  if (mStreamState) {
-    mStreamState->DeleteStream(id);
+  if (sp) {
+    mStreamState->MaybeDeleteStream(sp->mStreamID);
   }
 }
 
