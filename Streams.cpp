@@ -61,7 +61,7 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
     return MOZQUIC_ERR_ALREADY_FINISHED;
   }
   (*i).second->Supply(d);
-  if (!(*i).second->Empty() && mMozQuic->mConnEventCB) {
+  if (!(*i).second->Empty() && !(*i).second->Done() && mMozQuic->mConnEventCB) {
     mMozQuic->mConnEventCB(mMozQuic->mClosure, MOZQUIC_EVENT_NEW_STREAM_DATA, (*i).second);
   }
   return MOZQUIC_OK;

@@ -73,6 +73,7 @@ int testEvent8(void *closure, uint32_t event, void *param)
                 mozquic_get_streamid(stream) == 3);
 
     uint32_t amt = 0;
+    uint32_t iter = 0;
     unsigned char buf[760];
     do {
       amt = 0;
@@ -88,11 +89,13 @@ int testEvent8(void *closure, uint32_t event, void *param)
         finptr = &state.fin2;
       }
       if (fin) {
+        test_assert(iter || !(*finptr));
         if (!(*finptr)) {
           state.state++;
         }
         *finptr = 1;
       }
+      iter++;
     } while (amt > 0);
     return MOZQUIC_OK;
   }
