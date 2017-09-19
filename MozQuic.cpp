@@ -842,7 +842,7 @@ MozQuic::ClientConnected()
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
                                       mStatelessResetToken);
-    mStreamState->mPeerMaxData = peerMaxDataKB * 1024;
+    mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
     fprintf(stderr,"Decoding Server Transport Parameters: %s\n",
             decodeResult == MOZQUIC_OK ? "passed" : "failed");
     if (decodeResult != MOZQUIC_OK) {
@@ -933,7 +933,7 @@ MozQuic::ServerConnected()
             peerMaxDataKB,
             mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
             
-    mStreamState->mPeerMaxData = peerMaxDataKB * 1024;
+    mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
     fprintf(stderr,"Decoding Client Transport Parameters: %s\n",
             decodeResult == MOZQUIC_OK ? "passed" : "failed");
     mStreamState->mStream0->NewFlowControlLimit(mStreamState->mPeerMaxStreamData);

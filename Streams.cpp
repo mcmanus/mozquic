@@ -176,7 +176,7 @@ StreamState::HandleMaxDataFrame(FrameHeaderData *result, bool fromCleartext,
   fprintf(stderr,"recvd max data current %ldKB new %ldKB\n",
           curLimitKB, result->u.mMaxData.mMaximumData);
   if (result->u.mMaxData.mMaximumData > curLimitKB) {
-    mPeerMaxData = result->u.mMaxData.mMaximumData << 10;
+    mPeerMaxData = ((__uint128_t) result->u.mMaxData.mMaximumData) << 10;
   }
   return MOZQUIC_OK;
 }
@@ -397,8 +397,8 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
         mMaxDataBlocked = false;
       }
     }
-    uint64_t pmd = mPeerMaxData;
-    uint64_t mds = mMaxDataSent;
+    uint64_t pmd = mPeerMaxData; // will trunc, but just for logging
+    uint64_t mds = mMaxDataSent; // will trunc, but just for logging
     fprintf(stderr,"promoting chunk stream %d %ld.%d [stream limit=%ld] [conn limit %llu of %lld]\n",
             (*iBuffer)->mStreamID, (*iBuffer)->mOffset, (*iBuffer)->mLen,
             out->mFlowControlLimit, mds, pmd);
@@ -455,7 +455,7 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
 {
   auto iter = mConnUnWritten.begin();
   while (iter != mConnUnWritten.end()) {
-    if (justZero && (*iter)->mStreamID) {
+    if (justZero && (((*iter)->mType != ReliableData::kStream)|| (*iter)->mStreamID)) {
       iter++;
       continue;
     }
@@ -916,7 +916,7 @@ StreamState::StreamState(MozQuic *q, uint64_t initialStreamWindow,
   , mPeerMaxData(kMaxDataDefault)
   , mMaxDataSent(0)
   , mMaxDataBlocked(false)
-  , mLocalMaxData(initialConnectionWindowKB << 10)
+  , mLocalMaxData(((__uint128_t)initialConnectionWindowKB) << 10)
   , mLocalMaxDataUsed(0)
   , mPeerMaxStreamID(kMaxStreamIDDefault)
   , mLocalMaxStreamID(kMaxStreamIDDefault) // todo config

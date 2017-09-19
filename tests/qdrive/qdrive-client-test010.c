@@ -3,8 +3,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// -qdrive-test9 client sends 3 bytes and fin on stream create
-// server replies with 4 bytes and fin. (tests fin on create)
+// -qdrive-test10 client sends 3 bytes and fin on stream create
+// server replies with 4 bytes and fin. with a connection window
+// that will overflow 64bits when convereted to bytes.
 
 #include "qdrive-common.h"
 #include <stdio.h>
@@ -17,17 +18,18 @@ static struct closure
   mozquic_stream_t *stream;
 } state;
 
-void *testGetClosure9()
+void *testGetClosure10()
 {
   return &state;
 }
 
-void testConfig9(struct mozquic_config_t *_c)
+void testConfig10(struct mozquic_config_t *_c)
 {
   memset(&state, 0, sizeof(state));
+  _c->connWindowKB = 0x400000;
 }
 
-int testEvent9(void *closure, uint32_t event, void *param)
+int testEvent10(void *closure, uint32_t event, void *param)
 {
   test_assert(closure == &state);
   test_assert(event != MOZQUIC_EVENT_CLOSE_CONNECTION);

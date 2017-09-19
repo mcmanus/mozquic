@@ -49,6 +49,7 @@ QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test006.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test007.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test008.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test009.o
+QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test010.o
 
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-common.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test000.o
@@ -61,6 +62,7 @@ QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test006.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test007.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test008.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test009.o
+QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test010.o
 
 sample/server-files.o: sample/server.jpg sample/index.html sample/main.js
 	ld -r -b binary -o $@ $^
