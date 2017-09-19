@@ -465,7 +465,10 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       }
     } else if ((*iter)->mType == ReliableData::kMaxStreamData) {
       if (CreateMaxStreamDataFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
-        break;
+        // this one sometimes fails and we should just delete the info and move on
+        // as the stream no longer needs flow control
+        iter = mConnUnWritten.erase(iter);
+        continue;
       }
     } else if ((*iter)->mType == ReliableData::kMaxData) {
       if (CreateMaxDataFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
@@ -579,7 +582,7 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
               mMozQuic->mNextTransmitPacketNumber);
       framePtr += (*iter)->mLen;
     }
-
+    
     (*iter)->mPacketNumber = mMozQuic->mNextTransmitPacketNumber;
     (*iter)->mTransmitTime = MozQuic::Timestamp();
     if ((mMozQuic->GetConnectionState() == CLIENT_STATE_CONNECTED) ||
@@ -790,6 +793,15 @@ StreamState::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned c
   assert(chunk->mType == ReliableData::kMaxStreamData);
   assert(chunk->mStreamCreditValue);
   assert(!chunk->mLen);
+
+  if (chunk->mStreamID) {
+    auto i = mStreams.find(chunk->mStreamID);
+    if (i == mStreams.end() ||
+        (*i).second->mIn.mFinRecvd ||
+        (*i).second->mIn.mRstRecvd) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+  }
 
   uint32_t room = endpkt - framePtr;
   if (room < 13) {
@@ -1051,6 +1063,9 @@ StreamIn::MaybeIssueFlowControlCredit()
   uint32_t increment = mFlowController->GetIncrement();
   fprintf(stderr,"peer has %ld stream flow control credits available on stream %d\n",
           available, mStreamID);
+  if (mFinRecvd || mRstRecvd) {
+    return; // does not need more
+  }
 
   if ((available < 32 * 1024) ||
       (available < (increment / 2))) {
@@ -1058,7 +1073,8 @@ StreamIn::MaybeIssueFlowControlCredit()
       return;
     }
     mLocalMaxStreamData += increment;
-    if (!mRstRecvd && (mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData) != MOZQUIC_OK)) {
+
+    if (mFlowController->IssueStreamCredit(mStreamID, mLocalMaxStreamData) != MOZQUIC_OK) {
       mLocalMaxStreamData -= increment;
     }
   }
