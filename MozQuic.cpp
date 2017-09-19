@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include <array>
+#include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "NSSHelper.h"
@@ -65,6 +66,9 @@ MozQuic::MozQuic(bool handleIO)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
 {
+  Log::sParseSubscriptions(getenv("MOZQUIC_LOG"));
+  StreamLog5("TEST2 NEWCONN5 %s %d %p\n", "pato", 16, mConnEventCB);
+  
   assert(!handleIO); // todo
   unsigned char seed[4];
   if (SECSuccess != PK11_GenerateRandom(seed, sizeof(seed))) {

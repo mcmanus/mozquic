@@ -5,6 +5,7 @@
 
 static int mozQuicInit = 0;
 
+#include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "Streams.h"
