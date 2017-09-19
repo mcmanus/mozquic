@@ -68,36 +68,32 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     char buf[1000];
     uint32_t amt = 0;
     int fin = 0;
-    do {
-      uint32_t code = mozquic_recv(stream, buf, 1000, &amt, &fin);
-      if (code != MOZQUIC_OK) {
-        fprintf(stderr,"recv stream error %d\n", code);
-        return MOZQUIC_OK;
-      } else if (amt > 0) {
-        fprintf(stderr,"Data: stream %d %d fin=%d\n",
-                mozquic_get_streamid(stream), amt, fin);
-        for (size_t j=0; j < amt; ) {
-          size_t rv = fwrite(buf + j, 1, amt - j, fd[mozquic_get_streamid(stream)]);
-          assert(rv > 0);
-          j += rv;
-        }
-        
-        if (fin) {
-          if (fd[mozquic_get_streamid(stream)]) {
-            fclose (fd[mozquic_get_streamid(stream)]);
-            fd[mozquic_get_streamid(stream)] = NULL;
-          }
-          recvFin = 1;
-          if (_getCount) {
-            if (!--_getCount) {
-              _getCount = -1;
-            }
-          }
+
+    uint32_t code = mozquic_recv(stream, buf, 1000, &amt, &fin);
+    if (code != MOZQUIC_OK) {
+      fprintf(stderr,"recv stream error %d\n", code);
+      return MOZQUIC_OK;
+    }
+    fprintf(stderr,"Data: stream %d %d fin=%d\n",
+            mozquic_get_streamid(stream), amt, fin);
+    for (size_t j=0; j < amt; ) {
+      size_t rv = fwrite(buf + j, 1, amt - j, fd[mozquic_get_streamid(stream)]);
+      assert(rv > 0);
+      j += rv;
+    }
+    if (fin) {
+      if (fd[mozquic_get_streamid(stream)]) {
+        fclose (fd[mozquic_get_streamid(stream)]);
+        fd[mozquic_get_streamid(stream)] = NULL;
+      }
+      recvFin = 1;
+      mozquic_end_stream(stream);
+      if (_getCount) {
+        if (!--_getCount) {
+          _getCount = -1;
         }
       }
-    } while (amt > 0);
-
-    mozquic_end_stream(stream);
+    }
     return MOZQUIC_OK;
   } else if (event == MOZQUIC_EVENT_IO) {
   } else if (event == MOZQUIC_EVENT_CLOSE_CONNECTION ||
