@@ -34,4 +34,12 @@ ls client server
 # This is useful for running the regression tests
 ```
 go run qdrive/main.go -shims mozquic/tests/qdrive/mozquic.json -cases mozquic/tests/qdrive/mozquic.cases.json -verbose
+
+rm -f /tmp/get-? ; ./client -get /documentation/nghttpd.1.html -get /stylesheets/screen.css -get /index.html -get /favicon.png -peer nghttp2.org:4433 -send-close -ignorePKI ; ls /tmp/get-?
+
+-rw-rw-rw- 1 mcmanus 21475 Sep 18 16:49 /tmp/get-1
+-rw-rw-rw- 1 mcmanus 39082 Sep 18 16:49 /tmp/get-3
+-rw-rw-rw- 1 mcmanus  6625 Sep 18 16:49 /tmp/get-5
+-rw-rw-rw- 1 mcmanus   400 Sep 18 16:49 /tmp/get-7
+
 ```

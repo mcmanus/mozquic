@@ -923,6 +923,16 @@ MozQuic::ServerConnected()
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
+    fprintf(stderr,
+            "decode client parameters:\n"
+            "\tmaxstreamdata %ld\n"
+            "\tmaxdatakb %ld\n"
+            "\tmaxstreamid %ld\n"
+            "\tidle %ld\n",
+            mStreamState->mPeerMaxStreamData,
+            peerMaxDataKB,
+            mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
+            
     mStreamState->mPeerMaxData = peerMaxDataKB * 1024;
     fprintf(stderr,"Decoding Client Transport Parameters: %s\n",
             decodeResult == MOZQUIC_OK ? "passed" : "failed");
