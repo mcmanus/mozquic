@@ -491,8 +491,9 @@ MozQuic::Server1RTT()
 }
 
 uint32_t
-MozQuic::Intake()
+MozQuic::Intake(bool *partialResult)
 {
+  *partialResult = false;
   if (mIsChild) {
     // parent does all fd reading
     return MOZQUIC_OK;
@@ -554,6 +555,9 @@ MozQuic::Intake()
 
       fprintf(stderr,"LONGFORM PACKET[%d] id=%lx pkt# %lx type %d version %X\n",
               pktSize, longHeader.mConnectionID, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
+      if (longHeader.mType < PACKET_TYPE_0RTT_PROTECTED) {
+        *partialResult = true;
+      }
 
       if (!VersionOK(longHeader.mVersion)) {
         fprintf(stderr,"unacceptable version recvd.\n");
@@ -663,7 +667,7 @@ MozQuic::Intake()
     if ((rv == MOZQUIC_OK) && sendAck) {
       rv = session->MaybeSendAck();
     }
-  } while (rv == MOZQUIC_OK);
+  } while (rv == MOZQUIC_OK && !(*partialResult));
 
   return rv;
 }
@@ -674,42 +678,45 @@ MozQuic::IO()
   uint32_t code;
   std::shared_ptr<MozQuic> deleteProtector(mAlive);
 
-  Intake();
-  mStreamState->RetransmitTimer();
-  ClearOldInitialConnectIdsTimer();
-  mStreamState->Flush(false);
+  bool partialResult = false;
+  do {
+    Intake(&partialResult);
+    mStreamState->RetransmitTimer();
+    ClearOldInitialConnectIdsTimer();
+    mStreamState->Flush(false);
 
-  if (mIsClient) {
-    switch (mConnectionState) {
-    case CLIENT_STATE_1RTT:
-      code = Client1RTT();
-      if (code != MOZQUIC_OK) {
-        return code;
+    if (mIsClient) {
+      switch (mConnectionState) {
+      case CLIENT_STATE_1RTT:
+        code = Client1RTT();
+        if (code != MOZQUIC_OK) {
+          return code;
+        }
+        break;
+      case CLIENT_STATE_CONNECTED:
+      case CLIENT_STATE_CLOSED:
+      case SERVER_STATE_CLOSED:
+        break;
+      default:
+        assert(false);
+        // todo
       }
-      break;
-    case CLIENT_STATE_CONNECTED:
-    case CLIENT_STATE_CLOSED:
-    case SERVER_STATE_CLOSED:
-      break;
-    default:
-      assert(false);
-      // todo
-    }
-  } else {
-    if (mConnectionState == SERVER_STATE_1RTT) {
-      code = Server1RTT();
-      if (code != MOZQUIC_OK) {
-        return code;
+    } else {
+      if (mConnectionState == SERVER_STATE_1RTT) {
+        code = Server1RTT();
+        if (code != MOZQUIC_OK) {
+          return code;
+        }
+      }
+      if (!mIsChild) {
+        ssize_t len = mChildren.size();
+        for (auto iter = mChildren.begin();
+             len == mChildren.size() && iter != mChildren.end(); ++iter) {
+          (*iter)->IO();
+        }
       }
     }
-    if (!mIsChild) {
-      ssize_t len = mChildren.size();
-      for (auto iter = mChildren.begin();
-           len == mChildren.size() && iter != mChildren.end(); ++iter) {
-        (*iter)->IO();
-      }
-    }
-  }
+  } while (partialResult);
 
   if ((mConnectionState == SERVER_STATE_1RTT) &&
       (mNextTransmitPacketNumber - mOriginalTransmitPacketNumber) > 20) {

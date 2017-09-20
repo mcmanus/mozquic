@@ -165,7 +165,7 @@ private:
   uint32_t ClientConnected();
   uint32_t ServerConnected();
 
-  uint32_t Intake();
+  uint32_t Intake(bool *partialResult);
   uint32_t FlushStream0(bool forceAck);
 
   int Client1RTT();
