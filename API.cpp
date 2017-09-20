@@ -153,7 +153,7 @@ int mozquic_end_stream(mozquic_stream_t *stream)
 int mozquic_reset_stream(mozquic_stream_t *stream)
 {
   mozquic::StreamPair *self(reinterpret_cast<mozquic::StreamPair *>(stream));
-  int rv = self->RstStream(mozquic::MozQuic::ERROR_CANCELLED);
+  int rv = self->RstStream(mozquic::ERROR_CANCELLED);
   self->mMozQuic->MaybeDeleteStream(self);
   return rv;
 }

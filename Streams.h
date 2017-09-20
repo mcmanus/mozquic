@@ -8,7 +8,7 @@
 namespace mozquic  {
 
 enum  {
-  kMaxStreamIDDefault   = 0xffffffff,
+  kMaxStreamIDDefault   = 1024,
   kMaxStreamDataDefault = 10 * 1024 * 1024,
   kMaxDataDefault       = 50 * 1024 * 1024,
   kRetransmitThresh     = 500,
@@ -143,7 +143,7 @@ public:
   uint32_t CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                       ReliableData *chunk);
 
-  void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamID = next; mNextRecvStreamID = nextR; }
+  void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamID = next; mNextRecvStreamIDUsed = nextR; }
   void MaybeIssueFlowControlCredit();
 
 private:
@@ -153,7 +153,6 @@ private:
   
   MozQuic *mMozQuic;
   uint32_t mNextStreamID;
-  uint32_t mNextRecvStreamID;
 
 private: // these still need friend mozquic
   uint32_t mPeerMaxStreamData;  // max offset we can send from transport params on new stream
@@ -170,6 +169,7 @@ private: // these still need friend mozquic
   uint32_t mPeerMaxStreamID;  // id limit set by peer
   uint32_t mLocalMaxStreamID; // id limit sent to peer
   bool     mMaxStreamIDBlocked; // blocked from creating by streamID limits
+  uint32_t mNextRecvStreamIDUsed; //  id consumed by peer
 
   std::unique_ptr<StreamPair> mStream0;
   std::unordered_map<uint32_t, std::shared_ptr<StreamPair>> mStreams;
@@ -259,7 +259,7 @@ private:
   MozQuic *mMozQuic;
   uint32_t mStreamID;
   uint64_t mOffset;
-  uint64_t mFinOffset;
+  uint64_t mFinalOffset;
 
   uint64_t mLocalMaxStreamData; // highest flow control we have sent to peer
   uint64_t mNextStreamDataExpected;

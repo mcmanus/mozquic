@@ -76,7 +76,7 @@ class MozQuic;
 class FrameHeaderData
 {
 public:
-  FrameHeaderData(const unsigned char *, uint32_t, MozQuic *);
+  FrameHeaderData(const unsigned char *, uint32_t, MozQuic *, bool);
   FrameType mType;
   uint32_t  mValid;
   uint32_t  mFrameLen;

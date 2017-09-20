@@ -55,6 +55,23 @@ enum connectionState
   SERVER_STATE_CLOSED,
 };
 
+enum errorType {
+  ERROR_NO_ERROR            = 0x80000000,
+  ERROR_INTERNAL            = 0x80000001,
+  ERROR_CANCELLED           = 0x80000002,
+  FLOW_CONTROL_ERROR        = 0x80000003,
+  STREAM_ID_ERROR           = 0x80000004,
+  STREAM_STATE_ERROR        = 0x80000005,
+  FINAL_OFFSET_ERROR        = 0x80000006,
+  FRAME_FORMAT_ERROR        = 0x80000007,
+  ERROR_TRANSPORT_PARAMETER = 0x80000008,
+  ERROR_VERSION_NEGOTIATION = 0x80000009,
+  PROTOCOL_VIOLATION        = 0x8000000A,
+  QUIC_RECEIVED_RST         = 0x80000035,
+  
+  // FRAME_ERROR 0x8000001XX
+};
+
 enum keyPhase {
   keyPhaseUnknown,
   keyPhaseUnprotected,
@@ -278,26 +295,7 @@ private:
 public: // callbacks from nsshelper
   int32_t NSSInput(void *buf, int32_t amount);
   int32_t NSSOutput(const void *buf, int32_t amount);
-
-public:
-
-  enum errorType {
-    ERROR_NO_ERROR            = 0x80000000,
-    ERROR_INTERNAL            = 0x80000001,
-    ERROR_CANCELLED           = 0x80000002,
-    FLOW_CONTROL_ERROR        = 0x80000003,
-    STREAM_ID_ERROR           = 0x80000004,
-    STREAM_STATE_ERROR        = 0x80000005,
-    FINAL_OFFSET_ERROR        = 0x80000006,
-    FRAME_FORMAT_ERROR        = 0x80000007,
-    ERROR_TRANSPORT_PARAMETER = 0x80000008,
-    ERROR_VERSION_NEGOTIATION = 0x80000009,
-    PROTOCOL_VIOLATION        = 0x8000000A,
-    QUIC_RECEIVED_RST         = 0x80000035,
-
-    // FRAME_ERROR 0x8000001XX
-  };
-    
+   
 };
 
 } //namespace

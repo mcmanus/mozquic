@@ -248,6 +248,7 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
 void
 MozQuic::ReleaseBackPressure()
 {
+  // release id
   mBackPressure = false;
   if (mStreamState) {
     mStreamState->MaybeIssueFlowControlCredit();
@@ -1091,7 +1092,7 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
   // and process_client_initial may not be ack
 
   while (ptr < pktSize) {
-    FrameHeaderData result(pkt + ptr, pktSize - ptr, this);
+    FrameHeaderData result(pkt + ptr, pktSize - ptr, this, fromCleartext);
     if (result.mValid != MOZQUIC_OK) {
       return result.mValid;
     }

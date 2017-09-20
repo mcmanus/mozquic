@@ -52,8 +52,8 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
 }
 
 
-FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
-                                 uint32_t pktSize, MozQuic *session)
+FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
+                                 MozQuic *session, bool fromCleartext)
 {
   memset(&u, 0, sizeof (u));
   mValid = MOZQUIC_ERR_GENERAL;
@@ -88,6 +88,9 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
 
     uint32_t bytesNeeded = 1 + lenLen + idLen + offsetLen;
     if (bytesNeeded > pktSize) {
+      if (!fromCleartext) {
+        session->Shutdown(FRAME_FORMAT_ERROR, "stream frame header short");
+      }
       session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "stream frame header short");
       return;
     }
@@ -109,6 +112,9 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
 
     // todo log frame len
     if (bytesNeeded + u.mStream.mDataLen > pktSize) {
+      if (!fromCleartext) {
+        session->Shutdown(FRAME_FORMAT_ERROR, "stream frame header short2");
+      }
       session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "stream frame data short");
       return;
     }
@@ -127,6 +133,9 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
 
     uint16_t bytesNeeded = 1 + numBlocks + 1 + ackedLen + 2;
     if (bytesNeeded > pktSize) {
+      if (!fromCleartext) {
+        session->Shutdown(FRAME_FORMAT_ERROR, "ack frame header short");
+      }
       session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
       return;
     }
@@ -156,6 +165,9 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
       bytesNeeded += u.mAck.mNumTS * (1 + 2) + 2;
     }
     if (bytesNeeded > pktSize) {
+      if (!fromCleartext) {
+        session->Shutdown(FRAME_FORMAT_ERROR, "ack frame header short2");
+      }
       session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
       return;
     }
@@ -173,6 +185,9 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
 
     case FRAME_TYPE_RST_STREAM:
       if (pktSize < FRAME_TYPE_RST_STREAM_LENGTH) {
+        if (!fromCleartext) {
+          session->Shutdown(FRAME_FORMAT_ERROR, "RST_STREAM frame length expected");
+        }
         session->RaiseError(MOZQUIC_ERR_GENERAL,
                    (char *) "RST_STREAM frame length expected");
         return;
