@@ -79,12 +79,7 @@ int main(int argc, char **argv)
   setup_tests(testList, numTests, argc, argv, parentConnection);
   test_assert(mozquic_start_client(parentConnection) == MOZQUIC_OK);
 
-  uint32_t i=0;
   do {
-    if (!(i++ & 0xf)) {
-      fprintf(stderr,".");
-      fflush(stderr);
-    }
     usleep (1000); // this is for handleio todo
     uint32_t code = mozquic_IO(parentConnection);
     if (code != MOZQUIC_OK) {

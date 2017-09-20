@@ -3,19 +3,31 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "NSSHelper.h"
 #include "Streams.h"
 
-#include "assert.h"
-#include "stdlib.h"
-#include "unistd.h"
+#include <assert.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 namespace mozquic  {
 
 static const uint32_t kFNV64Size = 8;
 static const uint32_t kMinClientInitial = 1200;
+
+#define HandshakeLog1(...) Log::sDoLog(Log::HANDSHAKE, 1, this, __VA_ARGS__);
+#define HandshakeLog2(...) Log::sDoLog(Log::HANDSHAKE, 2, this, __VA_ARGS__);
+#define HandshakeLog3(...) Log::sDoLog(Log::HANDSHAKE, 3, this, __VA_ARGS__);
+#define HandshakeLog4(...) Log::sDoLog(Log::HANDSHAKE, 4, this, __VA_ARGS__);
+#define HandshakeLog5(...) Log::sDoLog(Log::HANDSHAKE, 5, this, __VA_ARGS__);
+#define HandshakeLog6(...) Log::sDoLog(Log::HANDSHAKE, 6, this, __VA_ARGS__);
+#define HandshakeLog7(...) Log::sDoLog(Log::HANDSHAKE, 7, this, __VA_ARGS__);
+#define HandshakeLog8(...) Log::sDoLog(Log::HANDSHAKE, 8, this, __VA_ARGS__);
+#define HandshakeLog9(...) Log::sDoLog(Log::HANDSHAKE, 9, this, __VA_ARGS__);
+#define HandshakeLog10(...) Log::sDoLog(Log::HANDSHAKE, 10, this, __VA_ARGS__);
 
 static uint64_t
 fnv1a(unsigned char *p, uint32_t len)
@@ -47,7 +59,7 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize)
   recvdHash = PR_ntohll(recvdHash);
   bool rv = recvdHash == hash;
   if (!rv) {
-    Log((char *)"integrity error");
+    HandshakeLog1("integrity error\n");
   }
   return rv;
 }
@@ -85,7 +97,7 @@ MozQuic::FlushStream0(bool forceAck)
   // todo store a network order version of this
   uint64_t connID = PR_htonll(mConnectionID);
   if (mConnectionState == SERVER_STATE_SSR) {
-    fprintf(stderr,"Generating Server Stateless Retry.\n");
+    HandshakeLog4("Generating Server Stateless Retry.\n");
     connID = PR_htonll(mOriginalConnectionID);
     assert(mStreamState->mUnAckedData.empty());
   }
@@ -124,7 +136,7 @@ MozQuic::FlushStream0(bool forceAck)
     uint32_t used;
     if (AckPiggyBack(framePtr, mNextTransmitPacketNumber, room, keyPhaseUnprotected, used) == MOZQUIC_OK) {
       if (used) {
-        fprintf(stderr,"Handy-Ack FlushStream0 packet %lX frame-len=%d\n", mNextTransmitPacketNumber, used);
+        AckLog6("Handy-Ack FlushStream0 packet %lX frame-len=%d\n", mNextTransmitPacketNumber, used);
       }
       framePtr += used;
     }
@@ -146,11 +158,9 @@ MozQuic::FlushStream0(bool forceAck)
       return code;
     }
 
-    fprintf(stderr,"TRANSMIT0[%lX] this=%p len=%d total0=%d cid=%lX\n",
-            mNextTransmitPacketNumber, this, finalLen,
-            mNextTransmitPacketNumber - mOriginalTransmitPacketNumber,
-            mConnectionID);
-
+    HandshakeLog5("TRANSMIT0[%lX] this=%p len=%d total0=%d\n",
+                  mNextTransmitPacketNumber, this, finalLen,
+                  mNextTransmitPacketNumber - mOriginalTransmitPacketNumber);
     mNextTransmitPacketNumber++;
 
     if (sentStream && !mStreamState->mConnUnWritten.empty()) {
@@ -168,19 +178,19 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
   assert(pktSize >= 17);
 
   if (!mIsClient) {
-    fprintf(stderr,"SSR should only arrive at client. Ignore.\n");
+    HandshakeLog1("SSR should only arrive at client. Ignore.\n");
     return MOZQUIC_OK;
   }
 
   if (mReceivedServerClearText) {
-    fprintf(stderr,"SSR not allowed after server cleartext.\n");
+    HandshakeLog1("SSR not allowed after server cleartext.\n");
     return MOZQUIC_OK;
   }
 
   if ((header.mVersion != mVersion) ||
       (header.mConnectionID != mConnectionID)) {
     // this was supposedly copied from client - so this isn't a match
-    fprintf(stderr,"version or cid mismatch\n");
+    HandshakeLog1("version or cid mismatch\n");
     return MOZQUIC_ERR_VERSION;
   }
 
@@ -221,17 +231,17 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
   unsigned char *framePtr = pkt + 17;
 
   if (!mIsClient) {
-    fprintf(stderr,"VN should only arrive at client. Ignore.\n");
+    HandshakeLog1("VN should only arrive at client. Ignore.\n");
     return MOZQUIC_OK;
   }
 
   if (mReceivedServerClearText) {
-    fprintf(stderr,"VN not allowed after server cleartext.\n");
+    HandshakeLog1("VN not allowed after server cleartext.\n");
     return MOZQUIC_OK;
   }
 
   if (mProcessedVN) {
-    fprintf(stderr,"only handle one VN per session\n");
+    HandshakeLog1("only handle one VN per session\n");
     return MOZQUIC_OK;
   }
 
@@ -270,8 +280,8 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
     possibleVersion = ntohl(possibleVersion);
     // todo this does not give client any preference
     if (mVersion == possibleVersion) {
-       fprintf(stderr, "Ignore version negotiation packet that offers version "
-               "a client selected.\n");
+       HandshakeLog1("Ignore version negotiation packet that offers version "
+                     "a client selected.\n");
       return MOZQUIC_OK;
     } else if (!newVersion && VersionOK(possibleVersion)) {
       newVersion = possibleVersion;
@@ -280,7 +290,7 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
 
   if (newVersion) {
     mVersion = newVersion;
-    fprintf(stderr, "negotiated version %X\n", mVersion);
+    HandshakeLog2("negotiated version %X\n", mVersion);
     mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
     mStreamState->mStream0.reset(new StreamPair(0, this, mStreamState.get(),
                                                 kMaxStreamDataDefault,
@@ -305,18 +315,18 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
   assert(pktSize >= 17);
 
   if (!mIsClient) {
-    fprintf(stderr,"server cleartext arrived at server. ignored.\n");
+    HandshakeLog1("server cleartext arrived at server. ignored.\n");
     return MOZQUIC_OK;
   }
 
   if (mConnectionState != CLIENT_STATE_1RTT &&
       mConnectionState != CLIENT_STATE_0RTT) {
-    fprintf(stderr, "clear text after handshake will be dropped.\n");
+    HandshakeLog1("clear text after handshake will be dropped.\n");
     return MOZQUIC_OK;
   }
 
   if (header.mVersion != mVersion) {
-    Log((char *)"wrong version");
+    HandshakeLog1("wrong version\n");
     return MOZQUIC_ERR_GENERAL;
     // this should not abort session as its
     // not authenticated
@@ -324,14 +334,14 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
 
   if (mConnectionID != header.mConnectionID) {
     if (mReceivedServerClearText) {
-      Log((char *)"wrong connection id");
+      HandshakeLog1("wrong connection id\n");
       return MOZQUIC_ERR_GENERAL;
       // this should not abort session as its
       // not authenticated
     }
 
-    fprintf(stderr, "server clear text changed connID from %lx to %lx\n",
-            mConnectionID, header.mConnectionID);
+    HandshakeLog4("server clear text changed connID to %lx\n",
+            header.mConnectionID);
     mConnectionID = header.mConnectionID;
   }
   mReceivedServerClearText = true;
@@ -397,7 +407,7 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION, child);
   } else {
-    fprintf(stderr,"No Event callback\n");
+    HandshakeLog9("No Event callback\n");
   }
   *childSession = child;
   return MOZQUIC_OK;
@@ -433,7 +443,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
   uint32_t tmp32;
   uint64_t tmp64;
 
-  fprintf(stderr,"sending a version negotiation packet\n");
+  HandshakeLog5("sending a version negotiation packet\n");
   pkt[0] = 0x80 | PACKET_TYPE_VERSION_NEGOTIATION;
   // client connID echo'd from client
   tmp64 = PR_htonll(clientHeader.mConnectionID);
@@ -458,7 +468,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
   if (mSabotageVN) {
     // redo the list of version backwards as a test
     framePtr = pkt + 17;
-    fprintf(stderr, "Warning generating incorrect version negotation list for testing\n");
+    HandshakeLog6("Warning generating incorrect version negotation list for testing\n");
     for (int i = (sizeof(VersionNegotiationList) / sizeof(uint32_t)) - 1; i >= 0; i--) {
       tmp32 = htonl(VersionNegotiationList[i]);
       memcpy (framePtr, &tmp32, sizeof(uint32_t));

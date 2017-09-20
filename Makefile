@@ -26,6 +26,7 @@ CXXFLAGS += -MP -MD
 OBJS += Ack.o
 OBJS += API.o
 OBJS += ClearText.o
+OBJS += Logging.o
 OBJS += MozQuic.o
 OBJS += NSSHelper.o
 OBJS += Packetization.o

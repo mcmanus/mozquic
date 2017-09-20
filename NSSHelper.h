@@ -90,7 +90,7 @@ private:
                                           CK_MECHANISM_TYPE &importMechanism1,
                                           CK_MECHANISM_TYPE &importMechanism2);
 
-  MozQuic             *mQuicSession;
+  MozQuic             *mMozQuic;
   PRFileDesc          *mFD;
   bool                 mNSSReady;
   bool                 mHandshakeComplete;

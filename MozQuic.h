@@ -64,6 +64,7 @@ extern "C" {
     int handleIO; // true if library should schedule read and write events
     void *closure;
     unsigned int appHandlesSendRecv; // flag to control TRANSMIT/RECV/TLSINPUT events
+    unsigned int appHandlesLogging; // flag to control LOG events
     int  (*connection_event_callback)(void *, uint32_t event, void *aParam);
 
     // these are just for testing early implementations - they will go away

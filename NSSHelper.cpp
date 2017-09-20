@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "NSSHelper.h"
@@ -31,6 +32,28 @@ fail complie;
 */
 
 // todo runtime enforce too.. maybe an exp is enough to enforce
+
+#define sTlsLog1(...) Log::sDoLog(Log::TLS, 1, self->mMozQuic, __VA_ARGS__);
+#define sTlsLog2(...) Log::sDoLog(Log::TLS, 2, self->mMozQuic, __VA_ARGS__);
+#define sTlsLog3(...) Log::sDoLog(Log::TLS, 3, self->mMozQuic, __VA_ARGS__);
+#define sTlsLog4(...) Log::sDoLog(Log::TLS, 4, self->mMozQuic, __VA_ARGS__);
+#define sTlsLog5(...) Log::sDoLog(Log::TLS, 5, self->mMozQuic, __VA_ARGS__);
+#define sTlsLog6(...) Log::sDoLog(Log::TLS, 6, self->mMozQuic, __VA_ARGS__);
+#define sTlsLog7(...) Log::sDoLog(Log::TLS, 7, self->mMozQuic, __VA_ARGS__);
+#define sTlsLog8(...) Log::sDoLog(Log::TLS, 8, self->mMozQuic, __VA_ARGS__);
+#define sTlsLog9(...) Log::sDoLog(Log::TLS, 9, self->mMozQuic, __VA_ARGS__);
+#define sTlsLog10(...) Log::sDoLog(Log::TLS, 10, self->mMozQuic, __VA_ARGS__);
+
+#define TlsLog1(...) Log::sDoLog(Log::TLS, 1, mMozQuic, __VA_ARGS__);
+#define TlsLog2(...) Log::sDoLog(Log::TLS, 2, mMozQuic, __VA_ARGS__);
+#define TlsLog3(...) Log::sDoLog(Log::TLS, 3, mMozQuic, __VA_ARGS__);
+#define TlsLog4(...) Log::sDoLog(Log::TLS, 4, mMozQuic, __VA_ARGS__);
+#define TlsLog5(...) Log::sDoLog(Log::TLS, 5, mMozQuic, __VA_ARGS__);
+#define TlsLog6(...) Log::sDoLog(Log::TLS, 6, mMozQuic, __VA_ARGS__);
+#define TlsLog7(...) Log::sDoLog(Log::TLS, 7, mMozQuic, __VA_ARGS__);
+#define TlsLog8(...) Log::sDoLog(Log::TLS, 8, mMozQuic, __VA_ARGS__);
+#define TlsLog9(...) Log::sDoLog(Log::TLS, 9, mMozQuic, __VA_ARGS__);
+#define TlsLog10(...) Log::sDoLog(Log::TLS, 10, mMozQuic, __VA_ARGS__);
 
 extern "C"
 {
@@ -382,7 +405,7 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
 
   unsigned char sourceAddressInfo[128];
   uint32_t sourceAddressLen = sizeof(sourceAddressInfo);
-  self->mQuicSession->GetRemotePeerAddressHash(sourceAddressInfo, &sourceAddressLen);
+  self->mMozQuic->GetRemotePeerAddressHash(sourceAddressInfo, &sourceAddressLen);
 
   HASHContext *hcontext = HASH_Create(HASH_AlgSHA256);
   HASH_Begin(hcontext);
@@ -391,35 +414,35 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
   HASH_End(hcontext, digest, &digestLen, sizeof(digest));
   assert(digestLen == sizeof(digest));
 
-  fprintf(stderr,"HRRCallback first=%d tokenlen=%d max=%d\n", firstHello, clientTokenLen, retryTokMax);
-  fprintf(stderr,"Input : ");
+  sTlsLog5("HRRCallback first=%d tokenlen=%d max=%d\n", firstHello, clientTokenLen, retryTokMax);
+  sTlsLog6("Input : ");
   for (int i = 0 ; i < sourceAddressLen; i++) {
-      fprintf(stderr,"%02X ", sourceAddressInfo[i]);
+    sTlsLog6("%02X ", sourceAddressInfo[i]);
   }
-  fprintf(stderr,"\nDigest: ");
+  sTlsLog6("\nDigest: ");
   for (int i = 0 ; i < digestLen; i++) {
-    fprintf(stderr,"%02X ", digest[i]);
+    sTlsLog6("%02X ", digest[i]);
   }
   if (!firstHello) {
-    fprintf(stderr,"\nCookie: ");
+    sTlsLog6("\nCookie: ");
     for (int i = 0 ; i < clientTokenLen; i++) {
-      fprintf(stderr,"%02X ", clientToken[i]);
+      sTlsLog6("%02X ", clientToken[i]);
     }
   }
-  fprintf(stderr,"\n");
-  fprintf(stderr,"HRRCallback %d bytes of SourceAddress into %d bytes of hash\n",
-          sourceAddressLen, digestLen);
+  sTlsLog6("\n");
+  sTlsLog5("HRRCallback %d bytes of SourceAddress into %d bytes of hash\n",
+           sourceAddressLen, digestLen);
 
   if (!firstHello) { // verify!
     if (clientTokenLen != sizeof(digest)) {
-      fprintf(stderr, "HRRCallback clientToken wrong size\n");
+      sTlsLog1("HRRCallback clientToken wrong size\n");
       return ssl_hello_retry_fail;
     }
     if (memcmp(clientToken, digest, sizeof(digest))) {
-      fprintf(stderr, "HRRCallback clientToken wrong\n");
+      sTlsLog1("HRRCallback clientToken wrong\n");
       return ssl_hello_retry_fail;
     }
-    fprintf(stderr, "HRRCallback clientToken verified!\n");
+    sTlsLog1("HRRCallback clientToken verified!\n");
     return ssl_hello_retry_accept;
   }
 
@@ -433,7 +456,6 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
 void
 NSSHelper::HandshakeCallback(PRFileDesc *fd, void *client_data)
 {
-  fprintf(stderr,"handshakecallback\n");
   unsigned int bufLen = 0;
   unsigned char buf[256];
   SSLNextProtoState state;
@@ -445,6 +467,7 @@ NSSHelper::HandshakeCallback(PRFileDesc *fd, void *client_data)
   }
   assert(tmpFD);
   NSSHelper *self = reinterpret_cast<NSSHelper *>(tmpFD->secret);
+  sTlsLog5("handshakecallback\n");
   SSLHashType hashType;
   unsigned int secretSize;
   unsigned int keySize;
@@ -454,7 +477,7 @@ NSSHelper::HandshakeCallback(PRFileDesc *fd, void *client_data)
       (SSL_GetNextProto(fd, &state, buf, &bufLen, 256) != SECSuccess ||
        bufLen != strlen(MozQuic::kAlpn) ||
        memcmp(MozQuic::kAlpn, buf, bufLen))) {
-    fprintf(stderr,"alpn fail\n");
+    sTlsLog1("alpn fail\n");
     goto failure;
   } else {
     SSLChannelInfo info;
@@ -596,14 +619,14 @@ NSSHelper::BadCertificate(void *client_data, PRFileDesc *fd)
   }
   assert(fd);
   NSSHelper *self = reinterpret_cast<NSSHelper *>(fd->secret);
-  fprintf(stderr,"badcertificate override=%d\n",
-          self->mQuicSession->IgnorePKI());
-  return self->mQuicSession->IgnorePKI() ? SECSuccess : SECFailure;
+  sTlsLog2("badcertificate override=%d\n",
+           self->mMozQuic->IgnorePKI());
+  return self->mMozQuic->IgnorePKI() ? SECSuccess : SECFailure;
 }
 
 // server version
 NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey)
-  : mQuicSession(quicSession)
+  : mMozQuic(quicSession)
   , mNSSReady(false)
   , mHandshakeComplete(false)
   , mHandshakeFailed(false)
@@ -648,7 +671,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   SSL_VersionRangeSet(mFD, &range);
   SSL_HandshakeCallback(mFD, HandshakeCallback, nullptr);
 
-  if (mQuicSession->GetForceAddressValidation()) {
+  if (mMozQuic->GetForceAddressValidation()) {
     SSL_HelloRetryRequestCallback(mFD, HRRCallback, this);
   }
 
@@ -686,7 +709,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
     addr.raw.family = PR_AF_INET;
     PR_Connect(mFD, &addr, 0);
   } else {
-    fprintf(stderr,"Transport ExtensionSupport not possible. not connecting\n");
+    TlsLog1("Transport ExtensionSupport not possible. not connecting\n");
   }
     
   PR_Connect(mFD, &addr, 0);
@@ -698,7 +721,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
 
 // client version
 NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey, bool unused)
-  : mQuicSession(quicSession)
+  : mMozQuic(quicSession)
   , mNSSReady(false)
   , mHandshakeComplete(false)
   , mHandshakeFailed(false)
@@ -773,7 +796,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
     addr.raw.family = PR_AF_INET;
     PR_Connect(mFD, &addr, 0);
   } else {
-    fprintf(stderr,"Transport ExtensionSupport not possible. not connecting\n");
+    TlsLog1("Transport ExtensionSupport not possible. not connecting\n");
   }
 }
 
@@ -783,7 +806,7 @@ NSSHelper::nssHelperWrite(PRFileDesc *fd, const void *aBuf, int32_t aAmount)
   // data (e.g. server hello) has come from nss and needs to be written into MozQuic
   // to be written out to the network in stream 0
   NSSHelper *self = reinterpret_cast<NSSHelper *>(fd->secret);
-  self->mQuicSession->NSSOutput(aBuf, aAmount);
+  self->mMozQuic->NSSOutput(aBuf, aAmount);
   return aAmount;
 }
 
@@ -800,7 +823,7 @@ NSSHelper::nssHelperRead(PRFileDesc *fd, void *buf, int32_t amount)
   // nss is asking for input, i.e. a client hello from stream 0 after
   // stream reassembly
   NSSHelper *self = reinterpret_cast<NSSHelper *>(fd->secret);
-  return self->mQuicSession->NSSInput(buf, amount);
+  return self->mMozQuic->NSSInput(buf, amount);
 }
 
 int32_t
@@ -856,14 +879,14 @@ NSSHelper::DriveHandshake()
       return MOZQUIC_OK;
     }
     if (rd == 0) {
-      fprintf(stderr,"eof on pipe?\n");
+      TlsLog1("eof on pipe?\n");
       return MOZQUIC_ERR_IO;
     }
   }
   if (PR_GetError() == PR_WOULD_BLOCK_ERROR) {
     return MOZQUIC_OK;
   }
-  fprintf(stderr,"handshake err: %s\n", PR_ErrorToName(PR_GetError()));
+  TlsLog1("handshake err: %s\n", PR_ErrorToName(PR_GetError()));
   return MOZQUIC_ERR_GENERAL;
 }
 
@@ -871,17 +894,17 @@ PRBool
 NSSHelper::TransportExtensionWriter(PRFileDesc *fd, SSLHandshakeType m,
                                     PRUint8 *data, unsigned int *len, unsigned int maxlen, void *arg)
 {
-  NSSHelper *helper = reinterpret_cast<NSSHelper *>(arg);
+  NSSHelper *self = reinterpret_cast<NSSHelper *>(arg);
   if (m != ssl_hs_client_hello && m != ssl_hs_encrypted_extensions) {
     return PR_FALSE;
   }
-  if (maxlen < helper->mLocalTransportExtensionLen) {
+  if (maxlen < self->mLocalTransportExtensionLen) {
     return PR_FALSE;
   }
   
-  fprintf(stderr,"transport extension sent %d bytes long.\n", helper->mLocalTransportExtensionLen);
-  memcpy(data, helper->mLocalTransportExtensionInfo, helper->mLocalTransportExtensionLen);
-  *len = helper->mLocalTransportExtensionLen;
+  sTlsLog6("transport extension sent %d bytes long.\n", self->mLocalTransportExtensionLen);
+  memcpy(data, self->mLocalTransportExtensionInfo, self->mLocalTransportExtensionLen);
+  *len = self->mLocalTransportExtensionLen;
   return PR_TRUE;
 }
 
@@ -889,16 +912,16 @@ SECStatus
 NSSHelper::TransportExtensionHandler(PRFileDesc *fd, SSLHandshakeType m, const PRUint8 *data,
                                      unsigned int len, SSLAlertDescription *alert, void *arg)
 {
-  NSSHelper *helper = reinterpret_cast<NSSHelper *>(arg);
-  if (!helper->mIsClient && m != ssl_hs_client_hello) {
+  NSSHelper *self = reinterpret_cast<NSSHelper *>(arg);
+  if (!self->mIsClient && m != ssl_hs_client_hello) {
     return SECSuccess;
   }
-  if (helper->mIsClient && m != ssl_hs_encrypted_extensions) {
+  if (self->mIsClient && m != ssl_hs_encrypted_extensions) {
     return SECSuccess;
   }
   
-  fprintf(stderr,"transport extension read %d bytes long.\n", len);
-  helper->SetRemoteTransportExtensionInfo(data, len);
+  sTlsLog6("transport extension read %d bytes long.\n", len);
+  self->SetRemoteTransportExtensionInfo(data, len);
   return SECSuccess;
 }
 

@@ -101,7 +101,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     mozquic_destroy_connection(param);
     exit(event == MOZQUIC_EVENT_ERROR ? 2 : 0);
   } else {
-    fprintf(stderr,"unhandled event %X\n", event);
+//    fprintf(stderr,"unhandled event %X\n", event);
   }
   return MOZQUIC_OK;
 }
@@ -130,12 +130,7 @@ void streamtest1(mozquic_connection_t *c)
   mozquic_start_new_stream(&stream, c, "PREAMBLE", 8, 0);
   mozquic_send(stream, msg, strlen(msg), 0);
   mozquic_send(stream, "FIN", 3, 0);
-  int i = 0;
   do {
-    if (!(i++ & 0xf)) {
-      fprintf(stderr,".");
-      fflush(stderr);
-    }
     usleep (1000); // this is for handleio todo
     uint32_t code = mozquic_IO(c);
     if (code != MOZQUIC_OK) {
@@ -144,18 +139,15 @@ void streamtest1(mozquic_connection_t *c)
     }
   } while (!recvFin);
   recvFin = 0;
+  int i = 0;
   do {
-    if (!(i++ & 0xf)) {
-      fprintf(stderr,".");
-      fflush(stderr);
-    }
     usleep (1000); // this is for handleio todo
     uint32_t code = mozquic_IO(c);
     if (code != MOZQUIC_OK) {
       fprintf(stderr,"IO reported failure\n");
       break;
     }
-  } while (i < 2000);
+  } while (++i < 2000);
   fprintf(stderr,"streamtest1 complete\n");
 }
 
@@ -210,10 +202,6 @@ int main(int argc, char **argv)
 
   uint32_t i=0;
   do {
-    if (!(i++ & 0xf)) {
-      fprintf(stderr,".");
-      fflush(stderr);
-    }
     usleep (1000); // this is for handleio todo
     uint32_t code = mozquic_IO(c);
     if (code != MOZQUIC_OK) {
@@ -223,7 +211,7 @@ int main(int argc, char **argv)
     if (_getCount == -1) {
       break;
     }
-  } while (i < 2000 || _getCount);
+  } while (++i < 2000 || _getCount);
 
   if (has_arg(argc, argv, "-streamtest1", &argVal)) {
     streamtest1(c);

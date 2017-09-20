@@ -3,13 +3,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 
-#include "assert.h"
-#include "stdlib.h"
-#include "unistd.h"
-#include "sechash.h"
+#include <assert.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sechash.h>
 
 namespace mozquic  {
 
@@ -37,7 +38,7 @@ MozQuic::StatelessResetSend(uint64_t connID, struct sockaddr_in *peer)
   }
   assert(!mIsChild);
   assert(!mParent);
-  fprintf(stderr,"Stateless Reset of connection %lx\n", connID);
+  ConnectionLog1("Generate Stateless Reset of connection %lx\n", connID);
   unsigned char out[kMaxMTU];
   uint32_t pad = mMTU - 25;
   pad = (random() % pad) & ~0x1; // force even
@@ -95,7 +96,7 @@ MozQuic::StatelessResetCheckForReceipt(const unsigned char *pkt, uint32_t pktSiz
   if (memcmp(mStatelessResetToken, pkt + 9, 16)) {
     return false;
   }
-  fprintf(stderr,"client recvd verified public reset\n");
+  ConnectionLog1("client recvd verified public reset\n");
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
   }

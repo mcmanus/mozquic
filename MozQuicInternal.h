@@ -71,6 +71,7 @@ class ReliableData;
 class MozQuic final
 {
 friend class StreamPair;
+friend class Log;
 friend class FrameHeaderData;
 friend class StreamState;
 public:
@@ -111,6 +112,7 @@ public:
   void SetConnWindowKB(uint64_t kb) { mAdvertiseConnectionWindowKB = kb; }
 
   void SetAppHandlesSendRecv() { mAppHandlesSendRecv = true; }
+  void SetAppHandlesLogging() { mAppHandlesLogging = true; }
   bool IgnorePKI();
   void Destroy(uint32_t, const char *);
   uint32_t CheckPeer(uint32_t);
@@ -131,7 +133,7 @@ public:
   void ReleaseBackPressure();
   
 private:
-  void RaiseError(uint32_t err, char *reason);
+  void RaiseError(uint32_t err, const char *fmt, ...);
 
   void AckScoreboard(uint64_t num, enum keyPhase kp);
   int MaybeSendAck();
@@ -170,7 +172,6 @@ private:
 
   int Client1RTT();
   int Server1RTT();
-  void Log(char *);
   int Bind();
   bool VersionOK(uint32_t proposed);
   uint32_t GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockaddr_in *peer);
@@ -209,6 +210,7 @@ private:
   bool mSabotageVN;
   bool mForceAddressValidation;
   bool mAppHandlesSendRecv;
+  bool mAppHandlesLogging;
   bool mIsLoopback;
   bool mProcessedVN;
   bool mBackPressure;

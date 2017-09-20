@@ -196,8 +196,8 @@ static int connEventCB(void *closure, uint32_t event, void *param)
       return MOZQUIC_OK;
     }
 
-  default:
-    fprintf(stderr,"unhandled event %X\n", event);
+//  default:
+//    fprintf(stderr,"unhandled event %X\n", event);
   }
   return MOZQUIC_OK;
 }
@@ -267,6 +267,7 @@ int main(int argc, char **argv)
   config.forceAddressValidation = 0;
   config.streamWindow = 4900;
   config.connWindowKB = 8;
+  config.appHandlesLogging = 0;
 
   mozquic_new_connection(&c, &config);
   mozquic_set_event_callback(c, connEventCB);
@@ -282,20 +283,14 @@ int main(int argc, char **argv)
   do {
     usleep (delay); // this is for handleio todo
     if (!(i++ & 0xf)) {
-      char p;
       assert(connected >= 0);
       if (!connected) {
-        p = '.';
         delay = 5000;
       } else if (connected < 10) {
-        p = '0' + connected;
         delay = 1000;
       } else {
-        p = '*';
         delay = 1000;
       }
-      fprintf(stderr,"%c",p);
-      fflush(stderr);
     }
     mozquic_IO(c);
     mozquic_IO(hrr);

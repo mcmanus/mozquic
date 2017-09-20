@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include <array>
+#include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "NSSHelper.h"
@@ -38,6 +39,7 @@ MozQuic::MozQuic(bool handleIO)
   , mSabotageVN(false)
   , mForceAddressValidation(false)
   , mAppHandlesSendRecv(false)
+  , mAppHandlesLogging(false)
   , mIsLoopback(false)
   , mProcessedVN(false)
   , mBackPressure(false)
@@ -65,6 +67,8 @@ MozQuic::MozQuic(bool handleIO)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
 {
+  Log::sParseSubscriptions(getenv("MOZQUIC_LOG"));
+  
   assert(!handleIO); // todo
   unsigned char seed[4];
   if (SECSuccess != PK11_GenerateRandom(seed, sizeof(seed))) {
@@ -116,7 +120,7 @@ MozQuic::Transmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *ex
   }
 
   if (rv == -1) {
-    Log((char *)"Sending error in transmit");
+    ConnectionLog1("Sending error in transmit\n");
   }
 
   return MOZQUIC_OK;
@@ -141,14 +145,14 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     uint32_t usedByAck = 0;
     if (AckPiggyBack(data + dataLen, mNextTransmitPacketNumber, room, keyPhase1Rtt, usedByAck) == MOZQUIC_OK) {
       if (usedByAck) {
-        fprintf(stderr,"Handy-Ack adds to protected Transmit packet %lX by %d\n", mNextTransmitPacketNumber, usedByAck);
+        AckLog6("Handy-Ack adds to protected Transmit packet %lX by %d\n", mNextTransmitPacketNumber, usedByAck);
       }
       dataLen += usedByAck;
     }
   }
 
   if (dataLen == 0) {
-    fprintf(stderr,"nothing to write\n");
+    ConnectionLog6("nothing to write\n");
     return MOZQUIC_OK;
   }
 
@@ -159,8 +163,8 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                                          mNextTransmitPacketNumber, cipherPkt + headerLen,
                                          MTU - headerLen, written);
 
-  fprintf(stderr,"encrypt[%lX] rv=%d inputlen=%d (+%d of aead) outputlen=%d\n",
-          mNextTransmitPacketNumber, rv, dataLen, headerLen, written);
+  ConnectionLog6("encrypt[%lX] rv=%d inputlen=%d (+%d of aead) outputlen=%d\n",
+                 mNextTransmitPacketNumber, rv, dataLen, headerLen, written);
 
   if (rv != MOZQUIC_OK) {
     RaiseError(MOZQUIC_ERR_CRYPTO, (char *) "unexpected encrypt fail");
@@ -172,9 +176,8 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     return rv;
   }
   
-  fprintf(stderr,"TRANSMIT[%lX] this=%p len=%d cid=%lX\n",
-          mNextTransmitPacketNumber, this,
-          written + headerLen, mConnectionID);
+  ConnectionLog5("TRANSMIT[%lX] this=%p len=%d\n",
+                 mNextTransmitPacketNumber, this, written + headerLen);
   mNextTransmitPacketNumber++;
 
   return MOZQUIC_OK;
@@ -204,7 +207,7 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
     return;
   }
 
-  fprintf(stderr, "sending shutdown as %lx\n", mNextTransmitPacketNumber);
+  ConnectionLog5("sending shutdown as %lx\n", mNextTransmitPacketNumber);
 
   unsigned char plainPkt[kMaxMTU];
   uint16_t tmp16;
@@ -366,7 +369,7 @@ MozQuic::FindSession(uint64_t cid)
 
   auto i = mConnectionHash.find(cid);
   if (i == mConnectionHash.end()) {
-    Log((char *)"find session could not find id in hash");
+    ConnectionLog2("FindSession() could not find id in hash\n");
     return nullptr;
   }
   return (*i).second;
@@ -408,7 +411,7 @@ MozQuic::Client1RTT()
     }
   } else {
     if (!mSetupTransportExtension) {
-      fprintf(stderr,"setup transport extension (client)\n");
+      ConnectionLog9("setup transport extension (client)\n");
       unsigned char te[2048];
       uint16_t teLength = 0;
       assert(mVersion && mClientOriginalOfferedVersion);
@@ -450,7 +453,7 @@ MozQuic::Server1RTT()
   }
 
   if (!mSetupTransportExtension) {
-    fprintf(stderr,"setup transport extension (server)\n");
+    ConnectionLog9("setup transport extension (server)\n");
     unsigned char resetToken[16];
     StatelessResetCalculateToken(mParent->mStatelessResetKey,
                                  mConnectionID, resetToken); // from key and CID
@@ -529,8 +532,9 @@ MozQuic::Intake(bool *partialResult)
       }
       tmpSession = FindSession(tmpShortHeader.mConnectionID);
       if (!tmpSession) {
-        fprintf(stderr,"no session found for encoded packet id=%lx size=%d\n",
-                tmpShortHeader.mConnectionID, pktSize);
+        ConnectionLogCID1(tmpShortHeader.mConnectionID,
+                          "no session found for encoded packet size=%d\n",
+                          pktSize);
         StatelessResetSend(tmpShortHeader.mConnectionID, &peer);
         rv = MOZQUIC_ERR_GENERAL;
         continue;
@@ -538,9 +542,8 @@ MozQuic::Intake(bool *partialResult)
       session = tmpSession->mAlive;
       ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber, mConnectionID);
       assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
-      fprintf(stderr,"SHORTFORM PACKET[%d] id=%lx pkt# %lx hdrsize=%d\n",
-              pktSize, shortHeader.mConnectionID, shortHeader.mPacketNumber,
-              shortHeader.mHeaderSize);
+      ConnectionLogCID5(shortHeader.mConnectionID, "SHORTFORM PACKET[%d] pkt# %lx hdrsize=%d\n",
+                     pktSize, shortHeader.mPacketNumber, shortHeader.mHeaderSize);
       rv = session->ProcessGeneral(pkt, pktSize,
                                    shortHeader.mHeaderSize, shortHeader.mPacketNumber, sendAck);
       if (rv == MOZQUIC_OK) {
@@ -553,23 +556,24 @@ MozQuic::Intake(bool *partialResult)
       }
       LongHeaderData longHeader(pkt, pktSize);
 
-      fprintf(stderr,"LONGFORM PACKET[%d] id=%lx pkt# %lx type %d version %X\n",
-              pktSize, longHeader.mConnectionID, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
+      ConnectionLogCID5(longHeader.mConnectionID,
+                        "LONGFORM PACKET[%d] pkt# %lx type %d version %X\n",
+                        pktSize, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
       if (longHeader.mType < PACKET_TYPE_0RTT_PROTECTED) {
         *partialResult = true;
       }
 
       if (!VersionOK(longHeader.mVersion)) {
-        fprintf(stderr,"unacceptable version recvd.\n");
+        ConnectionLog1("unacceptable version recvd.\n");
         if (!mIsClient) {
           if (pktSize >= kInitialMTU) {
             session->GenerateVersionNegotiation(longHeader, &peer);
           } else {
-            fprintf(stderr,"packet too small to be CI, ignoring\n");
+            ConnectionLog1("packet too small to be CI, ignoring\n");
           }
           continue;
         } else if (longHeader.mType != PACKET_TYPE_VERSION_NEGOTIATION || longHeader.mVersion != mVersion) {
-          fprintf(stderr,"Client ignoring as this isn't VN\n");
+          ConnectionLog1("Client ignoring as this isn't VN\n");
           continue;
         }
       }
@@ -609,7 +613,7 @@ MozQuic::Intake(bool *partialResult)
 
       default:
         // reject anything that is not a cleartext packet (not right, but later)
-        Log((char *)"recv1rtt unexpected type");
+        ConnectionLog1("recv1rtt unexpected type\n");
         // todo this could actually be out of order protected packet even in handshake
         // and ideally would be queued. for now we rely on retrans
         // todo
@@ -618,7 +622,7 @@ MozQuic::Intake(bool *partialResult)
       }
 
       if (!session || rv != MOZQUIC_OK) {
-        fprintf(stderr, "unable to find connection for packet\n");
+        ConnectionLog1("unable to find connection for packet\n");
         continue;
       }
 
@@ -677,6 +681,7 @@ MozQuic::IO()
 {
   uint32_t code;
   std::shared_ptr<MozQuic> deleteProtector(mAlive);
+  ConnectionLog10("MozQuic::IO %p\n", this);
 
   bool partialResult = false;
   do {
@@ -725,7 +730,7 @@ MozQuic::IO()
   }
 
   if (mPingDeadline && mConnEventCB && mPingDeadline < Timestamp()) {
-    fprintf(stderr,"deadline expired set at %ld now %ld\n", mPingDeadline, Timestamp());
+    ConnectionLog1("ping deadline expired set at %ld now %ld\n", mPingDeadline, Timestamp());
     mPingDeadline = 0;
     mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
   }
@@ -736,14 +741,6 @@ MozQuic::IO()
     mConnEventCB(mClosure, MOZQUIC_EVENT_IO, this);
   }
   return MOZQUIC_OK;
-}
-
-void
-MozQuic::Log(char *msg)
-{
-  // todo this should be a structure of some kind
-  mConnEventCB(mClosure, MOZQUIC_EVENT_LOG, msg);
-  fprintf(stderr,"MozQuic Logger :%s:\n", msg);
 }
 
 uint32_t
@@ -777,10 +774,15 @@ MozQuic::Recv(unsigned char *pkt, uint32_t avail, uint32_t &outLen,
 }
 
 void
-MozQuic::RaiseError(uint32_t e, char *reason)
+MozQuic::RaiseError(uint32_t e, const char *fmt, ...)
 {
-  Log(reason);
-  fprintf(stderr,"MozQuic Logger :%u:\n", e);
+  ConnectionLog1("RaiseError %u\n", e);
+
+  va_list a;
+  va_start(a, fmt);
+  Log::sDoLog(Log::CONNECTION, 1, this, mConnectionID, fmt, a);
+  va_end(a);
+  
   if (mConnEventCB && (mIsClient || mIsChild)) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
   }
@@ -826,7 +828,7 @@ MozQuic::HandshakeComplete(uint32_t code,
 uint32_t
 MozQuic::ClientConnected()
 {
-  fprintf(stderr,"CLIENT_STATE_CONNECTED\n");
+  ConnectionLog4("CLIENT_STATE_CONNECTED\n");
   assert(mConnectionState == CLIENT_STATE_1RTT);
   unsigned char *extensionInfo = nullptr;
   uint16_t extensionInfoLen = 0;
@@ -836,7 +838,7 @@ MozQuic::ClientConnected()
   uint32_t decodeResult;
   uint32_t errorCode = ERROR_NO_ERROR;
   if (!extensionInfoLen && mTolerateNoTransportParams) {
-    fprintf(stderr,"Decoding Server Transport Parameters: tolerated empty by config\n");
+    ConnectionLog5("Decoding Server Transport Parameters: tolerated empty by config\n");
     decodeResult = MOZQUIC_OK;
   } else {
     assert(sizeof(mStatelessResetToken) == 16);
@@ -850,11 +852,13 @@ MozQuic::ClientConnected()
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
                                       mStatelessResetToken);
     mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
-    fprintf(stderr,"Decoding Server Transport Parameters: %s\n",
-            decodeResult == MOZQUIC_OK ? "passed" : "failed");
     if (decodeResult != MOZQUIC_OK) {
+      ConnectionLog1("Decoding Server Transport Parameters: failed\n");
       errorCode = ERROR_TRANSPORT_PARAMETER;
+    } else {
+      ConnectionLog5("Decoding Server Transport Parameters: passed\n");
     }
+    
     mStreamState->mStream0->NewFlowControlLimit(mStreamState->mPeerMaxStreamData);
                                                             
     // need to confirm version negotiation wasn't messed with
@@ -867,10 +871,11 @@ MozQuic::ClientConnected()
           break;
         }
       }
-      fprintf(stderr,"Verify Server Transport Parameters: version used %s\n",
-              decodeResult == MOZQUIC_OK ? "passed" : "failed");
       if (decodeResult != MOZQUIC_OK) {
         errorCode = ERROR_VERSION_NEGOTIATION;
+        ConnectionLog1("Verify Server Transport Parameters: version used failed\n");
+      } else {
+        ConnectionLog5("Verify Server Transport Parameters: version used passed\n");
       }
     }
 
@@ -884,11 +889,13 @@ MozQuic::ClientConnected()
           break;
         }
       }
-      fprintf(stderr,"Verify Server Transport Parameters: negotiation ok %s\n",
-              decodeResult == MOZQUIC_OK ? "passed" : "failed");
       if (decodeResult != MOZQUIC_OK) {
+        ConnectionLog1("Verify Server Transport Parameters: negotiation ok failed\n");
         errorCode = ERROR_VERSION_NEGOTIATION;
+      } else {
+        ConnectionLog5("Verify Server Transport Parameters: negotiation ok passed\n");
       }
+
     }
   }
 
@@ -910,7 +917,7 @@ uint32_t
 MozQuic::ServerConnected()
 {
   assert (mIsChild && !mIsClient);
-  fprintf(stderr,"SERVER_STATE_CONNECTED\n");
+  ConnectionLog4("SERVER_STATE_CONNECTED\n");
   assert(mConnectionState == SERVER_STATE_1RTT);
   unsigned char *extensionInfo = nullptr;
   uint16_t extensionInfoLen = 0;
@@ -919,7 +926,7 @@ MozQuic::ServerConnected()
   uint32_t decodeResult;
   uint32_t errorCode = ERROR_NO_ERROR;
   if (!extensionInfoLen && mTolerateNoTransportParams) {
-    fprintf(stderr,"Decoding Client Transport Parameters: tolerated empty by config\n");
+    ConnectionLog6("Decoding Client Transport Parameters: tolerated empty by config\n");
     decodeResult = MOZQUIC_OK;
   } else {
     uint32_t peerMaxDataKB;
@@ -930,19 +937,20 @@ MozQuic::ServerConnected()
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
-    fprintf(stderr,
-            "decode client parameters:\n"
-            "\tmaxstreamdata %ld\n"
-            "\tmaxdatakb %ld\n"
-            "\tmaxstreamid %ld\n"
-            "\tidle %ld\n",
+    ConnectionLog6(
+            "decode client parameters: "
+            "maxstreamdata %ld "
+            "maxdatakb %ld "
+            "maxstreamid %ld "
+            "idle %ld\n",
             mStreamState->mPeerMaxStreamData,
             peerMaxDataKB,
             mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
             
     mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
-    fprintf(stderr,"Decoding Client Transport Parameters: %s\n",
-            decodeResult == MOZQUIC_OK ? "passed" : "failed");
+    Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,
+                "Decoding Client Transport Parameters: %s\n",
+                decodeResult == MOZQUIC_OK ? "passed" : "failed");
     mStreamState->mStream0->NewFlowControlLimit(mStreamState->mPeerMaxStreamData);
     
     if (decodeResult != MOZQUIC_OK) {
@@ -950,16 +958,19 @@ MozQuic::ServerConnected()
     } else {
       // need to confirm version negotiation wasn't messed with
       decodeResult = (mVersion == peerNegotiatedVersion) ? MOZQUIC_OK : MOZQUIC_ERR_CRYPTO;
-      fprintf(stderr,"Verify Client Transport Parameters: version used %s\n",
-              decodeResult == MOZQUIC_OK ? "passed" : "failed");
+
+      Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,
+                  "Verify Client Transport Parameters: version used %s\n",
+                  decodeResult == MOZQUIC_OK ? "passed" : "failed");
       if (decodeResult != MOZQUIC_OK) {
         errorCode = ERROR_VERSION_NEGOTIATION;
       } else {
         if ((peerInitialVersion != peerNegotiatedVersion) && VersionOK(peerInitialVersion)) {
           decodeResult = MOZQUIC_ERR_CRYPTO;
         }
-        fprintf(stderr,"Verify Client Transport Parameters: negotiation used %s\n",
-                decodeResult == MOZQUIC_OK ? "passed" : "failed");
+        Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,
+                    "Verify Client Transport Parameters: negotiation used %s\n",
+                    decodeResult == MOZQUIC_OK ? "passed" : "failed");
         if (decodeResult != MOZQUIC_OK) {
           errorCode = ERROR_VERSION_NEGOTIATION;
         }
@@ -992,16 +1003,16 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
 
   if (mConnectionState == CLIENT_STATE_CLOSED ||
       mConnectionState == SERVER_STATE_CLOSED) {
-    fprintf(stderr,"processgeneral discarding %lX as closed\n", packetNum);
+    ConnectionLog4("processgeneral discarding %lX as closed\n", packetNum);
     return MOZQUIC_ERR_GENERAL;
   }
   uint32_t written;
   uint32_t rv = mNSSHelper->DecryptBlock(pkt, headerSize, pkt + headerSize,
                                          pktSize - headerSize, packetNum, out,
                                          kMozQuicMSS, written);
-  fprintf(stderr,"decrypt (pktnum=%lX) rv=%d sz=%d\n", packetNum, rv, written);
+  ConnectionLog6("decrypt (pktnum=%lX) rv=%d sz=%d\n", packetNum, rv, written);
   if (rv != MOZQUIC_OK) {
-    fprintf(stderr, "decrypt failed\n");
+    ConnectionLog1("decrypt failed\n");
     if (StatelessResetCheckForReceipt(pkt, pktSize)) {
       return MOZQUIC_OK;
     }
@@ -1028,12 +1039,12 @@ MozQuic::HandleCloseFrame(FrameHeaderData *result, bool fromCleartext,
     RaiseError(MOZQUIC_ERR_GENERAL, (char *) "close frames not allowed in cleartext\n");
     return MOZQUIC_ERR_GENERAL;
   }
-  fprintf(stderr,"RECVD CLOSE\n");
+  ConnectionLog5("RECVD CLOSE\n");
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_CLOSE_CONNECTION, this);
   } else {
-    fprintf(stderr,"No Event callback\n");
+    ConnectionLog9("No Event callback\n");
   }
   return MOZQUIC_OK;
 }
@@ -1047,9 +1058,9 @@ MozQuic::HandleResetFrame(FrameHeaderData *result, bool fromCleartext,
     RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed in cleartext\n");
     return MOZQUIC_ERR_GENERAL;
   }
-  fprintf(stderr,"recvd rst_stream id=%X err=%X, offset=%ld\n",
-          result->u.mRstStream.mStreamID, result->u.mRstStream.mErrorCode,
-          result->u.mRstStream.mFinalOffset);
+  ConnectionLog5("recvd rst_stream id=%X err=%X, offset=%ld\n",
+                 result->u.mRstStream.mStreamID, result->u.mRstStream.mErrorCode,
+                 result->u.mRstStream.mFinalOffset);
 
   if (!result->u.mRstStream.mStreamID) {
     Shutdown(PROTOCOL_VIOLATION, "rst_stream frames not allowed on stream 0\n");
@@ -1148,10 +1159,10 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
     case FRAME_TYPE_PING:
       // basically padding with an ack
       if (fromCleartext) {
-        fprintf(stderr, "ping frames not allowed in cleartext\n");
+        ConnectionLog1("ping frames not allowed in cleartext\n");
         return MOZQUIC_ERR_GENERAL;
       }
-      fprintf(stderr,"recvd ping\n");
+      ConnectionLog5("recvd ping\n");
       sendAck = true;
       break;
 
@@ -1182,7 +1193,7 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
     default:
       sendAck = true;
       if (fromCleartext) {
-        fprintf(stderr,"unexpected frame type %d cleartext=%d\n", result.mType, fromCleartext);
+        ConnectionLog1("unexpected frame type %d cleartext=%d\n", result.mType, fromCleartext);
         RaiseError(MOZQUIC_ERR_GENERAL, (char *) "unexpected frame type");
         return MOZQUIC_ERR_GENERAL;
       }
@@ -1248,7 +1259,8 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
   child->mVersion = mVersion;
   child->mTimestampConnBegin = Timestamp();
   child->mOriginalConnectionID = aConnectionID;
-
+  child->mAppHandlesSendRecv = mAppHandlesSendRecv;
+  child->mAppHandlesLogging = mAppHandlesLogging;
   mConnectionHash.insert( { child->mConnectionID, child });
   mConnectionHashOriginalNew.insert( { aConnectionID,
                                        { child->mConnectionID, Timestamp() }
@@ -1342,7 +1354,7 @@ MozQuic::ClearOldInitialConnectIdsTimer()
 
   for (auto i = mConnectionHashOriginalNew.begin(); i != mConnectionHashOriginalNew.end(); ) {
     if ((*i).second.mTimestamp < discardEpoch) {
-      fprintf(stderr,"Forget an old client initial connectionID: %lX\n",
+      ConnectionLog7("Forget an old client initial connectionID: %lX\n",
                     (*i).first);
       i = mConnectionHashOriginalNew.erase(i);
     } else {
