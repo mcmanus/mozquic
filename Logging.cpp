@@ -8,10 +8,6 @@
 
 // MOZQUIC_LOG=all:5 or MOZQUIC_LOG=ack:8,stream:10,conn
 
-// default log is stderr.. but
-// MOZQUIC_LOG_TARGET=/tmp/logfile works too (todo)
-// todo parse env
-
 #include <assert.h>
 #include <strings.h>
 #include "Logging.h"
@@ -23,20 +19,39 @@ const char *Log::mCategoryName[] = {
     "ack", "stream", "handshake"
 };
 
-Log gLogger;
+static Log gLogger;
+static uint64_t gStart;
 
 uint32_t
-Log::sDoLog(int cat, int level, const char *p, ...)
+Log::sDoLog(int cat, int level, MozQuic *m, const char *fmt, ...)
 {
   va_list a;
-  va_start(a, p);
-  uint32_t rv = gLogger.DoLog(cat, level, p, a);
+  va_start(a, fmt);
+  uint32_t rv = gLogger.DoLog(cat, level, m, 0, fmt, a);
   va_end(a);
   return rv;
 }
 
 uint32_t
-Log::DoLog(int cat, int level, const char *p, va_list foo)
+Log::sDoLog(int cat, int level, MozQuic *m, uint64_t cid,
+            const char *fmt, va_list paramList)
+{
+  return gLogger.DoLog(cat, level, m, cid, fmt, paramList);
+}
+
+uint32_t
+Log::sDoLogCID(int cat, int level, MozQuic *m, uint64_t cid,
+               const char *fmt, ...)
+{
+  va_list a;
+  va_start(a, fmt);
+  uint32_t rv = gLogger.DoLog(cat, level, m, cid, fmt, a);
+  va_end(a);
+  return rv;
+}
+
+uint32_t
+Log::DoLog(int cat, int level, MozQuic *m, uint64_t cid, const char *fmt, va_list paramList)
 {
   assert (cat >= 0);
   assert (cat <kCategoryCount);
@@ -44,13 +59,37 @@ Log::DoLog(int cat, int level, const char *p, va_list foo)
     return MOZQUIC_OK;
   }
 
-  vfprintf(stderr, p, foo);
+  uint64_t useCid = 0;
+  if (cid) {
+    useCid = cid;
+  } else if (m) {
+    useCid = m->mConnectionID;
+  }
+  
+  if (!m || !m->mAppHandlesLogging) {
+    fprintf(stderr,"%06ld:%016lx ", MozQuic::Timestamp() - gStart, useCid);
+    vfprintf(stderr, fmt, paramList);
+  }
+  else if (m && m->mConnEventCB && m->mClosure) {
+    char buffer[2048];
+    int used = snprintf(buffer, 2048, "%06ld: ", MozQuic::Timestamp() - gStart);
+    if (used >= 2047) {
+      return MOZQUIC_OK;
+    }
+    used += vsnprintf(buffer + used, 2048 - used, fmt, paramList);
+    if (used >= 2047) {
+      return MOZQUIC_OK;
+    }
+    m->mConnEventCB(m->mClosure, MOZQUIC_EVENT_LOG, buffer);
+  }
+    
   return MOZQUIC_OK;
 }
 
 Log::Log()
 {
   memset(mCategory, 0, sizeof (uint32_t) * kCategoryCount);
+  gStart = MozQuic::Timestamp();
 }
 
 int
@@ -96,7 +135,6 @@ Log::sParseSubscriptions(const char *envStr)
 void
 Log::ParseSubscriptions(const char *envStr)
 {
-  int level = 5;
   const char *s = envStr;
   char oldEof;
   do {
@@ -119,9 +157,11 @@ Log::ParseSubscriptions(const char *envStr)
     char *colon = strchr (s, ':');
     if (colon) {
       *colon = 0;
-      level = atoi(colon+1);
+      int level = atoi(colon+1);
       Subscribe(s, level);
       *colon = ':';
+    } else {
+      Subscribe(s, 5);
     }
     s = eof + 1;
   } while (oldEof);

@@ -27,7 +27,6 @@ int qdrive_server_crash = 0;
 int main(int argc, char **argv)
 {
   char *argVal, *t;
-  uint32_t i = 0;
   struct mozquic_config_t config;
   mozquic_connection_t *c;
 
@@ -82,10 +81,6 @@ int main(int argc, char **argv)
 
     do {
       usleep (1000); // this is for handleio todo
-      if (!(i++ & 0xf)) {
-        fprintf(stderr,".");
-        fflush(stderr);
-      }
       mozquic_IO(c);
     } while (!qdrive_server_crash);
     qdrive_server_crash = 0;

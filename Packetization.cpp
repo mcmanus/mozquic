@@ -3,14 +3,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "Packetization.h"
 #include "Streams.h"
 
-#include "assert.h"
-#include "stdlib.h"
-#include "unistd.h"
+#include <assert.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 namespace mozquic  {
 
@@ -214,13 +215,12 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt,
           return;
         }
         // Log error!
-        char reason[kMozQuicMSS];
-        if (len + 64 < kMozQuicMSS) {
-          snprintf(reason, 64, "Close code %X reason: ", u.mClose.mErrorCode);
-          ssize_t slen = strlen(reason);
-          memcpy(reason + slen, framePtr, len);
-          reason[len + slen] = '\0';
-          session->Log((char *)reason);
+        char reason[2048];
+        if (len < 2048) {
+          memcpy(reason, framePtr, len);
+          reason[len] = '\0';
+          Log::sDoLog(Log::CONNECTION, 4, session,
+                      "Close code %X reason: %s\n", u.mClose.mErrorCode, reason);
         }
       }
       mValid = MOZQUIC_OK;

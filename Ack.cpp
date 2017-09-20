@@ -3,14 +3,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "Streams.h"
-
-#include "assert.h"
-#include "stdlib.h"
-#include "unistd.h"
 #include "ufloat16.h"
+
+#include <assert.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 namespace mozquic  {
 
@@ -77,7 +78,7 @@ MozQuic::MaybeSendAck()
     if (iter->Transmitted()) {
       continue;
     }
-    fprintf(stderr,"Trigger Ack based on %lX (extra %d) kp=%d\n",
+    AckLog6("Trigger Ack based on %lX (extra %d) kp=%d\n",
             iter->mPacketNumber, iter->mExtra, iter->mPhase);
     mStreamState->Flush(true);
     break;
@@ -108,7 +109,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
     // list  ordered as 7/2, 2/1.. (with gap @4 @3)
     // i.e. highest num first
     if ((kp <= keyPhaseUnprotected) && iter->mPhase >= keyPhase0Rtt) {
-      fprintf(stderr,"skip ack generation of %lX wrong kp need %d\n", iter->mPacketNumber, kp);
+      AckLog6("skip ack generation of %lX wrong kp need %d\n", iter->mPacketNumber, kp);
       ++iter;
       continue;
     }
@@ -119,7 +120,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       uint8_t pnSizeType = varSize(largestAcked);
       need += 1 << pnSizeType;
       if (avail < need) {
-        fprintf(stderr,"Cannot create new ack frame due to lack of space in packet %d of %d\n",
+        AckLog6("Cannot create new ack frame due to lack of space in packet %d of %d\n",
                 avail, need);
         return MOZQUIC_OK; // ok to return as we haven't written any of the frame
       }
@@ -171,7 +172,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
     } else {
       assert(lowAcked > iter->mPacketNumber);
       if (avail < 3) {
-        fprintf(stderr,"Cannot create new ack frame due to lack of space in packet %d of %d\n",
+        AckLog6("Cannot create new ack frame due to lack of space in packet %d of %d\n",
                 avail, 3);
         break; // do not return as we have a partially written frame
       }
@@ -182,7 +183,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
           break;
         }
         *numBlocks = *numBlocks + 1;
-        fprintf(stderr,"gap %d is an empty 255 gap\n", *numBlocks);
+        AckLog9("gap %d is an empty 255 gap\n", *numBlocks);
         pkt[0] = 255; // empty block
         pkt[1] = 0;
         pkt[2] = 0;
@@ -206,7 +207,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       avail -= 3;
     }
 
-    fprintf(stderr,"created ack of %lX (%d extra) into pn=%lX @ block %d [%d prev transmits]\n",
+    AckLog6("created ack of %lX (%d extra) into pn=%lX @ block %d [%d prev transmits]\n",
             iter->mPacketNumber, iter->mExtra, pktNumOfAck, *numBlocks, iter->mTransmits.size());
 
     iter->mTransmits.push_back(std::pair<uint64_t, uint64_t>(pktNumOfAck, Timestamp()));
@@ -228,7 +229,7 @@ MozQuic::Acknowledge(uint64_t packetNum, keyPhase kp)
     mNextRecvPacketNumber = packetNum + 1;
   }
 
-  fprintf(stderr,"%p REQUEST TO GEN ACK FOR %lX kp=%d\n", this, packetNum, kp);
+  AckLog6("%p REQUEST TO GEN ACK FOR %lX kp=%d\n", this, packetNum, kp);
 
   AckScoreboard(packetNum, kp);
 }
@@ -259,7 +260,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       }
       firstPass = false;
 
-      fprintf(stderr,"ACK RECVD (%s) FOR %lX -> %lX\n",
+      AckLog6("ACK RECVD (%s) FOR %lX -> %lX\n",
               fromCleartext ? "cleartext" : "protected",
               largestAcked - extra, largestAcked);
       // form a stack here so we can process them starting at the
@@ -297,11 +298,11 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       for (; (dataIter != mStreamState->mUnAckedData.end()) && ((*dataIter)->mPacketNumber < haveAckFor); dataIter++);
 
       if ((dataIter == mStreamState->mUnAckedData.end()) || ((*dataIter)->mPacketNumber > haveAckFor)) {
-        fprintf(stderr,"ACK'd data not found for %lX ack\n", haveAckFor);
+        AckLog8("ACK'd data not found for %lX ack\n", haveAckFor);
       } else {
         do {
           assert ((*dataIter)->mPacketNumber == haveAckFor);
-          fprintf(stderr,"ACK'd data found for %lX (frame type %d)\n",
+          AckLog5("ACK'd data found for %lX (frame type %d)\n",
                   haveAckFor, (*dataIter)->mType);
           dataIter = mStreamState->mUnAckedData.erase(dataIter);
         } while ((dataIter != mStreamState->mUnAckedData.end()) &&
@@ -324,7 +325,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
         for (auto vectorIter = acklistIter->mTransmits.begin();
              vectorIter != acklistIter->mTransmits.end(); vectorIter++ ) {
           if ((*vectorIter).first == haveAckFor) {
-            fprintf(stderr,"haveAckFor %lX found unacked ack of %lX (+%d) transmitted %d times\n",
+            AckLog5("haveAckFor %lX found unacked ack of %lX (+%d) transmitted %d times\n",
                     haveAckFor, acklistIter->mPacketNumber, acklistIter->mExtra,
                     acklistIter->mTransmits.size());
             foundAckFor = true;
@@ -340,7 +341,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
         }
       } // macklist iteration
       if (!foundHaveAckFor) {
-        fprintf(stderr,"haveAckFor %lX CANNOT find corresponding unacked ack\n", haveAckFor);
+        AckLog9("haveAckFor %lX CANNOT find corresponding unacked ack\n", haveAckFor);
       }
     } // haveackfor iteration
   } //ranges iteration
@@ -362,7 +363,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       timestamp = timestamp + (ufloat16_decode(tmp16) / 1000);
       framePtr += 3;
     }
-    fprintf(stderr, "Timestamp for packet %lX is %lu\n", pktID, timestamp);
+    AckLog9("Timestamp for packet %lX is %lu\n", pktID, timestamp);
   }
 }
 

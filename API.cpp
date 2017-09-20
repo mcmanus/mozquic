@@ -62,6 +62,9 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   if (inConfig->appHandlesSendRecv) {
     q->SetAppHandlesSendRecv();
   }
+  if (inConfig->appHandlesLogging) {
+    q->SetAppHandlesLogging();
+  }
   if (inConfig->ignorePKI) {
     q->SetIgnorePKI();
   }
@@ -250,7 +253,7 @@ void
 MozQuic::GreaseVersionNegotiation()
 {
   assert(mConnectionState == STATE_UNINITIALIZED);
-  fprintf(stderr,"applying version grease\n");
+  ConnectionLog5("applying version grease\n");
   mVersion = kMozQuicVersionGreaseC;
 }
 

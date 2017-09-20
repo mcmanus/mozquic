@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "Streams.h"
@@ -13,6 +14,17 @@
 
 namespace mozquic  {
 
+#define StreamLog1(...) Log::sDoLog(Log::STREAM, 1, mMozQuic, __VA_ARGS__);
+#define StreamLog2(...) Log::sDoLog(Log::STREAM, 2, mMozQuic, __VA_ARGS__);
+#define StreamLog3(...) Log::sDoLog(Log::STREAM, 3, mMozQuic, __VA_ARGS__);
+#define StreamLog4(...) Log::sDoLog(Log::STREAM, 4, mMozQuic, __VA_ARGS__);
+#define StreamLog5(...) Log::sDoLog(Log::STREAM, 5, mMozQuic, __VA_ARGS__);
+#define StreamLog6(...) Log::sDoLog(Log::STREAM, 6, mMozQuic, __VA_ARGS__);
+#define StreamLog7(...) Log::sDoLog(Log::STREAM, 7, mMozQuic, __VA_ARGS__);
+#define StreamLog8(...) Log::sDoLog(Log::STREAM, 8, mMozQuic, __VA_ARGS__);
+#define StreamLog9(...) Log::sDoLog(Log::STREAM, 9, mMozQuic, __VA_ARGS__);
+#define StreamLog10(...) Log::sDoLog(Log::STREAM, 10, mMozQuic, __VA_ARGS__);
+
 uint32_t
 StreamState::StartNewStream(StreamPair **outStream, const void *data,
                             uint32_t amount, bool fin)
@@ -20,8 +32,8 @@ StreamState::StartNewStream(StreamPair **outStream, const void *data,
   if (mNextStreamID > mPeerMaxStreamID) {
     if (!mMaxStreamIDBlocked) {
       mMaxStreamIDBlocked = true;
-      fprintf(stderr,"new stream BLOCKED on stream id flow control %d\n",
-              mPeerMaxStreamID);
+      StreamLog1("new stream BLOCKED on stream id flow control %d\n",
+                 mPeerMaxStreamID);
       std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
       tmp->MakeStreamIDBlocked();
       ConnectionWrite(tmp);
@@ -47,7 +59,7 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
   // Open a new stream and implicitly open all streams with ID smaller than
   // streamID that are not already opened.
   while (streamID >= mNextRecvStreamID) {
-    fprintf(stderr, "Add new stream %d\n", mNextRecvStreamID);
+    StreamLog5("Add new stream %d\n", mNextRecvStreamID);
     std::shared_ptr<StreamPair> tmp(new StreamPair(mNextRecvStreamID,
                                                    mMozQuic, this,
                                                    mPeerMaxStreamData, mLocalMaxStreamData));
@@ -57,7 +69,7 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
 
   auto i = mStreams.find(streamID);
   if (i == mStreams.end()) {
-    fprintf(stderr, "Stream %d already closed.\n", streamID);
+    StreamLog4("Stream %d already closed.\n", streamID);
     // this stream is already closed and deleted. Discharge frame.
     d.reset();
     return MOZQUIC_ERR_ALREADY_FINISHED;
@@ -83,7 +95,7 @@ StreamState::MaybeDeleteStream(uint32_t streamID)
     return false;
   }
   if ((*i).second->Done()) {
-    fprintf(stderr, "Delete stream %lu\n", streamID);
+    StreamLog5("Delete stream %lu\n", streamID);
     mStreams.erase(i);
     return true;
   }
@@ -95,11 +107,11 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                                const unsigned char *pkt, const unsigned char *endpkt,
                                uint32_t &_ptr)
 {
-  fprintf(stderr,"recv stream %d len=%d offset=%d fin=%d\n",
-          result->u.mStream.mStreamID,
-          result->u.mStream.mDataLen,
-          result->u.mStream.mOffset,
-          result->u.mStream.mFinBit);
+  StreamLog5("recv stream %d len=%d offset=%d fin=%d\n",
+             result->u.mStream.mStreamID,
+             result->u.mStream.mDataLen,
+             result->u.mStream.mOffset,
+             result->u.mStream.mFinBit);
 
   if (!result->u.mStream.mStreamID && result->u.mStream.mFinBit) {
     mMozQuic->Shutdown(MozQuic::PROTOCOL_VIOLATION, "fin not allowed on stream 0\n");
@@ -114,10 +126,10 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
   assert(pkt + _ptr + result->u.mStream.mDataLen <= endpkt);
   std::unique_ptr<ReliableData>
     tmp(new ReliableData(result->u.mStream.mStreamID,
-                               result->u.mStream.mOffset,
-                               pkt + _ptr,
-                               result->u.mStream.mDataLen,
-                               result->u.mStream.mFinBit));
+                         result->u.mStream.mOffset,
+                         pkt + _ptr,
+                         result->u.mStream.mDataLen,
+                         result->u.mStream.mFinBit));
   if (!result->u.mStream.mStreamID) {
     mStream0->Supply(tmp);
   } else {
@@ -147,15 +159,15 @@ StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartex
   uint32_t streamID = result->u.mMaxStreamData.mStreamID;
   auto i = mStreams.find(streamID);
   if (i == mStreams.end()) {
-    fprintf(stderr, "cannot find streamid %d for max stream data frame. pehaps closed.\n",
-            streamID);
+    StreamLog5("cannot find streamid %d for max stream data frame. pehaps closed.\n",
+               streamID);
     return MOZQUIC_OK;
   }
 
-  fprintf(stderr,"recvd max stream data id=%X offset=%ld current limit=%ld\n",
-          streamID,
-          result->u.mMaxStreamData.mMaximumStreamData,
-          i->second->mOut.mFlowControlLimit);
+  StreamLog6("recvd max stream data id=%X offset=%ld current limit=%ld\n",
+             streamID,
+             result->u.mMaxStreamData.mMaximumStreamData,
+             i->second->mOut.mFlowControlLimit);
   if (i->second->mOut.mFlowControlLimit < result->u.mMaxStreamData.mMaximumStreamData) {
     i->second->mOut.mFlowControlLimit = result->u.mMaxStreamData.mMaximumStreamData;
   }
@@ -173,8 +185,8 @@ StreamState::HandleMaxDataFrame(FrameHeaderData *result, bool fromCleartext,
   }
 
   uint64_t curLimitKB = mPeerMaxData >> 10;
-  fprintf(stderr,"recvd max data current %ldKB new %ldKB\n",
-          curLimitKB, result->u.mMaxData.mMaximumData);
+  StreamLog6("recvd max data current %ldKB new %ldKB\n",
+             curLimitKB, result->u.mMaxData.mMaximumData);
   if (result->u.mMaxData.mMaximumData > curLimitKB) {
     mPeerMaxData = ((__uint128_t) result->u.mMaxData.mMaximumData) << 10;
   }
@@ -191,8 +203,8 @@ StreamState::HandleMaxStreamIDFrame(FrameHeaderData *result, bool fromCleartext,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  fprintf(stderr,"recvd max stream id current %d new %d\n",
-          mPeerMaxStreamID, result->u.mMaxStreamID.mMaximumStreamID);
+  StreamLog6("recvd max stream id current %d new %d\n",
+             mPeerMaxStreamID, result->u.mMaxStreamID.mMaximumStreamID);
   if (result->u.mMaxStreamID.mMaximumStreamID > mPeerMaxStreamID) {
     mPeerMaxStreamID = result->u.mMaxStreamID.mMaximumStreamID;
     mMaxStreamIDBlocked = false;
@@ -211,7 +223,7 @@ StreamState::HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartex
   }
 
   uint32_t streamID = result->u.mStreamBlocked.mStreamID;
-  fprintf(stderr,"recvd stream blocked id=%X\n", streamID);
+  StreamLog1("recvd stream blocked id=%X\n", streamID);
   return MOZQUIC_OK;
 }
 
@@ -225,7 +237,7 @@ StreamState::HandleBlockedFrame(FrameHeaderData *result, bool fromCleartext,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  fprintf(stderr,"recvd connection blocked\n");
+  StreamLog1("recvd connection blocked\n");
   return MOZQUIC_OK;
 }
 
@@ -239,7 +251,7 @@ StreamState::HandleStreamIDBlockedFrame(FrameHeaderData *result, bool fromCleart
     return MOZQUIC_ERR_GENERAL;
   }
 
-  fprintf(stderr,"recvd streamidneeded\n");
+  StreamLog1("recvd streamidneeded\n");
   return MOZQUIC_OK;
 }
 
@@ -251,8 +263,8 @@ StreamState::ScrubUnWritten(uint32_t streamID)
     auto chunk = (*iter).get();
     if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kStreamRst) {
       iter = mConnUnWritten.erase(iter);
-      fprintf(stderr,"scrubbing chunk %p of unwritten id %d\n",
-              chunk, streamID);
+      StreamLog6("scrubbing chunk %p of unwritten id %d\n",
+                 chunk, streamID);
     } else {
       iter++;
     }
@@ -263,8 +275,8 @@ StreamState::ScrubUnWritten(uint32_t streamID)
     auto chunk = (*iter2).get();
     if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kStreamRst) {
       iter2 = mUnAckedData.erase(iter2);
-      fprintf(stderr,"scrubbing chunk %p of unacked id %d\n",
-              chunk, streamID);
+      StreamLog6("scrubbing chunk %p of unacked id %d\n",
+                 chunk, streamID);
     } else {
       iter2++;
     }
@@ -297,11 +309,11 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
       newConnectionCharge = CalculateConnectionCharge((*iBuffer).get(), out);
 
       if (newConnectionCharge) {
-        
+      
         if (mMaxDataSent >= mPeerMaxData) {
           if (!mMaxDataBlocked) {
             mMaxDataBlocked = true;
-            fprintf(stderr,"BLOCKED by connection window 1\n");
+            StreamLog1("BLOCKED by connection window 1\n");
             std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
             tmp->MakeBlocked();
             ConnectionWrite(tmp);
@@ -309,7 +321,7 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
           iBuffer++;
           continue;
         }
-        
+      
         if (mMaxDataSent + newConnectionCharge > mPeerMaxData) {
           // split buffer
           uint64_t minCharge = 1; // for hypothetical 1 byte frame
@@ -319,7 +331,7 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
           if (mMaxDataSent + minCharge > mPeerMaxData) {
             if (!mMaxDataBlocked) {
               mMaxDataBlocked = true;
-              fprintf(stderr,"BLOCKED by connection window 2\n");
+              StreamLog1("BLOCKED by connection window 2\n");
               std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
               tmp->MakeBlocked();
               ConnectionWrite(tmp);
@@ -339,10 +351,10 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
                                  (*iBuffer)->mFin));
           (*iBuffer)->mLen = room;
           (*iBuffer)->mFin = false;
-          fprintf(stderr,"FlowControlPromotionForStreamPair ConnWindow splitting chunk into "
-                  "%ld.%d and %ld.%d\n",
-                  (*iBuffer)->mOffset, (*iBuffer)->mLen,
-                  tmp->mOffset, tmp->mLen);
+          StreamLog7("FlowControlPromotionForStreamPair ConnWindow splitting chunk into "
+                     "%ld.%d and %ld.%d\n",
+                     (*iBuffer)->mOffset, (*iBuffer)->mLen,
+                     tmp->mOffset, tmp->mLen);
           auto iterReg = iBuffer++;
           out->mStreamUnWritten.insert(iBuffer, std::move(tmp));
           iBuffer = iterReg;
@@ -350,10 +362,10 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
           newConnectionCharge = CalculateConnectionCharge((*iBuffer).get(), out);
         }
       }
-              
+            
       if ((*iBuffer)->mOffset >= out->mFlowControlLimit) {
         if (!out->mBlocked) {
-          fprintf(stderr,"Stream %d BLOCKED flow control\n", (*iBuffer)->mStreamID);
+          StreamLog1("Stream %d BLOCKED flow control\n", (*iBuffer)->mStreamID);
           out->mBlocked = true;
           std::unique_ptr<ReliableData> tmp(new ReliableData((*iBuffer)->mStreamID, 0, nullptr, 0, 0));
           tmp->MakeStreamBlocked();
@@ -369,23 +381,23 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
 
         std::unique_ptr<ReliableData>
           tmp(new ReliableData((*iBuffer)->mStreamID,
-                                     (*iBuffer)->mOffset + room,
-                                     (*iBuffer)->mData.get() + room,
-                                     (*iBuffer)->mLen - room,
-                                     (*iBuffer)->mFin));
+                               (*iBuffer)->mOffset + room,
+                               (*iBuffer)->mData.get() + room,
+                               (*iBuffer)->mLen - room,
+                               (*iBuffer)->mFin));
         (*iBuffer)->mLen = room;
         (*iBuffer)->mFin = false;
-        fprintf(stderr,"FlowControlPromotionForStreamPair StreamWindow splitting chunk into "
-                "%ld.%d and %ld.%d\n",
-                (*iBuffer)->mOffset, (*iBuffer)->mLen,
-                tmp->mOffset, tmp->mLen);
+        StreamLog7("FlowControlPromotionForStreamPair StreamWindow splitting chunk into "
+                   "%ld.%d and %ld.%d\n",
+                   (*iBuffer)->mOffset, (*iBuffer)->mLen,
+                   tmp->mOffset, tmp->mLen);
         auto iterReg = iBuffer++;
         out->mStreamUnWritten.insert(iBuffer, std::move(tmp));
         iBuffer = iterReg;
         newConnectionCharge = CalculateConnectionCharge((*iBuffer).get(), out);
       }
     }
-    
+  
     assert((*iBuffer)->mOffset + (*iBuffer)->mLen <= out->mFlowControlLimit);
     out->mOffsetChargedToConnFlowControl += newConnectionCharge;
     mMaxDataSent += newConnectionCharge;
@@ -399,9 +411,9 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
     }
     uint64_t pmd = mPeerMaxData; // will trunc, but just for logging
     uint64_t mds = mMaxDataSent; // will trunc, but just for logging
-    fprintf(stderr,"promoting chunk stream %d %ld.%d [stream limit=%ld] [conn limit %llu of %lld]\n",
-            (*iBuffer)->mStreamID, (*iBuffer)->mOffset, (*iBuffer)->mLen,
-            out->mFlowControlLimit, mds, pmd);
+    StreamLog6("promoting chunk stream %d %ld.%d [stream limit=%ld] [conn limit %llu of %lld]\n",
+               (*iBuffer)->mStreamID, (*iBuffer)->mOffset, (*iBuffer)->mLen,
+               out->mFlowControlLimit, mds, pmd);
     assert((*iBuffer)->mOffset + (*iBuffer)->mLen <= out->mFlowControlLimit);
     std::unique_ptr<ReliableData> x(std::move(*iBuffer));
     mConnUnWritten.push_back(std::move(x));
@@ -554,10 +566,10 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
         // as there is a copy involved
         std::unique_ptr<ReliableData>
           tmp(new ReliableData((*iter)->mStreamID,
-                                     (*iter)->mOffset + room,
-                                     (*iter)->mData.get() + room,
-                                     (*iter)->mLen - room,
-                                     (*iter)->mFin));
+                               (*iter)->mOffset + room,
+                               (*iter)->mData.get() + room,
+                               (*iter)->mLen - room,
+                               (*iter)->mFin));
         (*iter)->mLen = room;
         (*iter)->mFin = false;
         auto iterReg = iter++;
@@ -577,12 +589,12 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       }
 
       memcpy(framePtr, (*iter)->mData.get(), (*iter)->mLen);
-      fprintf(stderr,"writing a stream %d frame %d @ offset %d [fin=%d] in packet %lX\n",
-              (*iter)->mStreamID, (*iter)->mLen, (*iter)->mOffset, (*iter)->mFin,
-              mMozQuic->mNextTransmitPacketNumber);
+      StreamLog5("writing a stream %d frame %d @ offset %d [fin=%d] in packet %lX\n",
+                 (*iter)->mStreamID, (*iter)->mLen, (*iter)->mOffset, (*iter)->mFin,
+                 mMozQuic->mNextTransmitPacketNumber);
       framePtr += (*iter)->mLen;
     }
-    
+  
     (*iter)->mPacketNumber = mMozQuic->mNextTransmitPacketNumber;
     (*iter)->mTransmitTime = MozQuic::Timestamp();
     if ((mMozQuic->GetConnectionState() == CLIENT_STATE_CONNECTED) ||
@@ -624,7 +636,7 @@ StreamState::Flush(bool forceAck)
   unsigned char *framePtr = plainPkt + headerLen;
   const unsigned char *endpkt = plainPkt + mtu - kTagLen; // reserve 16 for aead tag
   CreateStreamFrames(framePtr, endpkt, false);
-  
+
   uint32_t rv = mMozQuic->ProtectedTransmit(plainPkt, headerLen,
                                             plainPkt + headerLen, framePtr - (plainPkt + headerLen),
                                             mtu - headerLen - kTagLen, true);
@@ -644,7 +656,7 @@ StreamState::ConnectionWrite(std::unique_ptr<ReliableData> &p)
   // this data gets queued to unwritten and framed and
   // transmitted after prioritization by flush()
   assert (mMozQuic->GetConnectionState() != STATE_UNINITIALIZED);
-  
+
   mConnUnWritten.push_back(std::move(p));
 
   return MOZQUIC_OK;
@@ -670,7 +682,7 @@ StreamState::IssueStreamCredit(uint32_t streamID, uint64_t newMax)
     return MOZQUIC_ERR_GENERAL;
   }
 
-  fprintf(stderr,"Issue a stream credit id=%d maxoffset=%ld\n", streamID, newMax);
+  StreamLog6("Issue a stream credit id=%d maxoffset=%ld\n", streamID, newMax);
 
   std::unique_ptr<ReliableData> tmp(new ReliableData(streamID, 0, nullptr, 0, 0));
   tmp->MakeMaxStreamData(newMax);
@@ -686,7 +698,7 @@ StreamState::ConnectionReadBytes(uint64_t amt)
   }
 
   if (mLocalMaxDataUsed + amt > mLocalMaxData) {
-    fprintf(stderr, "Peer violated connection flow control\n");
+    StreamLog1("Peer violated connection flow control\n");
     mMozQuic->Shutdown(MozQuic::FLOW_CONTROL_ERROR,
                        "peer violated connection flow control\n");
     return MOZQUIC_ERR_IO;
@@ -704,7 +716,7 @@ StreamState::ConnectionReadBytes(uint64_t amt)
   mLocalMaxData += 8 * 1024 * 1024;
   mLocalMaxData -= mLocalMaxData & 0x3ff;
   uint64_t lmd = mLocalMaxData;
-  fprintf(stderr, "Issue a connection credit newmax %ld\n", lmd);
+  StreamLog6("Issue a connection credit newmax %ld\n", lmd);
 
   std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
   assert(!(mLocalMaxData & 0x3ff));
@@ -732,14 +744,14 @@ StreamState::RetransmitTimer()
     }
     if (((*i)->mTransmitTime <= discardEpoch) && (*i)->mRetransmitted) {
       // this is only on packets that we are keeping around for timestamp purposes
-      fprintf(stderr,"old unacked packet forgotten %lX\n",
-              (*i)->mPacketNumber);
+      StreamLog7("old unacked packet forgotten %lX\n",
+                 (*i)->mPacketNumber);
       assert(!(*i)->mData);
       i = mUnAckedData.erase(i);
     } else if (!(*i)->mRetransmitted) {
       assert((*i)->mData);
-      fprintf(stderr,"data associated with packet %lX retransmitted\n",
-              (*i)->mPacketNumber);
+      StreamLog4("data associated with packet %lX retransmitted\n",
+                 (*i)->mPacketNumber);
       (*i)->mRetransmitted = true;
 
       // move the data pointer from iter to tmp
@@ -762,9 +774,9 @@ uint32_t
 StreamState::CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                   ReliableData *chunk)
 {
-  fprintf(stderr,"generating stream reset %d id=%ld pkt=%ld\n",
-          chunk->mOffset, chunk->mStreamID,
-          mMozQuic->mNextTransmitPacketNumber);
+  StreamLog3("generating stream reset %d id=%ld pkt=%ld\n",
+             chunk->mOffset, chunk->mStreamID,
+             mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kStreamRst);
   assert(chunk->mStreamID);
   assert(!chunk->mLen);
@@ -787,9 +799,9 @@ uint32_t
 StreamState::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                       ReliableData *chunk)
 {
-  fprintf(stderr,"generating max stream data id=%d val=%ld into pkt=%lx\n",
-          chunk->mStreamID, chunk->mStreamCreditValue,
-          mMozQuic->mNextTransmitPacketNumber);
+  StreamLog6("generating max stream data id=%d val=%ld into pkt=%lx\n",
+             chunk->mStreamID, chunk->mStreamCreditValue,
+             mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxStreamData);
   assert(chunk->mStreamCreditValue);
   assert(!chunk->mLen);
@@ -820,9 +832,9 @@ uint32_t
 StreamState::CreateMaxStreamIDFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                     ReliableData *chunk)
 {
-  fprintf(stderr,"generating max stream id=%d into pkt=%lx\n",
-          chunk->mMaxStreamID,
-          mMozQuic->mNextTransmitPacketNumber);
+  StreamLog6("generating max stream id=%d into pkt=%lx\n",
+             chunk->mMaxStreamID,
+             mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxStreamID);
   assert(chunk->mMaxStreamID);
   assert(!chunk->mLen);
@@ -842,9 +854,9 @@ uint32_t
 StreamState::CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk)
 {
-  fprintf(stderr,"generating max data val=%ld (KB) into pkt=%lx\n",
-          chunk->mConnectionCreditKB,
-          mMozQuic->mNextTransmitPacketNumber);
+  StreamLog6("generating max data val=%ld (KB) into pkt=%lx\n",
+             chunk->mConnectionCreditKB,
+             mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxData);
   assert(chunk->mConnectionCreditKB);
   assert(!chunk->mLen);
@@ -865,9 +877,9 @@ uint32_t
 StreamState::CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                       ReliableData *chunk)
 {
-  fprintf(stderr,"generating stream blocked id=%d into pkt=%lx\n",
-          chunk->mStreamID,
-          mMozQuic->mNextTransmitPacketNumber);
+  StreamLog1("generating stream blocked id=%d into pkt=%lx\n",
+             chunk->mStreamID,
+             mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kStreamBlocked);
   assert(!chunk->mLen);
 
@@ -886,8 +898,8 @@ uint32_t
 StreamState::CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk)
 {
-  fprintf(stderr,"generating blocked into pkt=%lx\n",
-          mMozQuic->mNextTransmitPacketNumber);
+  StreamLog1("generating blocked into pkt=%lx\n",
+             mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kBlocked);
   assert(!chunk->mLen);
 
@@ -904,8 +916,8 @@ uint32_t
 StreamState::CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                         ReliableData *chunk)
 {
-  fprintf(stderr,"generating streamID needed into pkt=%lx\n",
-          mMozQuic->mNextTransmitPacketNumber);
+  StreamLog1("generating streamID needed into pkt=%lx\n",
+             mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kStreamIDBlocked);
   assert(!chunk->mLen);
 
@@ -1061,8 +1073,8 @@ StreamIn::MaybeIssueFlowControlCredit()
 {
   uint64_t available = mLocalMaxStreamData - mNextStreamDataExpected;
   uint32_t increment = mFlowController->GetIncrement();
-  fprintf(stderr,"peer has %ld stream flow control credits available on stream %d\n",
-          available, mStreamID);
+  StreamLog7("peer has %ld stream flow control credits available on stream %d\n",
+             available, mStreamID);
   if (mFinRecvd || mRstRecvd) {
     return; // does not need more
   }
@@ -1111,7 +1123,7 @@ StreamIn::Supply(std::unique_ptr<ReliableData> &d)
     d.reset();
     return MOZQUIC_OK;
   }
-  
+
   if (endData > mNextStreamDataExpected) {
     if (mStreamID) {
       mFlowController->ConnectionReadBytes(endData - mNextStreamDataExpected);
@@ -1122,7 +1134,7 @@ StreamIn::Supply(std::unique_ptr<ReliableData> &d)
     // todo - autotuning
     if (mNextStreamDataExpected > mLocalMaxStreamData) {
       mMozQuic->Shutdown(MozQuic::FLOW_CONTROL_ERROR, "stream flow control error");
-      fprintf(stderr,"stream flow control recvd too much data\n");
+      StreamLog1("stream flow control recvd too much data\n");
       return MOZQUIC_ERR_IO;
     }
     MaybeIssueFlowControlCredit();
@@ -1179,9 +1191,9 @@ StreamIn::Supply(std::unique_ptr<ReliableData> &d)
       uint64_t skip = (*i)->mOffset + (*i)->mLen - d->mOffset;
       std::unique_ptr<ReliableData>
         newChunk(new ReliableData(d->mStreamID,
-                                        (*i)->mOffset + (*i)->mLen,
-                                        d->mData.get() + skip,
-                                        d->mLen - skip, false));
+                                  (*i)->mOffset + (*i)->mLen,
+                                  d->mData.get() + skip,
+                                  d->mLen - skip, false));
       d->mLen = skip;
 
       // todo log
@@ -1262,7 +1274,7 @@ StreamOut::Write(const unsigned char *data, uint32_t len, bool fin)
   if (mPeerRst) {
     return MOZQUIC_ERR_IO;
   }
-  
+
   if (mFin) {
     return MOZQUIC_ERR_ALREADY_FINISHED;
   }
