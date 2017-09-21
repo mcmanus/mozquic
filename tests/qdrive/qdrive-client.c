@@ -65,9 +65,9 @@ int main(int argc, char **argv)
 
   // ingorePKI will allow invalid certs
   // normally they must either be linked to the root store OR on localhost
-  config.ignorePKI = has_arg(argc, argv, "-ignorePKI", &argVal);
-
-  config.tolerateBadALPN = 1;
+  test_assert(mozquic_unstable_api1(&config, "ignorePKI",
+                                    has_arg(argc, argv, "-ignorePKI", &argVal), 0) == MOZQUIC_OK);
+  test_assert(mozquic_unstable_api1(&config, "tolerateBadALPN", 1, 0) == MOZQUIC_OK);
   
   int numTests = 0;
   while (testList[numTests].name) {

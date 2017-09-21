@@ -16,7 +16,7 @@ struct closure
 void testConfig3(struct mozquic_config_t *_c)
 {
   testState.test_state = 0;
-  _c->sabotageVN = 1;
+  test_assert(mozquic_unstable_api1(_c, "sabotageVN", 1, 0) == MOZQUIC_OK);
 }
 
 void *testGetClosure3()

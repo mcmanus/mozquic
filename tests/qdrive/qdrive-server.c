@@ -64,7 +64,7 @@ int main(int argc, char **argv)
 
   config.originName = SERVER_NAME;
 
-  config.tolerateBadALPN = 1;
+  test_assert(mozquic_unstable_api1(&config, "tolerateBadALPN", 1, 0) == MOZQUIC_OK);
   config.handleIO = 0; // todo mvp
 
   int numTests = 0;

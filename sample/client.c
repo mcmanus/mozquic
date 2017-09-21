@@ -191,11 +191,11 @@ int main(int argc, char **argv)
 
   // ingorePKI will allow invalid certs
   // normally they must either be linked to the root store OR on localhost
-  config.ignorePKI = has_arg(argc, argv, "-ignorePKI", &argVal);
-
-  config.greaseVersionNegotiation = 0;
-  config.tolerateBadALPN = 1;
-  config.tolerateNoTransportParams = 1;
+  assert(mozquic_unstable_api1(&config, "ignorePKI",
+                               has_arg(argc, argv, "-ignorePKI", &argVal), 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "greaseVersionNegotiation", 0, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "tolerateBadALPN", 1, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "tolerateNoTransportParams", 1, 0) == MOZQUIC_OK);
 
   mozquic_new_connection(&c, &config);
   mozquic_start_client(c);

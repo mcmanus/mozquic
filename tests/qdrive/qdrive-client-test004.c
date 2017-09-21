@@ -21,7 +21,7 @@ void *testGetClosure4()
 void testConfig4(struct mozquic_config_t *_c)
 {
   testState.test_state = 0;
-  _c->greaseVersionNegotiation = 1;
+  test_assert(mozquic_unstable_api1(_c, "greaseVersionNegotiation", 1, 0) == MOZQUIC_OK);
 }
 
 int testEvent4(void *closure, uint32_t event, void *param)

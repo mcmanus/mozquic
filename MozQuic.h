@@ -66,20 +66,14 @@ extern "C" {
     unsigned int appHandlesSendRecv; // flag to control TRANSMIT/RECV/TLSINPUT events
     unsigned int appHandlesLogging; // flag to control LOG events
     int  (*connection_event_callback)(void *, uint32_t event, void *aParam);
-
-    // these are just for testing early implementations - they will go away
-    // they will go into a testing API of some sort
     unsigned char statelessResetKey[128];
-    unsigned int greaseVersionNegotiation; // flag
-    unsigned int ignorePKI; // flag
-    unsigned int tolerateBadALPN; // flag
-    unsigned int tolerateNoTransportParams; // flag
-    unsigned int sabotageVN; // flag
-    unsigned int forceAddressValidation; // flag
-    uint64_t streamWindow;
-    uint64_t connWindowKB;
+
+    unsigned char reservedInternally[512];
   };
 
+  uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t, uint64_t);
+  uint32_t mozquic_unstable_api2(mozquic_connection_t *c, const char *name, uint64_t, uint64_t);
+  
   // this is a hack. it will be come a 'crypto config' and allow server key/cert and
   // some kind of client ca root
   int mozquic_nss_config(char *dir);
@@ -99,7 +93,6 @@ extern "C" {
   int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMS);
   int mozquic_get_streamid(mozquic_stream_t *stream);
 
-  // this is also experimental/testing
   int mozquic_start_backpressure(mozquic_connection_t *conn);
   int mozquic_release_backpressure(mozquic_connection_t *conn);
   

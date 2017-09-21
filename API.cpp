@@ -8,17 +8,66 @@ static int mozQuicInit = 0;
 #include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
-#include "Streams.h"
 #include "NSSHelper.h"
+#include "Streams.h"
+
 #include <assert.h>
+#include <strings.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+struct mozquic_internal_config_t 
+{
+  unsigned int greaseVersionNegotiation; // flag
+  unsigned int ignorePKI; // flag
+  unsigned int tolerateBadALPN; // flag
+  unsigned int tolerateNoTransportParams; // flag
+  unsigned int sabotageVN; // flag
+  unsigned int forceAddressValidation; // flag
+  uint64_t streamWindow;
+  uint64_t connWindowKB;
+};
+  
+uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t arg1, uint64_t arg2)
+{
+  assert(sizeof(mozquic_internal_config_t) <= sizeof(c->reservedInternally));
+  mozquic_internal_config_t *internal = (mozquic_internal_config_t *) c->reservedInternally + 0;
+
+  if (!strcasecmp(name, "greaseVersionNegotiation")) {
+    internal->greaseVersionNegotiation = arg1;
+  } else if (!strcasecmp(name, "ignorePKI")) {
+    internal->ignorePKI = arg1;
+  } else if (!strcasecmp(name, "tolerateBadALPN")) {
+    internal->tolerateBadALPN = arg1;
+  } else if (!strcasecmp(name, "tolerateNoTransportParams")) {
+    internal->tolerateNoTransportParams = arg1;
+  } else if (!strcasecmp(name, "sabotageVN")) {
+    internal->sabotageVN = arg1;
+  } else if (!strcasecmp(name, "forceAddressValidation")) {
+    internal->forceAddressValidation = arg1;
+  } else if (!strcasecmp(name, "streamWindow")) {
+    internal->streamWindow = arg1;
+  } else if (!strcasecmp(name, "connWindowKB")) {
+    internal->connWindowKB = arg1;
+  } else {
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  return MOZQUIC_OK;
+}
+
+uint32_t mozquic_unstable_api2(mozquic_connection_t *c, const char *name, uint64_t, uint64_t)
+{
+  return MOZQUIC_ERR_GENERAL;
+}
+  
 int mozquic_new_connection(mozquic_connection_t **outConnection,
                            struct mozquic_config_t *inConfig)
 {
+  assert(sizeof(mozquic_internal_config_t) <= sizeof(inConfig->reservedInternally));
+  mozquic_internal_config_t *internal = (mozquic_internal_config_t *) inConfig->reservedInternally + 0;
   if (!mozQuicInit) {
     int rv = mozquic::NSSHelper::Init(nullptr);
     if (rv != MOZQUIC_OK) {
@@ -44,19 +93,19 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   q->SetConnEventCB(inConfig->connection_event_callback);
   q->SetOriginPort(inConfig->originPort);
   q->SetOriginName(inConfig->originName);
-  if (inConfig->greaseVersionNegotiation) {
+  if (internal->greaseVersionNegotiation) {
     q->GreaseVersionNegotiation();
   }
-  if (inConfig->tolerateBadALPN) {
+  if (internal->tolerateBadALPN) {
     q->SetTolerateBadALPN();
   }
-  if (inConfig->tolerateNoTransportParams) {
+  if (internal->tolerateNoTransportParams) {
     q->SetTolerateNoTransportParams();
   }
-  if (inConfig->sabotageVN) {
+  if (internal->sabotageVN) {
     q->SetSabotageVN();
   }
-  if (inConfig->forceAddressValidation) {
+  if (internal->forceAddressValidation) {
     q->SetForceAddressValidation();
   }
   if (inConfig->appHandlesSendRecv) {
@@ -65,14 +114,14 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   if (inConfig->appHandlesLogging) {
     q->SetAppHandlesLogging();
   }
-  if (inConfig->ignorePKI) {
+  if (internal->ignorePKI) {
     q->SetIgnorePKI();
   }
-  if (inConfig->streamWindow) {
-    q->SetStreamWindow(inConfig->streamWindow);
+  if (internal->streamWindow) {
+    q->SetStreamWindow(internal->streamWindow);
   }
-    if (inConfig->connWindowKB) {
-    q->SetConnWindowKB(inConfig->connWindowKB);
+    if (internal->connWindowKB) {
+    q->SetConnWindowKB(internal->connWindowKB);
   }
   
   unsigned char empty[128];

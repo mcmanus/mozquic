@@ -260,21 +260,22 @@ int main(int argc, char **argv)
   config.originPort = SERVER_PORT;
   fprintf(stderr,"server using certificate for %s on port %d\n", config.originName, config.originPort);
 
-  config.tolerateBadALPN = 1;
-  config.tolerateNoTransportParams = 1;
   config.handleIO = 0; // todo mvp
-  config.sabotageVN = 0;
-  config.forceAddressValidation = 0;
-  config.streamWindow = 4900;
-  config.connWindowKB = 8;
   config.appHandlesLogging = 0;
+
+  assert(mozquic_unstable_api1(&config, "tolerateBadALPN", 1, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "tolerateNoTransportParams", 1, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "sabotageVN", 0, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "forceAddressValidation", 0, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "streamWindow", 4906, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "connWindowKB", 8, 0) == MOZQUIC_OK);
 
   mozquic_new_connection(&c, &config);
   mozquic_set_event_callback(c, connEventCB);
   mozquic_start_server(c);
 
   config.originPort = SERVER_PORT + 1;
-  config.forceAddressValidation = 1;
+  assert(mozquic_unstable_api1(&config, "forceAddressValidation", 1, 0) == MOZQUIC_OK);
   mozquic_new_connection(&hrr, &config);
   mozquic_set_event_callback(hrr, connEventCB);
   mozquic_start_server(hrr);

@@ -18,7 +18,7 @@ struct closure
 void testConfig5(struct mozquic_config_t *_c)
 {
   testState.test_state = 0;
-  _c->forceAddressValidation = 1;
+  test_assert(mozquic_unstable_api1(_c, "forceAddressValidation", 1, 0) == MOZQUIC_OK);
 }
 
 void *testGetClosure5()
