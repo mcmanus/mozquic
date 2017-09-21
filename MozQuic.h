@@ -91,7 +91,8 @@ extern "C" {
   int mozquic_start_new_stream(mozquic_stream_t **outStream, mozquic_connection_t *conn, void *data, uint32_t amount, int fin);
   int mozquic_send(mozquic_stream_t *stream, void *data, uint32_t amount, int fin);
   int mozquic_end_stream(mozquic_stream_t *stream);
-  int mozquic_reset_stream(mozquic_stream_t *stream); // also ends it
+  int mozquic_reset_stream(mozquic_stream_t *stream); // a more final version of end_stream
+  int mozquic_stop_sending(mozquic_stream_t *stream);
   int mozquic_recv(mozquic_stream_t *stream, void *data, uint32_t aval, uint32_t *amount, int *fin);
   int mozquic_set_event_callback(mozquic_connection_t *conn, int (*fx)(void *closure, uint32_t event, void *param));
   int mozquic_set_event_callback_closure(mozquic_connection_t *conn, void *closure);

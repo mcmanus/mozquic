@@ -62,10 +62,13 @@ public:
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
   int EndStream();
   int RstStream(uint32_t code);
-  bool Done() { return (mFin && mStreamUnWritten.empty()) || mPeerRst; }
-  uint32_t ScrubUnWritten(uint32_t id) { return mWriter->ScrubUnWritten(id); }
+  bool Done() { return mFin && mStreamUnWritten.empty(); }
+  uint32_t ScrubUnWritten() { mStreamUnWritten.clear(); return mWriter->ScrubUnWritten(mStreamID); }
   void NewFlowControlLimit(uint64_t limit) {
     mFlowControlLimit = limit;
+  }
+  uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) {
+    return mWriter->ConnectionWrite(p);
   }
 
 private:
@@ -80,9 +83,8 @@ private:
   uint64_t mOffsetChargedToConnFlowControl;
 
   bool mFin;
+  bool mRst;
   bool mBlocked; // blocked on stream based flow control
-public:
-  bool mPeerRst;
 };
 
 class StreamState : public FlowController
@@ -103,11 +105,15 @@ public:
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
   bool     MaybeDeleteStream(uint32_t streamID);
+  uint32_t RstStream(uint32_t streamID, uint32_t code);
 
   uint32_t Flush(bool forceAck);
   uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                              const unsigned char *pkt, const unsigned char *endpkt,
                              uint32_t &_ptr);
+  uint32_t HandleResetStreamFrame(FrameHeaderData *result, bool fromCleartext,
+                                  const unsigned char *pkt, const unsigned char *endpkt,
+                                  uint32_t &_ptr);
   uint32_t HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartext,
                                     const unsigned char *pkt, const unsigned char *endpkt,
                                     uint32_t &_ptr);
@@ -126,10 +132,15 @@ public:
   uint32_t HandleStreamIDBlockedFrame(FrameHeaderData *result, bool fromCleartext,
                                       const unsigned char *pkt, const unsigned char *endpkt,
                                       uint32_t &_ptr);
+  uint32_t HandleStopSendingFrame(FrameHeaderData *result, bool fromCleartext,
+                                  const unsigned char *pkt, const unsigned char *endpkt,
+                                  uint32_t &_ptr);
   uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt,
                               bool justZero);
   uint32_t CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk);
+  uint32_t CreateStopSendingFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                  ReliableData *chunk);
   uint32_t CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                     ReliableData *chunk);
   uint32_t CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
@@ -207,6 +218,7 @@ public:
   ~ReliableData();
 
   void MakeStreamRst(uint32_t code) { mType = kStreamRst; mRstCode = code;}
+  void MakeStopSending(uint32_t code) { mType = kStopSending; mStopSendingCode = code;}
   void MakeMaxStreamData(uint64_t offset) { mType = kMaxStreamData; mStreamCreditValue = offset;}
   void MakeMaxData(uint64_t kb) { mType = kMaxData; mConnectionCreditKB = kb;}
   void MakeMaxStreamID(uint32_t maxID) {mType = kMaxStreamID; mMaxStreamID = maxID; }
@@ -217,7 +229,7 @@ public:
   enum 
   {
     kStream, kStreamRst, kMaxStreamData, kStreamBlocked, kMaxData, kBlocked,
-    kStreamIDBlocked, kMaxStreamID
+    kStreamIDBlocked, kMaxStreamID, kStopSending
   } mType;
   
   std::unique_ptr<const unsigned char []>mData;
@@ -227,6 +239,7 @@ public:
   bool     mFin;
 
   uint32_t mRstCode; // for kStreamRst
+  uint32_t mStopSendingCode;
   uint64_t mStreamCreditValue; // for kMaxStreamData
   uint64_t mConnectionCreditKB; // for kMaxData 
   uint32_t mMaxStreamID; // for kMaxStreamID
@@ -253,7 +266,9 @@ public:
   bool Done() {
     return mEndGivenToApp;
   }
-  uint32_t ResetInbound();
+  uint32_t ResetInbound(); // reset as in start over for hrr, not stream reset
+  uint32_t HandleResetStream(uint64_t finalOffset);
+  uint32_t ScrubUnRead() { mAvailable.clear(); return MOZQUIC_OK; }
 
 private:
   MozQuic *mMozQuic;
@@ -308,6 +323,8 @@ public:
     return mOut.RstStream(code);
   }
 
+  int StopSending(uint32_t code);
+  
   bool Done(); // All data and fin bit given to an application and all data are transmitted and acked.
                // todo(or stream has been reseted)
                // the stream can be removed from the stream list.

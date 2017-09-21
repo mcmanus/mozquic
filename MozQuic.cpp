@@ -1051,33 +1051,6 @@ MozQuic::HandleCloseFrame(FrameHeaderData *result, bool fromCleartext,
 }
 
 uint32_t
-MozQuic::HandleResetFrame(FrameHeaderData *result, bool fromCleartext,
-                          const unsigned char *pkt, const unsigned char *endpkt,
-                          uint32_t &_ptr)
-{
-  if (fromCleartext) {
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed in cleartext\n");
-    return MOZQUIC_ERR_GENERAL;
-  }
-  ConnectionLog5("recvd rst_stream id=%X err=%X, offset=%ld\n",
-                 result->u.mRstStream.mStreamID, result->u.mRstStream.mErrorCode,
-                 result->u.mRstStream.mFinalOffset);
-
-  if (!result->u.mRstStream.mStreamID) {
-    Shutdown(PROTOCOL_VIOLATION, "rst_stream frames not allowed on stream 0\n");
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed on stream 0\n");
-    return MOZQUIC_ERR_GENERAL;
-  }
-
-  std::unique_ptr<ReliableData>
-    tmp(new ReliableData(result->u.mRstStream.mStreamID,
-                         result->u.mRstStream.mFinalOffset, nullptr,
-                         0, 0));
-  tmp->MakeStreamRst(result->u.mRstStream.mErrorCode);
-  return mStreamState->FindStream(result->u.mStream.mStreamID, tmp);
-}
-
-uint32_t
 MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
                                bool &sendAck, bool fromCleartext)
 {
@@ -1119,7 +1092,7 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
 
     case FRAME_TYPE_RST_STREAM:
       sendAck = true;
-      rv = HandleResetFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      rv = mStreamState->HandleResetStreamFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {
         return rv;
       }
@@ -1186,6 +1159,14 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
     case FRAME_TYPE_STREAM_ID_BLOCKED:
       sendAck = true;
       rv = mStreamState->HandleStreamIDBlockedFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
+    case FRAME_TYPE_STOP_SENDING:
+      sendAck = true;
+      rv = mStreamState->HandleStopSendingFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {
         return rv;
       }

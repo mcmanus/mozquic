@@ -174,9 +174,6 @@ private:
   uint32_t HandleCloseFrame(FrameHeaderData *result, bool fromCleartext,
                             const unsigned char *pkt, const unsigned char *endpkt,
                             uint32_t &_ptr);
-  uint32_t HandleResetFrame(FrameHeaderData *result, bool fromCleartext,
-                            const unsigned char *pkt, const unsigned char *endpkt,
-                            uint32_t &_ptr);
   
   bool ServerState() { return mConnectionState > SERVER_STATE_BREAK; }
   MozQuic *FindSession(uint64_t cid);

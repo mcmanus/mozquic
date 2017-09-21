@@ -63,6 +63,7 @@ enum FrameType {
   FRAME_TYPE_STREAM_BLOCKED    = 0x9,
   FRAME_TYPE_STREAM_ID_BLOCKED  = 0xA,
   FRAME_TYPE_NEW_CONNECTION_ID = 0xB,
+  FRAME_TYPE_STOP_SENDING      = 0xC,
   // ACK                       = 0xa0 - 0xbf
   FRAME_MASK_ACK               = 0xe0,
   FRAME_TYPE_ACK               = 0xa0, // 101. ....
@@ -101,6 +102,10 @@ public:
     } mRstStream;
     struct {
       uint32_t mErrorCode;
+      uint32_t mStreamID;
+    } mStopSending;
+    struct {
+      uint32_t mErrorCode;
     } mClose;
     struct {
       uint32_t mClientStreamID;
@@ -137,7 +142,8 @@ enum FrameTypeLengths {
   FRAME_TYPE_BLOCKED_LENGTH           = 1,
   FRAME_TYPE_STREAM_BLOCKED_LENGTH    = 5,
   FRAME_TYPE_STREAM_ID_BLOCKED_LENGTH  = 1,
-  FRAME_TYPE_NEW_CONNECTION_ID_LENGTH = 11
+  FRAME_TYPE_NEW_CONNECTION_ID_LENGTH = 11,
+  FRAME_TYPE_STOP_SENDING_LENGTH      = 9,
 };
 
 }

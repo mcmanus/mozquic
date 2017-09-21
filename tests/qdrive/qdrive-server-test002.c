@@ -52,7 +52,7 @@ int testEvent2(void *closure, uint32_t event, void *param)
     testState.rx += read;
     if (testState.test_state == 1 && testState.rx >= 10240) {
       testState.test_state = 2;
-      test_assert(mozquic_reset_stream(stream) == MOZQUIC_OK);
+      test_assert(mozquic_stop_sending(stream) == MOZQUIC_OK);
     }
   }
 

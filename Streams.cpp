@@ -278,6 +278,80 @@ StreamState::HandleStreamIDBlockedFrame(FrameHeaderData *result, bool fromCleart
 }
 
 uint32_t
+StreamState::HandleResetStreamFrame(FrameHeaderData *result, bool fromCleartext,
+                                    const unsigned char *pkt, const unsigned char *endpkt,
+                                    uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+  StreamLog5("recvd rst_stream id=%X err=%X, offset=%ld\n",
+             result->u.mRstStream.mStreamID, result->u.mRstStream.mErrorCode,
+             result->u.mRstStream.mFinalOffset);
+
+  if (!result->u.mRstStream.mStreamID) {
+    mMozQuic->Shutdown(PROTOCOL_VIOLATION, "rst_stream frames not allowed on stream 0\n");
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed on stream 0\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  auto i = mStreams.find(result->u.mRstStream.mStreamID);
+  if (i == mStreams.end()) {
+    StreamLog4("StreamState::HandleResetStreamFrame %d not found.\n",
+               result->u.mRstStream.mStreamID);
+    return MOZQUIC_ERR_GENERAL;
+  }
+  StreamPair *sp = (*i).second.get();
+  sp->mIn.HandleResetStream(result->u.mRstStream.mFinalOffset);
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamIn::HandleResetStream(uint64_t finalOffset)
+{
+  if (mFinalOffset && (mFinalOffset != finalOffset)) {
+    StreamLog1("stream %d recvd rst with finoffset of %ld expected %ld\n",
+               mStreamID, finalOffset, mFinalOffset);
+    mMozQuic->Shutdown(FINAL_OFFSET_ERROR, "offset too large");
+    return MOZQUIC_ERR_IO;
+  }
+
+  mFinalOffset = finalOffset;
+  mFinRecvd = true;
+  mRstRecvd = true;
+  mOffset = mFinalOffset;
+  return ScrubUnRead();
+}
+
+uint32_t
+StreamState::HandleStopSendingFrame(FrameHeaderData *result, bool fromCleartext,
+                                    const unsigned char *pkt, const unsigned char *endpkt,
+                                    uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "stop_sending frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  StreamLog4("recvd stop sending %ld %lx\n",
+             result->u.mStopSending.mStreamID, result->u.mStopSending.mErrorCode);
+  RstStream(result->u.mStopSending.mStreamID, result->u.mStopSending.mErrorCode);
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamState::RstStream(uint32_t streamID, uint32_t code)
+{
+  auto i = mStreams.find(streamID);
+  if (i == mStreams.end()) {
+    StreamLog4("StreamState::RstStream %d not found.\n", streamID);
+    return MOZQUIC_ERR_GENERAL;
+  }
+  return (*i).second->RstStream(code);
+}
+
+uint32_t
 StreamState::ScrubUnWritten(uint32_t streamID)
 {
   auto iter = mConnUnWritten.begin();
@@ -510,6 +584,10 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
         // as the stream no longer needs flow control
         iter = mConnUnWritten.erase(iter);
         continue;
+      }
+    } else if ((*iter)->mType == ReliableData::kStopSending) {
+      if (CreateStopSendingFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+        break;
       }
     } else if ((*iter)->mType == ReliableData::kMaxData) {
       if (CreateMaxDataFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
@@ -880,6 +958,29 @@ StreamState::CreateMaxStreamIDFrame(unsigned char *&framePtr, const unsigned cha
 }
 
 uint32_t
+StreamState::CreateStopSendingFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                    ReliableData *chunk)
+{
+  StreamLog5("generating stop sending code stream %d %x\n",
+             chunk->mStreamID, chunk->mStopSendingCode);
+  assert(chunk->mType == ReliableData::kStopSending);
+  assert(chunk->mStreamID);
+  assert(!chunk->mLen);
+
+  uint32_t room = endpkt - framePtr;
+  if (room < 9) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr[0] = FRAME_TYPE_STOP_SENDING;
+  uint32_t tmp32 = htonl(chunk->mStreamID);
+  memcpy(framePtr + 1, &tmp32, 4);
+  tmp32 = htonl(chunk->mStopSendingCode);
+  memcpy(framePtr + 5, &tmp32, 4);
+  framePtr += 9;
+  return MOZQUIC_OK;
+}
+
+uint32_t
 StreamState::CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk)
 {
@@ -993,15 +1094,17 @@ StreamPair::Done()
   return mOut.Done() && mIn.Done();
 }
 
+int
+StreamPair::StopSending(uint32_t code)
+{
+  std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, 0, nullptr, 0, 0));
+  tmp->MakeStopSending(code);
+  return mOut.ConnectionWrite(tmp);
+}
+
 uint32_t
 StreamPair::Supply(std::unique_ptr<ReliableData> &p) {
-  if (p->mType == ReliableData::kStreamRst) {
-    if (!mOut.Done() && !mIn.Done()) {
-      RstStream(ERROR_NO_ERROR);
-    }
-    mOut.mPeerRst = true;
-    mOut.ScrubUnWritten(p->mStreamID);
-  }
+  assert(p->mType != ReliableData::kStreamRst);
   return mIn.Supply(p);
 }
 
@@ -1132,23 +1235,7 @@ StreamIn::Supply(std::unique_ptr<ReliableData> &d)
     return MOZQUIC_OK;
   }
 
-  if (d->mType == ReliableData::kStreamRst) {
-    assert(d->mLen == 0);
-    if (!mFinRecvd) {
-      mFinRecvd = true;
-      mRstRecvd = true;
-      mFinalOffset = d->mOffset;
-      // make sure to keep processing so connection
-      // flow control window updates correctly
-    } else {
-      if (mFinalOffset != d->mOffset) {
-        StreamLog1("stream %d recvd rst with finoffset of %ld expected %ld\n",
-                   mStreamID, d->mOffset, mFinalOffset);
-        mMozQuic->Shutdown(FINAL_OFFSET_ERROR, "offset too large");
-        return MOZQUIC_ERR_IO;
-      }
-    }
-  }
+  assert(d->mType != ReliableData::kStreamRst);
 
   if (d->mFin) {
     if (!mFinRecvd) {
@@ -1304,8 +1391,8 @@ StreamOut::StreamOut(MozQuic *m, uint32_t id, FlowController *fc,
   , mFlowControlLimit(flowControlLimit)
   , mOffsetChargedToConnFlowControl(0)
   , mFin(false)
+  , mRst(false)
   , mBlocked(false)
-  , mPeerRst(false)
 {
 }
 
@@ -1325,7 +1412,7 @@ StreamOut::StreamWrite(std::unique_ptr<ReliableData> &p)
 uint32_t
 StreamOut::Write(const unsigned char *data, uint32_t len, bool fin)
 {
-  if (mPeerRst) {
+  if (mRst) {
     return MOZQUIC_ERR_IO;
   }
 
@@ -1358,9 +1445,11 @@ StreamOut::RstStream(uint32_t code)
     return MOZQUIC_ERR_ALREADY_FINISHED;
   }
   mFin = true;
+  mRst = true;
 
   // empty local queue before sending rst
-  mStreamUnWritten.clear();
+  ScrubUnWritten();
+    
   std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, mOffset, nullptr, 0, 0));
   tmp->MakeStreamRst(code);
   return mWriter->ConnectionWrite(tmp);

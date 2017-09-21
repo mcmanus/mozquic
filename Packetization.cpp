@@ -344,8 +344,27 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       mFrameLen = FRAME_TYPE_NEW_CONNECTION_ID_LENGTH;
       return;
 
+    case FRAME_TYPE_STOP_SENDING:
+      if (pktSize < FRAME_TYPE_STOP_SENDING_LENGTH) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                   (char *) "STOP SENDING frame length expected");
+        return;
+      }
+
+      mType = FRAME_TYPE_STOP_SENDING;
+
+      memcpy(&u.mStopSending.mStreamID, framePtr, 4);
+      u.mStopSending.mStreamID = ntohl(u.mStopSending.mStreamID);
+      framePtr += 4;
+      memcpy(&u.mStopSending.mErrorCode, framePtr, 4);
+      u.mStopSending.mErrorCode = ntohl(u.mStopSending.mErrorCode);
+      
+      mValid = MOZQUIC_OK;
+      mFrameLen = FRAME_TYPE_STOP_SENDING_LENGTH;
+      return;
+
     default:
-      assert(false);
+      return;
     }
   }
   mValid = MOZQUIC_OK;
