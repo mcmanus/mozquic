@@ -20,7 +20,6 @@ const char *Log::mCategoryName[] = {
 };
 
 static Log gLogger;
-static uint64_t gStart;
 
 uint32_t
 Log::sDoLog(int cat, int level, MozQuic *m, const char *fmt, ...)
@@ -67,12 +66,12 @@ Log::DoLog(int cat, int level, MozQuic *m, uint64_t cid, const char *fmt, va_lis
   }
   
   if (!m || !m->mAppHandlesLogging) {
-    fprintf(stderr,"%06ld:%016lx ", MozQuic::Timestamp() - gStart, useCid);
+    fprintf(stderr,"%06ld:%016lx ", MozQuic::Timestamp() % 1000000, useCid);
     vfprintf(stderr, fmt, paramList);
   }
   else if (m && m->mConnEventCB && m->mClosure) {
     char buffer[2048];
-    int used = snprintf(buffer, 2048, "%06ld: ", MozQuic::Timestamp() - gStart);
+    int used = snprintf(buffer, 2048, "%06ld: ", MozQuic::Timestamp() % 1000000);
     if (used >= 2047) {
       return MOZQUIC_OK;
     }
@@ -89,7 +88,6 @@ Log::DoLog(int cat, int level, MozQuic *m, uint64_t cid, const char *fmt, va_lis
 Log::Log()
 {
   memset(mCategory, 0, sizeof (uint32_t) * kCategoryCount);
-  gStart = MozQuic::Timestamp();
 }
 
 int
