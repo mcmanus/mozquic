@@ -357,7 +357,7 @@ StreamState::ScrubUnWritten(uint32_t streamID)
   auto iter = mConnUnWritten.begin();
   while (iter != mConnUnWritten.end()) {
     auto chunk = (*iter).get();
-    if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kStreamRst) {
+    if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kRstStream) {
       iter = mConnUnWritten.erase(iter);
       StreamLog6("scrubbing chunk %p of unwritten id %d\n",
                  chunk, streamID);
@@ -369,7 +369,7 @@ StreamState::ScrubUnWritten(uint32_t streamID)
   auto iter2 = mUnAckedData.begin();
   while (iter2 != mUnAckedData.end()) {
     auto chunk = (*iter2).get();
-    if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kStreamRst) {
+    if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kRstStream) {
       iter2 = mUnAckedData.erase(iter2);
       StreamLog6("scrubbing chunk %p of unacked id %d\n",
                  chunk, streamID);
@@ -574,8 +574,8 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       iter++;
       continue;
     }
-    if ((*iter)->mType == ReliableData::kStreamRst) {
-      if (CreateStreamRstFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
+    if ((*iter)->mType == ReliableData::kRstStream) {
+      if (CreateRstStreamFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
     } else if ((*iter)->mType == ReliableData::kMaxStreamData) {
@@ -878,13 +878,13 @@ StreamState::RetransmitTimer()
 }
 
 uint32_t
-StreamState::CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+StreamState::CreateRstStreamFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                   ReliableData *chunk)
 {
   StreamLog3("generating stream reset %d id=%ld pkt=%ld\n",
              chunk->mOffset, chunk->mStreamID,
              mMozQuic->mNextTransmitPacketNumber);
-  assert(chunk->mType == ReliableData::kStreamRst);
+  assert(chunk->mType == ReliableData::kRstStream);
   assert(chunk->mStreamID);
   assert(!chunk->mLen);
   uint32_t room = endpkt - framePtr;
@@ -1104,7 +1104,7 @@ StreamPair::StopSending(uint32_t code)
 
 uint32_t
 StreamPair::Supply(std::unique_ptr<ReliableData> &p) {
-  assert(p->mType != ReliableData::kStreamRst);
+  assert(p->mType != ReliableData::kRstStream);
   return mIn.Supply(p);
 }
 
@@ -1235,7 +1235,7 @@ StreamIn::Supply(std::unique_ptr<ReliableData> &d)
     return MOZQUIC_OK;
   }
 
-  assert(d->mType != ReliableData::kStreamRst);
+  assert(d->mType != ReliableData::kRstStream);
 
   if (d->mFin) {
     if (!mFinRecvd) {
@@ -1451,7 +1451,7 @@ StreamOut::RstStream(uint32_t code)
   ScrubUnWritten();
     
   std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, mOffset, nullptr, 0, 0));
-  tmp->MakeStreamRst(code);
+  tmp->MakeRstStream(code);
   return mWriter->ConnectionWrite(tmp);
 }
 

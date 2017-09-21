@@ -35,7 +35,7 @@ extern "C" {
     // NAME                              ID     POINTER TYPE
     // --------------------------        ----   -------------------
     MOZQUIC_EVENT_NEW_STREAM_DATA        =  0, // mozquic_stream_t *
-    MOZQUIC_EVENT_STREAM_RESET           =  1, // mozquic_stream_t *
+    MOZQUIC_EVENT_RESET_STREAM           =  1, // mozquic_stream_t *
     MOZQUIC_EVENT_CONNECTED              =  2, // mozquic_connection_t *
     MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION  =  3, // mozquic_connection_t *
     MOZQUIC_EVENT_CLOSE_CONNECTION       =  4, // mozquic_connection_t *

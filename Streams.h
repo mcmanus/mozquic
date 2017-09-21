@@ -137,7 +137,7 @@ public:
                                   uint32_t &_ptr);
   uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt,
                               bool justZero);
-  uint32_t CreateStreamRstFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+  uint32_t CreateRstStreamFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk);
   uint32_t CreateStopSendingFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                   ReliableData *chunk);
@@ -217,7 +217,7 @@ public:
   ReliableData(ReliableData &);
   ~ReliableData();
 
-  void MakeStreamRst(uint32_t code) { mType = kStreamRst; mRstCode = code;}
+  void MakeRstStream(uint32_t code) { mType = kRstStream; mRstCode = code;}
   void MakeStopSending(uint32_t code) { mType = kStopSending; mStopSendingCode = code;}
   void MakeMaxStreamData(uint64_t offset) { mType = kMaxStreamData; mStreamCreditValue = offset;}
   void MakeMaxData(uint64_t kb) { mType = kMaxData; mConnectionCreditKB = kb;}
@@ -228,7 +228,7 @@ public:
 
   enum 
   {
-    kStream, kStreamRst, kMaxStreamData, kStreamBlocked, kMaxData, kBlocked,
+    kStream, kRstStream, kMaxStreamData, kStreamBlocked, kMaxData, kBlocked,
     kStreamIDBlocked, kMaxStreamID, kStopSending
   } mType;
   
@@ -238,7 +238,7 @@ public:
   uint64_t mOffset;
   bool     mFin;
 
-  uint32_t mRstCode; // for kStreamRst
+  uint32_t mRstCode; // for kRstStream
   uint32_t mStopSendingCode;
   uint64_t mStreamCreditValue; // for kMaxStreamData
   uint64_t mConnectionCreditKB; // for kMaxData 

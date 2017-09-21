@@ -613,8 +613,7 @@ MozQuic::Intake(bool *partialResult)
         break;
 
       default:
-        // reject anything that is not a cleartext packet (not right, but later)
-        ConnectionLog1("recv1rtt unexpected type\n");
+        ConnectionLog1("recv unexpected type\n");
         // todo this could actually be out of order protected packet even in handshake
         // and ideally would be queued. for now we rely on retrans
         // todo

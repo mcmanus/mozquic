@@ -156,7 +156,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
   }
   break;
 
-  case MOZQUIC_EVENT_STREAM_RESET:
+  case MOZQUIC_EVENT_RESET_STREAM:
   {
     // todo not implemented yet.
     mozquic_stream_t *stream = param;

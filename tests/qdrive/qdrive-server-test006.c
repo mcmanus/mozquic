@@ -44,7 +44,7 @@ int testEvent6(void *closure, uint32_t event, void *param)
   test_assert(closure == &testState);
   test_assert(event != MOZQUIC_EVENT_ERROR);
   test_assert(event != MOZQUIC_EVENT_CLOSE_CONNECTION);
-  test_assert(event != MOZQUIC_EVENT_STREAM_RESET);
+  test_assert(event != MOZQUIC_EVENT_RESET_STREAM);
 
   if (event == MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION) {
     test_assert(starts == 1);
