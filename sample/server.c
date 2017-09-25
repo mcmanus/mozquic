@@ -99,7 +99,6 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     uint32_t amt = 0;
     int fin = 0;
     int line = 0;
-    int i;
     struct closure_t *data = (struct closure_t *)closure;
     assert(closure);
     if (!closure) {
@@ -159,7 +158,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
   case MOZQUIC_EVENT_RESET_STREAM:
   {
     // todo not implemented yet.
-    mozquic_stream_t *stream = param;
+    // mozquic_stream_t *stream = param;
     fprintf(stderr,"Stream was reset\n");
     return MOZQUIC_OK;
   }
@@ -178,7 +177,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     }
     {
       struct closure_t *data = (struct closure_t *)closure;
-      mozquic_connection_t *conn = param;
+      // mozquic_connection_t *conn = param;
       data->i += 1;
       if (send_close && (data->i == SEND_CLOSE_TIMEOUT_MS)) {
         fprintf(stderr,"server terminating connection\n");
