@@ -26,7 +26,7 @@ int qdrive_server_crash = 0;
 
 int main(int argc, char **argv)
 {
-  char *argVal, *t;
+  char *argVal;
   struct mozquic_config_t config;
   mozquic_connection_t *c;
 
@@ -48,10 +48,19 @@ int main(int argc, char **argv)
     int tfd = socket(AF_INET, SOCK_DGRAM, 0);
     memset (&sin, 0, sizeof (sin));
     sin.sin_family = AF_INET;
+    sin.sin_port = htons(1776);
     slen = sizeof(sin);
     if (!bind(tfd, (const struct sockaddr *)&sin, sizeof (sin)) &&
         !getsockname(tfd, (struct sockaddr *) &sin,  &slen)) {
       config.originPort = ntohs(sin.sin_port);
+    } else {
+      sin.sin_port = 0;
+      if (!bind(tfd, (const struct sockaddr *)&sin, sizeof (sin)) &&
+          !getsockname(tfd, (struct sockaddr *) &sin,  &slen)) {
+        config.originPort = ntohs(sin.sin_port);
+      } else {
+        test_assert(0);
+      }
     }
     close(tfd);
   }
