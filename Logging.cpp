@@ -14,7 +14,7 @@
 #include "MozQuicInternal.h"
 
 namespace mozquic  {
-  
+
 const char *Log::mCategoryName[] = {
     "ack", "stream", "handshake"
 };
@@ -64,7 +64,7 @@ Log::DoLog(int cat, int level, MozQuic *m, uint64_t cid, const char *fmt, va_lis
   } else if (m) {
     useCid = m->mConnectionID;
   }
-  
+
   if (!m || !m->mAppHandlesLogging) {
     fprintf(stderr,"%06ld:%016lx ", MozQuic::Timestamp() % 1000000, useCid);
     vfprintf(stderr, fmt, paramList);
@@ -81,7 +81,7 @@ Log::DoLog(int cat, int level, MozQuic *m, uint64_t cid, const char *fmt, va_lis
     }
     m->mConnEventCB(m->mClosure, MOZQUIC_EVENT_LOG, buffer);
   }
-    
+
   return MOZQUIC_OK;
 }
 
@@ -136,9 +136,9 @@ Log::ParseSubscriptions(const char *envStr)
   const char *s = envStr;
   char oldEof;
   do {
-    char *e = strchr(s, ',');
+    char *e = (char *)strchr(s, ',');
     if (!e) {
-      e = strchr (s, 0);
+      e = (char *)strchr (s, 0);
     }
     char *eof = e;
     oldEof = *eof;
@@ -152,7 +152,7 @@ Log::ParseSubscriptions(const char *envStr)
     if (e == s) {
       return;
     }
-    char *colon = strchr (s, ':');
+    char *colon = (char *)strchr (s, ':');
     if (colon) {
       *colon = 0;
       int level = atoi(colon+1);
