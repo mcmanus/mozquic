@@ -9,6 +9,7 @@
 #include "Streams.h"
 #include "ufloat16.h"
 
+#include <array>
 #include <assert.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -113,7 +114,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       ++iter;
       continue;
     }
-    
+
     largestAcked = iter->mPacketNumber;
     if (newFrame) {
       uint32_t need = 7;
