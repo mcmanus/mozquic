@@ -65,25 +65,29 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
     return MOZQUIC_ERR_IO;
   }
 
-  bool addedStream = false;
-  while (streamID >= mNextRecvStreamIDUsed) {
-    StreamLog5("Add new stream %d\n", mNextRecvStreamIDUsed);
-    addedStream = true;
-    std::shared_ptr<StreamPair> tmp(new StreamPair(mNextRecvStreamIDUsed,
-                                                   mMozQuic, this,
-                                                   mPeerMaxStreamData, mLocalMaxStreamData));
-    mStreams.insert( { mNextRecvStreamIDUsed, tmp } );
-    mNextRecvStreamIDUsed += 2;
-  }
+  if (((streamID & 1) && !mMozQuic->mIsClient) || // odd and you're the server
+      (!(streamID & 1) && mMozQuic->mIsClient)) { // even and you're the client
 
-  if (addedStream && !mMozQuic->mBackPressure) {
-    if (mNextRecvStreamIDUsed >= mLocalMaxStreamID ||
-        (mLocalMaxStreamID - mNextRecvStreamIDUsed < 512)) {
-      mLocalMaxStreamID += 1024;
-      StreamLog5("Increasing Peer's Max StreamID to %d\n", mLocalMaxStreamID);
-      std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
-      tmp->MakeMaxStreamID(mLocalMaxStreamID);
-      ConnectionWrite(tmp);
+    bool addedStream = false;
+    while (streamID >= mNextRecvStreamIDUsed) {
+      StreamLog5("Add new stream %d\n", mNextRecvStreamIDUsed);
+      addedStream = true;
+      std::shared_ptr<StreamPair> tmp(new StreamPair(mNextRecvStreamIDUsed,
+                                                     mMozQuic, this,
+                                                     mPeerMaxStreamData, mLocalMaxStreamData));
+      mStreams.insert( { mNextRecvStreamIDUsed, tmp } );
+      mNextRecvStreamIDUsed += 2;
+    }
+
+    if (addedStream && !mMozQuic->mBackPressure) {
+      if (mNextRecvStreamIDUsed >= mLocalMaxStreamID ||
+          (mLocalMaxStreamID - mNextRecvStreamIDUsed < 512)) {
+        mLocalMaxStreamID += 1024;
+        StreamLog5("Increasing Peer's Max StreamID to %d\n", mLocalMaxStreamID);
+        std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
+        tmp->MakeMaxStreamID(mLocalMaxStreamID);
+        ConnectionWrite(tmp);
+      }
     }
   }
   

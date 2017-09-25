@@ -14,7 +14,7 @@ CXX = clang++
 
 LDFLAGS += -L$(NSS_LIBDIR) -lnss3 -lnssutil3 -lsmime3 -lssl3 -lplds4 -lplc4 -lnspr4 -lstdc++
 CXXFLAGS += -std=c++0x -I$(NSS_INCLUDE) -I$(NSPR_INCLUDE) -Wno-format
-CFLAGS += -I$(CURDIR)
+CFLAGS += -I$(CURDIR) -Wall
 CFLAGS += -Wno-unused-command-line-argument
 CXXFLAGS += -Wno-unused-command-line-argument
 CXXFLAGS += -g
