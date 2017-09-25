@@ -16,7 +16,7 @@ LDFLAGS += -L$(NSS_LIBDIR) -lnss3 -lnssutil3 -lsmime3 -lssl3 -lplds4 -lplc4 -lns
 CXXFLAGS += -std=c++0x -I$(NSS_INCLUDE) -I$(NSPR_INCLUDE) -Wno-format
 CFLAGS += -I$(CURDIR) -Wall
 CFLAGS += -Wno-unused-command-line-argument
-CXXFLAGS += -Wno-unused-command-line-argument
+CXXFLAGS += -Wno-unused-command-line-argument -Wall
 CXXFLAGS += -g
 CFLAGS += -g
 

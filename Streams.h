@@ -74,7 +74,6 @@ public:
   }
 
 private:
-  MozQuic *mMozQuic;
   uint32_t StreamWrite(std::unique_ptr<ReliableData> &p);
   
   FlowController *mWriter;

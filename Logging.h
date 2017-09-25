@@ -21,7 +21,7 @@ public:
                             const char *fmt, ...);
   static uint32_t sDoLog(int cat, int level, MozQuic *m, uint64_t cid,
                          const char *fmt, va_list paramList);
-  static void sParseSubscriptions(const char *envStr);
+  static void sParseSubscriptions(char *envStr);
   enum 
   {
     ACK, STREAM, CONNECTION, TLS, HANDSHAKE,
@@ -31,7 +31,7 @@ public:
 private:
   uint32_t DoLog(int cat, int level, MozQuic *m, uint64_t cid,
                  const char *fmt, va_list paramList);
-  void ParseSubscriptions(const char *envStr);
+  void ParseSubscriptions(char *envStr);
                             
   int NameToNumber(const char *type);
   uint32_t Subscribe(const char *type, int level);

@@ -761,7 +761,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
                               ssl_grp_ec_curve25519,
                               ssl_grp_ec_secp384r1
   };
-  SECStatus rv = SSL_NamedGroupConfig(mFD, groups, PR_ARRAY_SIZE(groups));
+  SSL_NamedGroupConfig(mFD, groups, PR_ARRAY_SIZE(groups));
 
   SSLVersionRange range = {SSL_LIBRARY_VERSION_TLS_1_3,
                            SSL_LIBRARY_VERSION_TLS_1_3};
@@ -770,7 +770,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   SSL_BadCertHook(mFD, BadCertificate, nullptr);
 
   char module_name[] = "library=libnssckbi.so name=\"Root Certs\"";
-  SECMODModule *module = SECMOD_LoadUserModule(module_name, NULL, PR_FALSE);
+  SECMOD_LoadUserModule(module_name, NULL, PR_FALSE);
 
   mNSSReady = true;
 

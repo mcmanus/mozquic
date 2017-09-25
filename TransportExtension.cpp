@@ -182,7 +182,7 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
   input = input + offset;
   offset = 0;
   inputSize = paramSize;
-  bool version = false, maxStreamData = false, maxData = false, maxStreamID = false, idleTimeout = false;
+  bool maxStreamData = false, maxData = false, maxStreamID = false, idleTimeout = false;
   while (inputSize - offset >= 4) {
     // need to scan them all to make sure we err on stateless reset tokens
     uint16_t id, len;
@@ -294,7 +294,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
   input = input + offset;
   offset = 0;
   inputSize = paramSize;
-  bool version = false, maxStreamData = false, maxData = false, maxStreamID = false, idleTimeout = false;
+  bool maxStreamData = false, maxData = false, maxStreamID = false, idleTimeout = false;
   bool statelessReset = false;
 
   do {

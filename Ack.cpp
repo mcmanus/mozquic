@@ -73,7 +73,6 @@ MozQuic::MaybeSendAck()
   }
   // todo for doing some kind of delack
 
-  bool ackedUnprotected = false;
   auto iter = mStreamState->mAckList.begin();
   for (; iter != mStreamState->mAckList.end(); ++iter) {
     if (iter->Transmitted()) {

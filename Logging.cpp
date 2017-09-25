@@ -120,7 +120,7 @@ Log::Subscribe(const char *type, int level)
 }
 
 void
-Log::sParseSubscriptions(const char *envStr)
+Log::sParseSubscriptions(char *envStr)
 {
   static int parsed = 0;
   if (!envStr || parsed) {
@@ -131,14 +131,14 @@ Log::sParseSubscriptions(const char *envStr)
 }
 
 void
-Log::ParseSubscriptions(const char *envStr)
+Log::ParseSubscriptions(char *envStr)
 {
-  const char *s = envStr;
+  char *s = envStr;
   char oldEof;
   do {
-    char *e = (char *)strchr(s, ',');
+    char *e = strchr(s, ',');
     if (!e) {
-      e = (char *)strchr (s, 0);
+      e = strchr (s, 0);
     }
     char *eof = e;
     oldEof = *eof;
@@ -152,7 +152,7 @@ Log::ParseSubscriptions(const char *envStr)
     if (e == s) {
       return;
     }
-    char *colon = (char *)strchr (s, ':');
+    char *colon = strchr (s, ':');
     if (colon) {
       *colon = 0;
       int level = atoi(colon+1);
