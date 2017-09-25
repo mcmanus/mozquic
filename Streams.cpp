@@ -1396,8 +1396,7 @@ StreamIn::Empty()
 
 StreamOut::StreamOut(MozQuic *m, uint32_t id, FlowController *fc,
                      uint64_t flowControlLimit)
-  : mMozQuic(m)
-  , mWriter(fc)
+  : mWriter(fc)
   , mStreamID(id)
   , mOffset(0)
   , mFlowControlLimit(flowControlLimit)

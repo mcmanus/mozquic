@@ -317,7 +317,7 @@ MozQuic::StartClient()
     int val = IP_PMTUDISC_DO;
     setsockopt(mFD, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
 #endif
-    int r = connect(mFD, outAddr->ai_addr, outAddr->ai_addrlen);
+    connect(mFD, outAddr->ai_addr, outAddr->ai_addrlen);
     freeaddrinfo(outAddr);
   }
   mTimestampConnBegin = Timestamp();
