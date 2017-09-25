@@ -56,17 +56,18 @@ StreamState::StartNewStream(StreamPair **outStream, const void *data,
 uint32_t
 StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
 {
-  // Open a new stream and implicitly open all streams with ID smaller than
-  // streamID that are not already opened.
-  if (streamID > mLocalMaxStreamID) {
-    mMozQuic->Shutdown(STREAM_ID_ERROR, "recv stream id too high\n");
-    mMozQuic->RaiseError(MOZQUIC_ERR_IO, "need stream id %d but peer only allowed %d\n",
-                         streamID, mLocalMaxStreamID);
-    return MOZQUIC_ERR_IO;
-  }
-
+  // is this a stream that should be initiated by the peer?
   if (((streamID & 1) && !mMozQuic->mIsClient) || // odd and you're the server
       (!(streamID & 1) && mMozQuic->mIsClient)) { // even and you're the client
+
+    // Open a new stream and implicitly open all streams with ID smaller than
+    // streamID that are not already opened.
+    if (streamID > mLocalMaxStreamID) {
+      mMozQuic->Shutdown(STREAM_ID_ERROR, "recv stream id too high\n");
+      mMozQuic->RaiseError(MOZQUIC_ERR_IO, "need stream id %d but peer only allowed %d\n",
+                           streamID, mLocalMaxStreamID);
+      return MOZQUIC_ERR_IO;
+    }
 
     bool addedStream = false;
     while (streamID >= mNextRecvStreamIDUsed) {
@@ -88,6 +89,13 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
         tmp->MakeMaxStreamID(mLocalMaxStreamID);
         ConnectionWrite(tmp);
       }
+    }
+  } else { // stream should have been intiated by this end
+    if (streamID >= mNextStreamID) {
+      assert(mStreams.find(streamID) == mStreams.end());
+      mMozQuic->Shutdown(STREAM_STATE_ERROR, "recvd frame on stream this peer should have started");
+      mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "recvd frame on stream this peer should have started");
+      return MOZQUIC_ERR_GENERAL;
     }
   }
   

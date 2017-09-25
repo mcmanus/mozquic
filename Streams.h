@@ -185,6 +185,8 @@ private: // these still need friend mozquic
   uint32_t mNextRecvStreamIDUsed; //  id consumed by peer
 
   std::unique_ptr<StreamPair> mStream0;
+
+  // when issue #48 is resolved, this can become an unordered map
   std::map<uint32_t, std::shared_ptr<StreamPair>> mStreams;
 
   // retransmit happens off of mUnAckedData by
