@@ -62,10 +62,8 @@ extern "C" {
     const char *originName;
     int originPort;
     int handleIO; // true if library should schedule read and write events
-    void *closure;
     unsigned int appHandlesSendRecv; // flag to control TRANSMIT/RECV/TLSINPUT events
     unsigned int appHandlesLogging; // flag to control LOG events
-    int  (*connection_event_callback)(void *, uint32_t event, void *aParam);
     unsigned char statelessResetKey[128];
 
     unsigned char reservedInternally[512];

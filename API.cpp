@@ -89,8 +89,6 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   }
   *outConnection = (void *)q;
 
-  q->SetClosure(inConfig->closure);
-  q->SetConnEventCB(inConfig->connection_event_callback);
   q->SetOriginPort(inConfig->originPort);
   q->SetOriginName(inConfig->originName);
   if (internal->greaseVersionNegotiation) {

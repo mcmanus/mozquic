@@ -187,7 +187,6 @@ int main(int argc, char **argv)
   fprintf(stderr,"client connecting to %s port %d\n", config.originName, config.originPort);
 
   config.handleIO = 0; // todo mvp
-  config.connection_event_callback = connEventCB;
 
   // ingorePKI will allow invalid certs
   // normally they must either be linked to the root store OR on localhost
@@ -198,6 +197,7 @@ int main(int argc, char **argv)
   assert(mozquic_unstable_api1(&config, "tolerateNoTransportParams", 1, 0) == MOZQUIC_OK);
 
   mozquic_new_connection(&c, &config);
+  mozquic_set_event_callback(c, connEventCB);
   mozquic_start_client(c);
 
   uint32_t i=0;
