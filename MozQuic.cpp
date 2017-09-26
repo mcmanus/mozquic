@@ -46,6 +46,7 @@ MozQuic::MozQuic(bool handleIO)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mVersion(kMozQuicVersion1)
+//    , mVersion(kMozQuicIetfID6)
   , mClientOriginalOfferedVersion(0)
   , mMTU(kInitialMTU)
   , mConnectionID(0)
@@ -565,8 +566,8 @@ MozQuic::Intake(bool *partialResult)
       }
 
       if (!VersionOK(longHeader.mVersion)) {
-        ConnectionLog1("unacceptable version recvd.\n");
         if (!mIsClient) {
+          ConnectionLog1("unacceptable version recvd.\n");
           if (pktSize >= kInitialMTU) {
             session->GenerateVersionNegotiation(longHeader, &peer);
           } else {
@@ -574,6 +575,7 @@ MozQuic::Intake(bool *partialResult)
           }
           continue;
         } else if (longHeader.mType != PACKET_TYPE_VERSION_NEGOTIATION || longHeader.mVersion != mVersion) {
+          ConnectionLog1("unacceptable version recvd.\n");
           ConnectionLog1("Client ignoring as this isn't VN\n");
           continue;
         }
@@ -1254,6 +1256,7 @@ bool
 MozQuic::VersionOK(uint32_t proposed)
 {
   if (proposed == kMozQuicVersion1 ||
+      proposed == kMozQuicIetfID6 ||
       proposed == kMozQuicIetfID5) {
     return true;
   }
