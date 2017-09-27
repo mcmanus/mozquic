@@ -796,7 +796,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
     addr.raw.family = PR_AF_INET;
     PR_Connect(mFD, &addr, 0);
   } else {
-    TlsLog1("Transport ExtensionSupport not possible. not connecting\n");
+    TlsLog1("Transport Extension Support not possible. not connecting\n");
   }
 }
 
@@ -901,7 +901,7 @@ NSSHelper::TransportExtensionWriter(PRFileDesc *fd, SSLHandshakeType m,
   if (maxlen < self->mLocalTransportExtensionLen) {
     return PR_FALSE;
   }
-  
+
   sTlsLog6("transport extension sent %d bytes long.\n", self->mLocalTransportExtensionLen);
   memcpy(data, self->mLocalTransportExtensionInfo, self->mLocalTransportExtensionLen);
   *len = self->mLocalTransportExtensionLen;

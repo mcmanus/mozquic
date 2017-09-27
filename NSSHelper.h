@@ -8,7 +8,6 @@
 #include "prio.h"
 #include "ssl.h"
 #include "pk11pub.h"
-#include "ssl.h"
 #include "sslexp.h"
 
 namespace mozquic {

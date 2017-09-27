@@ -16,6 +16,8 @@
 extern "C" {
 #endif
 
+#define MOZQUIC_ALPN "hq-05"
+  
   static const uint32_t mozquic_library_version = 1;
 
   enum {
@@ -46,6 +48,7 @@ extern "C" {
     MOZQUIC_EVENT_RECV                   =  9, // mozquic_eventdata_recv
     MOZQUIC_EVENT_TLSINPUT               = 10, // mozquic_eventdata_tlsinput
     MOZQUIC_EVENT_PING_OK                = 11, // nullptr
+    MOZQUIC_EVENT_TLS_CLIENT_TPARAMS     = 12, // mozquic_eventdata_tlsinput
   };
 
   enum {
@@ -148,9 +151,11 @@ extern "C" {
   };
 
   void mozquic_handshake_output(mozquic_connection_t *session,
-                                unsigned char *data, uint32_t data_len);
-  void mozquic_handshake_complete(mozquic_connection_t *session, uint32_t err,
-                                  struct mozquic_handshake_info *keyInfo);
+                                const unsigned char *data, uint32_t data_len);
+  void mozquic_tls_tparam_output(mozquic_connection_t *session,
+                                 const unsigned char *data, uint32_t data_len);
+  uint32_t mozquic_handshake_complete(mozquic_connection_t *session, uint32_t err,
+                                      struct mozquic_handshake_info *keyInfo);
 
 #ifdef __cplusplus
 }

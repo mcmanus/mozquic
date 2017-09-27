@@ -106,8 +106,9 @@ public:
   uint32_t StartNewStream(StreamPair **outStream, const void *data, uint32_t amount, bool fin);
   void MaybeDeleteStream(StreamPair *sp);
   int IO();
-  void HandshakeOutput(unsigned char *, uint32_t amt);
-  void HandshakeComplete(uint32_t errCode, struct mozquic_handshake_info *keyInfo);
+  void HandshakeOutput(const unsigned char *, uint32_t amt);
+  void HandshakeTParamOutput(const unsigned char *, uint32_t amt);
+  uint32_t HandshakeComplete(uint32_t errCode, struct mozquic_handshake_info *keyInfo);
 
   void SetOriginPort(int port) { mOriginPort = port; }
   void SetOriginName(const char *name);
@@ -211,7 +212,8 @@ private:
   static uint32_t StatelessResetCalculateToken(const unsigned char *key128,
                                                uint64_t connID, unsigned char *out);
   uint32_t StatelessResetEnsureKey();
-    
+  void EnsureSetupClientTransportParameters();
+
   mozquic_socket_t mFD;
 
   bool mHandleIO;
@@ -289,7 +291,10 @@ private:
 
   uint64_t mAdvertiseStreamWindow;
   uint64_t mAdvertiseConnectionWindowKB;
-      
+
+  std::unique_ptr<unsigned char []> mRemoteTransportExtensionInfo;
+  uint32_t mRemoteTransportExtensionInfoLen;
+
 public: // callbacks from nsshelper
   int32_t NSSInput(void *buf, int32_t amount);
   int32_t NSSOutput(const void *buf, int32_t amount);
