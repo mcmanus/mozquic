@@ -47,7 +47,7 @@ MozQuic::MozQuic(bool handleIO)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mVersion(kMozQuicVersion1)
-//    , mVersion(kMozQuicIetfID6)
+//  , mVersion(kMozQuicIetfID5)
   , mClientOriginalOfferedVersion(0)
   , mMTU(kInitialMTU)
   , mConnectionID(0)
@@ -975,7 +975,8 @@ MozQuic::ServerConnected()
                                       peerNegotiatedVersion, peerInitialVersion,
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
-                                      mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
+                                      mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
+                                      this);
     ConnectionLog6(
             "decode client parameters: "
             "maxstreamdata %ld "

@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "Logging.h"
 #include "MozQuicInternal.h"
 #include "NSSHelper.h"
 #include "TransportExtension.h"
@@ -165,7 +166,8 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
                                                     uint32_t &_initialMaxStreamData,
                                                     uint32_t &_initialMaxDataKB,
                                                     uint32_t &_initialMaxStreamID,
-                                                    uint16_t &_idleTimeout)
+                                                    uint16_t &_idleTimeout,
+                                                    MozQuic *forLogging)
 {
   if (inputSize < 10) { // the version fields and size of params
     return MOZQUIC_ERR_GENERAL;
@@ -212,6 +214,8 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
         idleTimeout = true;
         break;
       case kStatelessResetToken:
+        Log::sDoLog(Log::CONNECTION, 1, forLogging,
+                    "Server Decoded Stateless Reset Token\n");
         return MOZQUIC_ERR_GENERAL;
       default:
         offset += len;

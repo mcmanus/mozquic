@@ -7,6 +7,8 @@
 
 namespace mozquic  {
 
+class MozQuic;
+  
 class TransportExtension {
 private:
   static void Encode1ByteObject(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
@@ -47,7 +49,8 @@ public:
                                                   uint32_t &_initialMaxStreamData,
                                                   uint32_t &_initialMaxData,
                                                   uint32_t &_initialMaxStreamID,
-                                                  uint16_t &_idleTimeout);
+                                                  uint16_t &_idleTimeout,
+                                                  MozQuic *forLogging);
   
   static void EncodeServerTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
                                               const uint32_t *versionList, uint16_t versionListSize,
