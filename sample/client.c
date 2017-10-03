@@ -52,7 +52,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
         assert(code == MOZQUIC_OK);
         code = mozquic_send(stream, _argv[j+1], strlen(_argv[j+1]), 0);
         assert(code == MOZQUIC_OK);
-        code = mozquic_send(stream, "\r\n", 2, 0);
+        code = mozquic_send(stream, "\r\n", 2, 1);
         assert(code == MOZQUIC_OK);
         _getCount++;
         char pathname[1024];
