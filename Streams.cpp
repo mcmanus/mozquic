@@ -1215,8 +1215,16 @@ StreamIn::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin)
 void
 StreamIn::MaybeIssueFlowControlCredit()
 {
+  
   uint64_t available = mLocalMaxStreamData - mNextStreamDataExpected;
   uint32_t increment = mFlowController->GetIncrement();
+
+  if (mNextStreamDataExpected > mLocalMaxStreamData) {
+    assert(!mStreamID);
+    available = 0;
+    increment = mNextStreamDataExpected - mLocalMaxStreamData + 1000000;
+  }
+        
   StreamLog7("peer has %ld stream flow control credits available on stream %d\n",
              available, mStreamID);
   if (mFinRecvd || mRstRecvd) {
@@ -1285,7 +1293,7 @@ StreamIn::Supply(std::unique_ptr<ReliableData> &d)
     mNextStreamDataExpected = endData;
     // todo - credit scheme should be based on how much is queued here.
     // todo - autotuning
-    if (mNextStreamDataExpected > mLocalMaxStreamData) {
+    if (mStreamID && (mNextStreamDataExpected > mLocalMaxStreamData)) {
       mMozQuic->Shutdown(FLOW_CONTROL_ERROR, "stream flow control error");
       StreamLog1("stream flow control recvd too much data\n");
       return MOZQUIC_ERR_IO;
