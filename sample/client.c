@@ -8,6 +8,8 @@
 
 #if 0
 
+env MOZQUIC_LOG all:9 will turn on a lot of logging. add SSLTRACE 50 and it will be absurd.
+
   ./client -peer HOSTNAME to use non localhost peer
 
 Basic client connects to server, does a handshake and and waits 1 seconds.. then..
