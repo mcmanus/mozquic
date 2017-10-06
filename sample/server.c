@@ -43,6 +43,11 @@ int connected = 0;
 static int accept_new_connection(mozquic_connection_t *nc);
 static void respond(mozquic_stream_t *stream, char *uri, int uriLen);
 
+#ifdef OSX
+void readBinaryData();
+void cleanUpBinaryData();
+#endif
+
 // closure is per connection, state is per stream
 struct closure_t
 {
@@ -249,7 +254,11 @@ int main(int argc, char **argv)
     fprintf(stderr,"MOZQUIC_NSS_CONFIG FAILURE [%s]\n", cdir ? cdir : "");
     exit (-1);
   }
-  
+
+#ifdef OSX
+  readBinaryData();
+#endif
+
   memset(&config, 0, sizeof(config));
   if (has_arg(argc, argv, "-cert", &argVal)) {
     config.originName = strdup(argVal); // leaked
@@ -295,11 +304,16 @@ int main(int argc, char **argv)
     mozquic_IO(c);
     mozquic_IO(hrr);
   } while (1);
-  
+
+#ifdef OSX
+  cleanUpBinaryData();
+#endif
 }
 
 static const char *js = "/main.js";
 static const char *jpg = "/main.jpg";
+
+#ifndef OSX
 
 extern const unsigned char _binary_sample_index_html_start[];
 extern const unsigned char _binary_sample_index_html_end[];
@@ -307,6 +321,46 @@ extern const unsigned char _binary_sample_main_js_start[];
 extern const unsigned char _binary_sample_main_js_end[];
 extern const unsigned char _binary_sample_server_jpg_start[];
 extern const unsigned char _binary_sample_server_jpg_end[];
+
+#else
+
+#include <mach-o/getsect.h>
+#include <mach-o/ldsyms.h>
+
+unsigned char *_binary_sample_index_html_start;
+unsigned char *_binary_sample_index_html_end;
+unsigned char *_binary_sample_main_js_start;
+unsigned char *_binary_sample_main_js_end;
+unsigned char *_binary_sample_server_jpg_start;
+unsigned char *_binary_sample_server_jpg_end;
+
+void readBinaryData()
+{
+  size_t size;
+  unsigned char *data = getsectiondata(&_mh_execute_header, "binary", "sampleindex_html", &size);
+  _binary_sample_index_html_start = calloc(1, size);
+  memcpy(_binary_sample_index_html_start, data, size);
+  _binary_sample_index_html_end = _binary_sample_index_html_start + size;
+
+  data = getsectiondata(&_mh_execute_header, "binary", "samplemain_js", &size);
+  _binary_sample_main_js_start = calloc(1, size);
+  memcpy(_binary_sample_main_js_start, data, size);
+  _binary_sample_main_js_end = _binary_sample_main_js_start + size;
+
+  data = getsectiondata(&_mh_execute_header, "binary", "sampleserver_jpg", &size);
+  _binary_sample_server_jpg_start = calloc(1, size);
+  memcpy(_binary_sample_server_jpg_start, data, size);
+  _binary_sample_server_jpg_end = _binary_sample_server_jpg_start + size;
+}
+
+void cleanUpBinaryData()
+{
+  free(_binary_sample_index_html_start);
+  free(_binary_sample_main_js_start);
+  free(_binary_sample_server_jpg_start);
+}
+
+#endif
 
 static void respondWith(mozquic_stream_t *stream,
                         const unsigned char *start, const unsigned char *end)

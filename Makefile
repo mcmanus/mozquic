@@ -1,3 +1,5 @@
+UNAME_S := $(shell uname -s)
+
 # Set the MOZQUIC variables as below.
 # notes in NSSHelper.cpp for tls 1.3 draft version and nss branch
 #NSS_ROOT=/Users/ekr/dev/nss-dev/nss-sandbox3/
@@ -22,6 +24,10 @@ CFLAGS += -g
 
 # For .h dependency management
 CXXFLAGS += -MP -MD 
+
+ifeq ($(UNAME_S),Darwin)
+	CFLAGS += -D OSX
+endif
 
 OBJS += Ack.o
 OBJS += API.o
@@ -66,7 +72,12 @@ QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test009.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test010.o
 
 sample/server-files.o: sample/server.jpg sample/index.html sample/main.js
+ifeq ($(UNAME_S),Darwin)
+	$(CC) -o ./sample/tmp.o -c ./sample/server-files.c
+	ld -r -sectcreate binary sampleserver_jpg sample/server.jpg -sectcreate binary sampleindex_html sample/index.html -sectcreate binary samplemain_js sample/main.js -o sample/server-files.o ./sample/tmp.o
+else
 	ld -r -b binary -o $@ $^
+endif
 
 client: $(OBJS) sample/client.o
 	$(CC) $(LDFLAGS) -o $@ $^
