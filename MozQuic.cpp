@@ -23,7 +23,8 @@
 
 namespace mozquic  {
 
-const char *MozQuic::kAlpn = "hq-05";
+const char *MozQuic::kAlpn = MOZQUIC_ALPN;
+  
 static const uint16_t kIdleTimeoutDefault = 600;
 
 MozQuic::MozQuic(bool handleIO)
@@ -46,7 +47,7 @@ MozQuic::MozQuic(bool handleIO)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mVersion(kMozQuicVersion1)
-//    , mVersion(kMozQuicIetfID6)
+//  , mVersion(kMozQuicIetfID5)
   , mClientOriginalOfferedVersion(0)
   , mMTU(kInitialMTU)
   , mConnectionID(0)
@@ -55,7 +56,7 @@ MozQuic::MozQuic(bool handleIO)
   , mOriginalTransmitPacketNumber(0)
   , mNextRecvPacketNumber(0)
   , mClientInitialPacketNumber(0)
-  , mClosure(this)
+  , mClosure(nullptr)
   , mConnEventCB(nullptr)
   , mParent(nullptr)
   , mAlive(this)
@@ -67,6 +68,7 @@ MozQuic::MozQuic(bool handleIO)
   , mPeerIdleTimeout(kIdleTimeoutDefault)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
+  , mRemoteTransportExtensionInfoLen(0)
 {
   Log::sParseSubscriptions(getenv("MOZQUIC_LOG"));
   
@@ -208,7 +210,7 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
     return;
   }
 
-  ConnectionLog5("sending shutdown as %lx\n", mNextTransmitPacketNumber);
+  ConnectionLog5("sending shutdown as %lX\n", mNextTransmitPacketNumber);
 
   unsigned char plainPkt[kMaxMTU];
   uint16_t tmp16;
@@ -322,6 +324,7 @@ MozQuic::StartClient()
     freeaddrinfo(outAddr);
   }
   mTimestampConnBegin = Timestamp();
+  EnsureSetupClientTransportParameters();
 
   return MOZQUIC_OK;
 }
@@ -387,9 +390,39 @@ MozQuic::RemoveSession(uint64_t cid)
   mConnectionHash.erase(cid);
 }
 
+void
+MozQuic::EnsureSetupClientTransportParameters()
+{
+  if (mSetupTransportExtension) {
+    return;
+  }
+  mSetupTransportExtension = true;
+  
+  ConnectionLog9("setup transport extension (client)\n");
+  unsigned char te[2048];
+  uint16_t teLength = 0;
+  assert(mVersion && mClientOriginalOfferedVersion);
+  TransportExtension::
+    EncodeClientTransportParameters(te, teLength, 2048,
+                                    mVersion, mClientOriginalOfferedVersion,
+                                    mStreamState->mLocalMaxStreamData,
+                                    mStreamState->mLocalMaxData,
+                                    mStreamState->mLocalMaxStreamID,
+                                    kIdleTimeoutDefault);
+  if (mAppHandlesSendRecv) {
+    struct mozquic_eventdata_tlsinput data;
+    data.data = te;
+    data.len = teLength;
+    mConnEventCB(mClosure, MOZQUIC_EVENT_TLS_CLIENT_TPARAMS, &data);
+  } else {
+    mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
+  }
+}
+
 int
 MozQuic::Client1RTT()
 {
+  EnsureSetupClientTransportParameters();
   if (mAppHandlesSendRecv) {
     if (mStreamState->mStream0->Empty()) {
       return MOZQUIC_OK;
@@ -399,7 +432,6 @@ MozQuic::Client1RTT()
     uint32_t amt = 0;
     bool fin = false;
 
-    // todo transport extension info needs to be passed to app
     uint32_t code = mStreamState->mStream0->Read(buf, kMozQuicMSS, amt, fin);
     if (code != MOZQUIC_OK) {
       return code;
@@ -412,21 +444,6 @@ MozQuic::Client1RTT()
       mConnEventCB(mClosure, MOZQUIC_EVENT_TLSINPUT, &data);
     }
   } else {
-    if (!mSetupTransportExtension) {
-      ConnectionLog9("setup transport extension (client)\n");
-      unsigned char te[2048];
-      uint16_t teLength = 0;
-      assert(mVersion && mClientOriginalOfferedVersion);
-      TransportExtension::
-        EncodeClientTransportParameters(te, teLength, 2048,
-                                        mVersion, mClientOriginalOfferedVersion,
-                                        mStreamState->mLocalMaxStreamData,
-                                        mStreamState->mLocalMaxData,
-                                        mStreamState->mLocalMaxStreamID,
-                                        kIdleTimeoutDefault);
-      mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
-      mSetupTransportExtension = true;
-    }
 
     // handle server reply internally
     uint32_t code = mNSSHelper->DriveHandshake();
@@ -544,7 +561,7 @@ MozQuic::Intake(bool *partialResult)
       session = tmpSession->mAlive;
       ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber, mConnectionID);
       assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
-      ConnectionLogCID5(shortHeader.mConnectionID, "SHORTFORM PACKET[%d] pkt# %lx hdrsize=%d\n",
+      ConnectionLogCID5(shortHeader.mConnectionID, "SHORTFORM PACKET[%d] pkt# %lX hdrsize=%d\n",
                      pktSize, shortHeader.mPacketNumber, shortHeader.mHeaderSize);
       rv = session->ProcessGeneral(pkt, pktSize,
                                    shortHeader.mHeaderSize, shortHeader.mPacketNumber, sendAck);
@@ -559,7 +576,7 @@ MozQuic::Intake(bool *partialResult)
       LongHeaderData longHeader(pkt, pktSize);
 
       ConnectionLogCID5(longHeader.mConnectionID,
-                        "LONGFORM PACKET[%d] pkt# %lx type %d version %X\n",
+                        "LONGFORM PACKET[%d] pkt# %lX type %d version %X\n",
                         pktSize, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
       if (longHeader.mType < PACKET_TYPE_0RTT_PROTECTED) {
         *partialResult = true;
@@ -795,36 +812,46 @@ MozQuic::RaiseError(uint32_t e, const char *fmt, ...)
 // of certs etc like gecko PSM does). The app is providing the
 // client hello
 void
-MozQuic::HandshakeOutput(unsigned char *buf, uint32_t datalen)
+MozQuic::HandshakeOutput(const unsigned char *buf, uint32_t datalen)
 {
   mStreamState->mStream0->Write(buf, datalen, false);
+}
+
+void
+MozQuic::HandshakeTParamOutput(const unsigned char *buf, uint32_t datalen)
+{
+  mRemoteTransportExtensionInfo.reset(new unsigned char[datalen]);
+  mRemoteTransportExtensionInfoLen = datalen;
+  memcpy(mRemoteTransportExtensionInfo.get(), buf, datalen);
 }
 
 // this is called by the application when the application is handling
 // the TLS stream (so that it can do more sophisticated handling
 // of certs etc like gecko PSM does). The app is providing the
 // client hello and interpreting the server hello
-void
+uint32_t
 MozQuic::HandshakeComplete(uint32_t code,
                            struct mozquic_handshake_info *keyInfo)
 {
   if (!mAppHandlesSendRecv) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"not using handshaker api");
-    return;
+    return MOZQUIC_ERR_GENERAL;
   }
   if (mConnectionState != CLIENT_STATE_1RTT) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"Handshake complete in wrong state");
-    return;
+    return MOZQUIC_ERR_GENERAL;
   }
   if (code != MOZQUIC_OK) {
     RaiseError(MOZQUIC_ERR_CRYPTO, (char *)"Handshake complete err");
-    return;
+    return MOZQUIC_ERR_CRYPTO;
   }
 
-  mNSSHelper->HandshakeSecret(keyInfo->ciphersuite,
-                              keyInfo->sendSecret, keyInfo->recvSecret);
-
-  ClientConnected();
+  uint32_t sCode = mNSSHelper->HandshakeSecret(keyInfo->ciphersuite,
+                                              keyInfo->sendSecret, keyInfo->recvSecret);
+  if (sCode != MOZQUIC_OK) {
+    return sCode;
+  }
+  return ClientConnected();
 }
 
 uint32_t
@@ -836,7 +863,14 @@ MozQuic::ClientConnected()
   uint16_t extensionInfoLen = 0;
   uint32_t peerVersionList[256];
   uint16_t versionSize = sizeof(peerVersionList) / sizeof (peerVersionList[0]);
-  mNSSHelper->GetRemoteTransportExtensionInfo(extensionInfo, extensionInfoLen);
+
+  if (!mAppHandlesSendRecv) {
+    mNSSHelper->GetRemoteTransportExtensionInfo(extensionInfo, extensionInfoLen);
+  } else {
+    extensionInfo = mRemoteTransportExtensionInfo.get();
+    extensionInfoLen = mRemoteTransportExtensionInfoLen;
+  }
+
   uint32_t decodeResult;
   uint32_t errorCode = ERROR_NO_ERROR;
   if (!extensionInfoLen && mTolerateNoTransportParams) {
@@ -860,7 +894,10 @@ MozQuic::ClientConnected()
     } else {
       ConnectionLog5("Decoding Server Transport Parameters: passed\n");
     }
-    
+    mRemoteTransportExtensionInfo = nullptr;
+    mRemoteTransportExtensionInfoLen = 0;
+    extensionInfo = nullptr;
+    extensionInfoLen = 0;
     mStreamState->mStream0->NewFlowControlLimit(mStreamState->mPeerMaxStreamData);
                                                             
     // need to confirm version negotiation wasn't messed with
@@ -906,7 +943,7 @@ MozQuic::ClientConnected()
     assert (errorCode != ERROR_NO_ERROR);
     MaybeSendAck();
     Shutdown(errorCode, "failed transport parameter verification");
-    RaiseError(decodeResult, (char *) "failed to verify server transport parameters");
+    RaiseError(decodeResult, (char *) "failed to verify server transport parameters\n");
     return MOZQUIC_ERR_CRYPTO;
   }
   if (mConnEventCB) {
@@ -938,7 +975,8 @@ MozQuic::ServerConnected()
                                       peerNegotiatedVersion, peerInitialVersion,
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
-                                      mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
+                                      mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
+                                      this);
     ConnectionLog6(
             "decode client parameters: "
             "maxstreamdata %ld "
@@ -985,7 +1023,7 @@ MozQuic::ServerConnected()
     assert(errorCode != ERROR_NO_ERROR);
     MaybeSendAck();
     Shutdown(errorCode, "failed transport parameter verification");
-    RaiseError(decodeResult, (char *) "failed to verify client transport parameters");
+    RaiseError(decodeResult, (char *) "failed to verify client transport parameters\n");
     return MOZQUIC_ERR_CRYPTO;
   }
   

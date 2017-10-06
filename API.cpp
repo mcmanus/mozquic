@@ -89,8 +89,6 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   }
   *outConnection = (void *)q;
 
-  q->SetClosure(inConfig->closure);
-  q->SetConnEventCB(inConfig->connection_event_callback);
   q->SetOriginPort(inConfig->originPort);
   q->SetOriginName(inConfig->originName);
   if (internal->greaseVersionNegotiation) {
@@ -264,18 +262,24 @@ void mozquic_setosfd(mozquic_connection_t *conn, mozquic_socket_t fd)
 }
 
 void mozquic_handshake_output(mozquic_connection_t *conn,
-                              unsigned char *data, uint32_t data_len)
+                              const unsigned char *data, uint32_t data_len)
 {
   mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
   self->HandshakeOutput(data, data_len);
 }
 
-void mozquic_handshake_complete(mozquic_connection_t *conn, uint32_t errCode,
-                                struct mozquic_handshake_info *keyInfo)
+void mozquic_tls_tparam_output(mozquic_connection_t *conn,
+                               const unsigned char *data, uint32_t data_len)
 {
-  assert(false);
   mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
-  self->HandshakeComplete(errCode, keyInfo);
+  self->HandshakeTParamOutput(data, data_len);
+}
+
+uint32_t mozquic_handshake_complete(mozquic_connection_t *conn, uint32_t errCode,
+                                    struct mozquic_handshake_info *keyInfo)
+{
+  mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
+  return self->HandshakeComplete(errCode, keyInfo);
 }
 
 int mozquic_nss_config(char *dir)

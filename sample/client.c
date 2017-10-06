@@ -8,6 +8,8 @@
 
 #if 0
 
+env MOZQUIC_LOG all:9 will turn on a lot of logging. add SSLTRACE 50 and it will be absurd.
+
   ./client -peer HOSTNAME to use non localhost peer
 
 Basic client connects to server, does a handshake and and waits 1 seconds.. then..
@@ -52,7 +54,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
         assert(code == MOZQUIC_OK);
         code = mozquic_send(stream, _argv[j+1], strlen(_argv[j+1]), 0);
         assert(code == MOZQUIC_OK);
-        code = mozquic_send(stream, "\r\n", 2, 0);
+        code = mozquic_send(stream, "\r\n", 2, 1);
         assert(code == MOZQUIC_OK);
         _getCount++;
         char pathname[1024];
@@ -187,7 +189,6 @@ int main(int argc, char **argv)
   fprintf(stderr,"client connecting to %s port %d\n", config.originName, config.originPort);
 
   config.handleIO = 0; // todo mvp
-  config.connection_event_callback = connEventCB;
 
   // ingorePKI will allow invalid certs
   // normally they must either be linked to the root store OR on localhost
@@ -198,6 +199,7 @@ int main(int argc, char **argv)
   assert(mozquic_unstable_api1(&config, "tolerateNoTransportParams", 1, 0) == MOZQUIC_OK);
 
   mozquic_new_connection(&c, &config);
+  mozquic_set_event_callback(c, connEventCB);
   mozquic_start_client(c);
 
   uint32_t i=0;

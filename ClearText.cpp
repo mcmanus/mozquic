@@ -50,7 +50,7 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize)
           ((pkt[0] & 0x7f) == PACKET_TYPE_SERVER_CLEARTEXT) ||
           ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_CLEARTEXT));
   if (pktSize < (kFNV64Size + 17)) {
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"hash err");
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"hash err\n");
     return false;
   }
   uint64_t hash = fnv1a(pkt, pktSize - kFNV64Size);
@@ -268,7 +268,7 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
 
   uint16_t numVersions = ((pktSize) - 17) / 4;
   if ((numVersions << 2) != (pktSize - 17)) {
-    RaiseError(MOZQUIC_ERR_VERSION, (char *)"negotiate version packet format incorrect");
+    RaiseError(MOZQUIC_ERR_VERSION, (char *)"negotiate version packet format incorrect\n");
     return MOZQUIC_ERR_VERSION;
   }
 
@@ -301,7 +301,7 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
     return MOZQUIC_OK;
   }
 
-  RaiseError(MOZQUIC_ERR_VERSION, (char *)"unable to negotiate version");
+  RaiseError(MOZQUIC_ERR_VERSION, (char *)"unable to negotiate version\n");
   return MOZQUIC_ERR_VERSION;
 }
 
@@ -371,7 +371,7 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
   }
 
   if (pktSize < kMinClientInitial) {
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"client initial packet too small");
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"client initial packet too small\n");
     return MOZQUIC_ERR_GENERAL;
   }
 
@@ -426,7 +426,7 @@ MozQuic::ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
   assert(mStreamState->mStream0);
 
   if (header.mVersion != mVersion) {
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"version mismatch");
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"version mismatch\n");
     return MOZQUIC_ERR_GENERAL;
   }
 
