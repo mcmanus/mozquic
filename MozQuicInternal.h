@@ -85,13 +85,15 @@ class StreamAck;
 class NSSHelper;
 class StreamState;
 class ReliableData;
+class BufferedPacket;
 
 class MozQuic final
 {
-friend class StreamPair;
-friend class Log;
-friend class FrameHeaderData;
-friend class StreamState;
+  friend class StreamPair;
+  friend class Log;
+  friend class FrameHeaderData;
+  friend class StreamState;
+
 public:
   static const char *kAlpn;
   static const uint32_t kForgetInitialConnectionIDsThresh = 4000; // ms
@@ -136,7 +138,7 @@ public:
   void Destroy(uint32_t, const char *);
   uint32_t CheckPeer(uint32_t);
   enum connectionState GetConnectionState() { return mConnectionState; }
-
+  
   bool IsOpen() {
     return (mConnectionState == CLIENT_STATE_0RTT || mConnectionState == CLIENT_STATE_1RTT ||
             mConnectionState == CLIENT_STATE_CONNECTED || mConnectionState == SERVER_STATE_0RTT ||
@@ -167,6 +169,9 @@ private:
   int ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeaderData &, bool&);
   uint32_t ProcessGeneralDecoded(const unsigned char *, uint32_t size, bool &, bool fromClearText);
   uint32_t ProcessGeneral(const unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
+  uint32_t BufferForLater(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
+                          uint64_t packetNum);
+  uint32_t ReleaseProtectedPackets();
   bool IntegrityCheck(unsigned char *, uint32_t size);
   void ProcessAck(class FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext);
 
@@ -276,6 +281,8 @@ private:
   MozQuic *mParent; // only in child
   std::shared_ptr<MozQuic> mAlive;
   std::list<std::shared_ptr<MozQuic>> mChildren; // only in parent
+
+  std::list<BufferedPacket> mBufferedProtectedPackets;
 
   // The beginning of a connection.
   uint64_t mTimestampConnBegin;

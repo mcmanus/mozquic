@@ -949,6 +949,7 @@ MozQuic::ClientConnected()
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, this);
   }
+  ReleaseProtectedPackets();
   return MaybeSendAck();
 }
 
@@ -1030,7 +1031,52 @@ MozQuic::ServerConnected()
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_CONNECTED, this);
   }
+  ReleaseProtectedPackets();
   return MaybeSendAck();
+}
+
+class BufferedPacket
+{
+public:
+  BufferedPacket(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
+                 uint64_t packetNum)
+    : mData(new unsigned char[pktSize])
+    , mLen(pktSize)
+    , mHeaderSize(headerSize)
+    , mPacketNum(packetNum)
+  {
+    memcpy((void *)mData.get(), pkt, mLen);
+  }
+  ~BufferedPacket()
+  {
+  }
+
+  std::unique_ptr<const unsigned char []>mData;
+  uint32_t mLen;
+  uint32_t mHeaderSize;
+  uint32_t mPacketNum;
+};
+
+uint32_t
+MozQuic::BufferForLater(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
+                        uint64_t packetNum)
+{
+  
+  mBufferedProtectedPackets.emplace_back(pkt, pktSize, headerSize, packetNum);
+  return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::ReleaseProtectedPackets()
+{
+  for (auto iter = mBufferedProtectedPackets.begin();
+       iter != mBufferedProtectedPackets.end(); ++iter) {
+    bool unused;
+    ProcessGeneral(iter->mData.get(),
+                   iter->mLen, iter->mHeaderSize, iter->mPacketNum, unused);
+  }
+  mBufferedProtectedPackets.clear();
+  return MOZQUIC_OK;
 }
 
 uint32_t
@@ -1046,6 +1092,14 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
     ConnectionLog4("processgeneral discarding %lX as closed\n", packetNum);
     return MOZQUIC_ERR_GENERAL;
   }
+
+  if (mConnectionState == CLIENT_STATE_1RTT ||
+      mConnectionState == SERVER_STATE_1RTT) {
+    ConnectionLog4("processgeneral buffering for later reassembly %lX\n", packetNum);
+    sendAck = false;
+    return BufferForLater(pkt, pktSize, headerSize, packetNum);
+  }
+
   uint32_t written;
   uint32_t rv = mNSSHelper->DecryptBlock(pkt, headerSize, pkt + headerSize,
                                          pktSize - headerSize, packetNum, out,
