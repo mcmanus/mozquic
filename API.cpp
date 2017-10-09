@@ -70,6 +70,7 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   mozquic_internal_config_t *internal = (mozquic_internal_config_t *) inConfig->reservedInternally + 0;
   if (!mozQuicInit) {
     int rv = mozquic::NSSHelper::Init(nullptr);
+    mozQuicInit = 1;
     if (rv != MOZQUIC_OK) {
       return rv;
     }
