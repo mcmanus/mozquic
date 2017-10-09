@@ -23,7 +23,7 @@ MozQuic::StatelessResetEnsureKey()
   assert(sizeof(empty) == sizeof(mStatelessResetKey));
   if (!memcmp(empty, mStatelessResetKey, 128)) {
     assert((sizeof(mStatelessResetKey) % sizeof(uint16_t)) == 0);
-    for (int i=0; i < (sizeof(mStatelessResetKey) / sizeof (uint16_t)); i++) {
+    for (unsigned int i=0; i < (sizeof(mStatelessResetKey) / sizeof (uint16_t)); i++) {
       ((uint16_t *)mStatelessResetKey)[i] = random() & 0xffff;
     }
   }
@@ -49,7 +49,7 @@ MozQuic::StatelessResetSend(uint64_t connID, struct sockaddr_in *peer)
 
   StatelessResetCalculateToken(mStatelessResetKey, connID, out + 9); // from key and CID
 
-  for (int i=0; i < pad; i++) {
+  for (unsigned int i=0; i < pad; i++) {
     out[25 + i] = random() & 0xff;
   }
   return Transmit(out, 25 + pad, peer);

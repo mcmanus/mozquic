@@ -340,7 +340,7 @@ MozQuic::StartServer()
   StatelessResetEnsureKey();
 
   assert((sizeof(mValidationKey) % sizeof(uint16_t)) == 0);
-  for (int i=0; i < (sizeof(mValidationKey) / sizeof (uint16_t)); i++) {
+  for (unsigned int i=0; i < (sizeof(mValidationKey) / sizeof (uint16_t)); i++) {
     ((uint16_t *)mValidationKey)[i] = random() & 0xffff;
   }
 
@@ -733,7 +733,7 @@ MozQuic::IO()
         }
       }
       if (!mIsChild) {
-        ssize_t len = mChildren.size();
+        size_t len = mChildren.size();
         for (auto iter = mChildren.begin();
              len == mChildren.size() && iter != mChildren.end(); ++iter) {
           (*iter)->IO();
@@ -1071,9 +1071,9 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
 }
 
 uint32_t
-MozQuic::HandleCloseFrame(FrameHeaderData *result, bool fromCleartext,
-                          const unsigned char *pkt, const unsigned char *endpkt,
-                          uint32_t &_ptr)
+MozQuic::HandleCloseFrame(FrameHeaderData *, bool fromCleartext,
+                          const unsigned char *, const unsigned char *,
+                          uint32_t &/*_ptr*/)
 {
   if (fromCleartext) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *) "close frames not allowed in cleartext\n");

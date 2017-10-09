@@ -14,7 +14,7 @@ static struct closure
 {
   int test_state;
   unsigned char test1_char[3];
-  int test1_iters[3];
+  unsigned int test1_iters[3];
   mozquic_stream_t *test1_stream[3];
   int test1_fin[3];
 } testState;
@@ -89,7 +89,7 @@ int testEvent1(void *closure, uint32_t event, void *param)
       test_assert(code == MOZQUIC_OK);
       test_assert(testState.test1_iters[idx] >= read);
       testState.test1_iters[idx] -= read;
-      for (int i = 0; i < read; i++) {
+      for (unsigned int i = 0; i < read; i++) {
         test_assert(testState.test1_char[idx] == buf[i]);
       }
       if (fin) {

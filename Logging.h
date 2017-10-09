@@ -16,10 +16,10 @@ class Log
 {
 public:
   Log();
-  static uint32_t sDoLog(int cat, int level, MozQuic *m, const char *fmt, ...);
-  static uint32_t sDoLogCID(int cat, int level, MozQuic *m, uint64_t cid,
+  static uint32_t sDoLog(unsigned int cat, unsigned int level, MozQuic *m, const char *fmt, ...);
+  static uint32_t sDoLogCID(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
                             const char *fmt, ...);
-  static uint32_t sDoLog(int cat, int level, MozQuic *m, uint64_t cid,
+  static uint32_t sDoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
                          const char *fmt, va_list paramList);
   static void sParseSubscriptions(char *envStr);
   enum 
@@ -29,7 +29,7 @@ public:
   };
 
 private:
-  uint32_t DoLog(int cat, int level, MozQuic *m, uint64_t cid,
+  uint32_t DoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
                  const char *fmt, va_list paramList);
   void ParseSubscriptions(char *envStr);
                             

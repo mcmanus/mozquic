@@ -67,7 +67,7 @@ static const struct {
   { ssl_hash_none, 0, 0 },
   { ssl_hash_md5, 0, 0 },
   { ssl_hash_sha1, 0, 0 },
-  { ssl_hash_sha224, 0 },
+  { ssl_hash_sha224, 0, 0 },
   { ssl_hash_sha256, CKM_NSS_HKDF_SHA256, 32 },
   { ssl_hash_sha384, CKM_NSS_HKDF_SHA384, 48 },
   { ssl_hash_sha512, CKM_NSS_HKDF_SHA512, 64 }
@@ -416,16 +416,16 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
 
   sTlsLog5("HRRCallback first=%d tokenlen=%d max=%d\n", firstHello, clientTokenLen, retryTokMax);
   sTlsLog6("Input : ");
-  for (int i = 0 ; i < sourceAddressLen; i++) {
+  for (unsigned int i = 0 ; i < sourceAddressLen; i++) {
     sTlsLog6("%02X ", sourceAddressInfo[i]);
   }
   sTlsLog6("\nDigest: ");
-  for (int i = 0 ; i < digestLen; i++) {
+  for (unsigned int i = 0 ; i < digestLen; i++) {
     sTlsLog6("%02X ", digest[i]);
   }
   if (!firstHello) {
     sTlsLog6("\nCookie: ");
-    for (int i = 0 ; i < clientTokenLen; i++) {
+    for (unsigned int i = 0 ; i < clientTokenLen; i++) {
       sTlsLog6("%02X ", clientToken[i]);
     }
   }

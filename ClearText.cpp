@@ -266,7 +266,7 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
     return MOZQUIC_ERR_VERSION;
   }
 
-  uint16_t numVersions = ((pktSize) - 17) / 4;
+  uint32_t numVersions = ((pktSize) - 17) / 4;
   if ((numVersions << 2) != (pktSize - 17)) {
     RaiseError(MOZQUIC_ERR_VERSION, (char *)"negotiate version packet format incorrect\n");
     return MOZQUIC_ERR_VERSION;
@@ -460,7 +460,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
   // list of versions
   unsigned char *framePtr = pkt + 17;
   assert (sizeof(VersionNegotiationList) <= mMTU - 17);
-  for (int i = 0; i < sizeof(VersionNegotiationList) / sizeof(uint32_t); i++) {
+  for (uint32_t i = 0; i < sizeof(VersionNegotiationList) / sizeof(uint32_t); i++) {
     tmp32 = htonl(VersionNegotiationList[i]);
     memcpy (framePtr, &tmp32, sizeof(uint32_t));
     framePtr += sizeof(uint32_t);

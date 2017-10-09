@@ -30,7 +30,7 @@ struct mozquic_internal_config_t
   uint64_t connWindowKB;
 };
   
-uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t arg1, uint64_t arg2)
+uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t arg1, uint64_t )
 {
   assert(sizeof(mozquic_internal_config_t) <= sizeof(c->reservedInternally));
   mozquic_internal_config_t *internal = (mozquic_internal_config_t *) c->reservedInternally + 0;
@@ -58,7 +58,7 @@ uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uin
   return MOZQUIC_OK;
 }
 
-uint32_t mozquic_unstable_api2(mozquic_connection_t *c, const char *name, uint64_t, uint64_t)
+uint32_t mozquic_unstable_api2(mozquic_connection_t *, const char *, uint64_t, uint64_t)
 {
   return MOZQUIC_ERR_GENERAL;
 }

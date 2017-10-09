@@ -16,10 +16,11 @@ CXX = clang++
 
 LDFLAGS += -L$(NSS_LIBDIR) -lnss3 -lnssutil3 -lsmime3 -lssl3 -lplds4 -lplc4 -lnspr4 -lstdc++
 CXXFLAGS += -std=c++0x -I$(NSS_INCLUDE) -I$(NSPR_INCLUDE)
-CFLAGS += -I$(CURDIR) -Wall
+CFLAGS += -I$(CURDIR) -Wall -Wextra -Werror -Wno-unused-parameter
 CFLAGS += -Wno-unused-command-line-argument
-CXXFLAGS += -Wno-unused-command-line-argument -Wall
+CXXFLAGS += -Wno-unused-command-line-argument -Wall -Wextra -Werror -Wno-unused-parameter
 CXXFLAGS += -g
+CXXFLAGS += -fno-exceptions -fno-rtti
 CFLAGS += -g
 
 # For .h dependency management

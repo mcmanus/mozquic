@@ -41,7 +41,7 @@ int send_close = 0;
 int connected = 0;
 
 static int accept_new_connection(mozquic_connection_t *nc);
-static void respond(mozquic_stream_t *stream, char *uri, int uriLen);
+static void respond(mozquic_stream_t *stream, char *uri, unsigned int uriLen);
 
 #ifdef OSX
 void readBinaryData();
@@ -66,7 +66,7 @@ int close_connection(mozquic_connection_t *c)
 }
 
 static void do09(struct closure_t *data, int idx, mozquic_stream_t *stream,
-                 const char *buf, int len)
+                 const char *buf, unsigned int len)
 {
   if (data->accum[idx] + len > sizeof(data->buf[idx])) {
     return;
@@ -368,7 +368,7 @@ static void respondWith(mozquic_stream_t *stream,
   mozquic_send(stream, (void *) start, end - start, 1);
 }
 
-static void respond(mozquic_stream_t *stream, char *uri, int uriLen)
+static void respond(mozquic_stream_t *stream, char *uri, unsigned int uriLen)
 {
   if (uriLen == strlen(js) && !memcmp(js, uri, uriLen) ) {
     respondWith(stream, _binary_sample_main_js_start, _binary_sample_main_js_end);

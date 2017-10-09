@@ -22,7 +22,7 @@ const char *Log::mCategoryName[] = {
 static Log gLogger;
 
 uint32_t
-Log::sDoLog(int cat, int level, MozQuic *m, const char *fmt, ...)
+Log::sDoLog(unsigned int cat, unsigned int level, MozQuic *m, const char *fmt, ...)
 {
   va_list a;
   va_start(a, fmt);
@@ -32,14 +32,14 @@ Log::sDoLog(int cat, int level, MozQuic *m, const char *fmt, ...)
 }
 
 uint32_t
-Log::sDoLog(int cat, int level, MozQuic *m, uint64_t cid,
+Log::sDoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
             const char *fmt, va_list paramList)
 {
   return gLogger.DoLog(cat, level, m, cid, fmt, paramList);
 }
 
 uint32_t
-Log::sDoLogCID(int cat, int level, MozQuic *m, uint64_t cid,
+Log::sDoLogCID(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
                const char *fmt, ...)
 {
   va_list a;
@@ -50,10 +50,9 @@ Log::sDoLogCID(int cat, int level, MozQuic *m, uint64_t cid,
 }
 
 uint32_t
-Log::DoLog(int cat, int level, MozQuic *m, uint64_t cid, const char *fmt, va_list paramList)
+Log::DoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid, const char *fmt, va_list paramList)
 {
-  assert (cat >= 0);
-  assert (cat <kCategoryCount);
+  assert (cat < kCategoryCount);
   if (mCategory[cat] < level) {
     return MOZQUIC_OK;
   }
