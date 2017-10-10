@@ -36,7 +36,11 @@ int testEvent0(void *closure, uint32_t event, void *param)
     mozquic_set_event_callback_closure(testState.child, &testState);
     return MOZQUIC_OK;
   }
-  if (event == MOZQUIC_EVENT_IO && testState.test_state > 0 && testState.test_state < 700) {
+  if (event == MOZQUIC_EVENT_CONNECTED) {
+    test_assert(testState.test_state == 1);
+    testState.test_state = 2;
+  }
+  if (event == MOZQUIC_EVENT_IO && testState.test_state > 1 && testState.test_state < 700) {
     testState.test_state++;
     test_assert(1);
     return MOZQUIC_OK;
