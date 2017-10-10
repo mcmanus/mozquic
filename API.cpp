@@ -28,6 +28,8 @@ struct mozquic_internal_config_t
   unsigned int forceAddressValidation; // flag
   uint64_t streamWindow;
   uint64_t connWindowKB;
+  uint64_t dropRate;
+  int clientPort;
 };
   
 uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t arg1, uint64_t )
@@ -51,6 +53,10 @@ uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uin
     internal->streamWindow = arg1;
   } else if (!strcasecmp(name, "connWindowKB")) {
     internal->connWindowKB = arg1;
+  } else if (!strcasecmp(name, "dropRate")) {
+    internal->dropRate = arg1;
+  } else if (!strcasecmp(name, "clientPort")) {
+    internal->clientPort = arg1;
   } else {
     return MOZQUIC_ERR_GENERAL;
   }
@@ -119,8 +125,14 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   if (internal->streamWindow) {
     q->SetStreamWindow(internal->streamWindow);
   }
-    if (internal->connWindowKB) {
+  if (internal->connWindowKB) {
     q->SetConnWindowKB(internal->connWindowKB);
+  }
+  if (internal->dropRate) {
+    q->SetDropRate(internal->dropRate);
+  }
+  if (internal->clientPort) {
+    q->SetClientPort(internal->clientPort);
   }
   
   unsigned char empty[128];
@@ -305,6 +317,12 @@ int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMs)
 int mozquic_get_streamid(mozquic_stream_t *stream)
 {
   return (reinterpret_cast<mozquic::StreamPair *>(stream))->mStreamID;
+}
+
+int mozquic_get_allacked(mozquic_connection_t *conn)
+{
+  mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
+  return self->IsAllAcked();
 }
 
 namespace mozquic  {

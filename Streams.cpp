@@ -53,6 +53,12 @@ StreamState::StartNewStream(StreamPair **outStream, const void *data,
   return MOZQUIC_OK;
 }
 
+bool
+StreamState::IsAllAcked()
+{
+  return mUnAckedData.empty()  && mConnUnWritten.empty();
+}
+
 uint32_t
 StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
 {
@@ -164,6 +170,7 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                          pkt + _ptr,
                          result->u.mStream.mDataLen,
                          result->u.mStream.mFinBit));
+  uint32_t rv = MOZQUIC_OK;
   if (!result->u.mStream.mStreamID) {
     mStream0->Supply(tmp);
   } else {
@@ -171,13 +178,10 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
       mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "cleartext non 0 stream id\n");
       return MOZQUIC_ERR_GENERAL;
     }
-    uint32_t rv = FindStream(result->u.mStream.mStreamID, tmp);
-    if (rv != MOZQUIC_OK) {
-      return rv;
-    }
+    rv = FindStream(result->u.mStream.mStreamID, tmp);
   }
   _ptr += result->u.mStream.mDataLen;
-  return MOZQUIC_OK;
+  return rv;
 }
 
 uint32_t

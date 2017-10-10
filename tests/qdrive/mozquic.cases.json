@@ -54,6 +54,11 @@
             "Name" : "overflowFlowControl",
             "ClientArgs": ["-qdrive-test10"],
             "ServerArgs": ["-qdrive-test10"]
+        },
+	{
+            "Name" : "dropsies",
+            "ClientArgs": ["-qdrive-test11"],
+            "ServerArgs": ["-qdrive-test11"]
         }
     ]
 }

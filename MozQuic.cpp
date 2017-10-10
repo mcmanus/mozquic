@@ -46,6 +46,7 @@ MozQuic::MozQuic(bool handleIO)
   , mBackPressure(false)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
+  , mClientPort(-1)
   , mVersion(kMozQuicVersion1)
 //  , mVersion(kMozQuicIetfID5)
   , mClientOriginalOfferedVersion(0)
@@ -68,6 +69,7 @@ MozQuic::MozQuic(bool handleIO)
   , mPeerIdleTimeout(kIdleTimeoutDefault)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
+  , mDropRate(0)
   , mRemoteTransportExtensionInfoLen(0)
 {
   Log::sParseSubscriptions(getenv("MOZQUIC_LOG"));
@@ -92,6 +94,12 @@ MozQuic::~MozQuic()
   }
 }
 
+bool
+MozQuic::IsAllAcked()
+{
+  return mStreamState ? mStreamState->IsAllAcked() : true;
+}
+
 void
 MozQuic::Destroy(uint32_t code, const char *reason)
 {
@@ -105,6 +113,11 @@ MozQuic::Transmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *ex
   // this would be a reasonable place to insert a queuing layer that
   // thought about cong control, flow control, priority, and pacing
 
+  if (mDropRate && ((random() % 100) <  mDropRate)) {
+    ConnectionLog2("Transmit dropped due to drop rate\n");
+    return MOZQUIC_OK;
+  }
+  
   if (mAppHandlesSendRecv) {
     struct mozquic_eventdata_transmit data;
     data.pkt = pkt;
@@ -315,6 +328,9 @@ MozQuic::StartClient()
       }
     }
 
+    if (mClientPort != -1) {
+      Bind(mClientPort);
+    }
     fcntl(mFD, F_SETFL, fcntl(mFD, F_GETFL, 0) | O_NONBLOCK);
 #ifdef IP_PMTUDISC_DO
     int val = IP_PMTUDISC_DO;
@@ -345,21 +361,20 @@ MozQuic::StartServer()
   }
 
   mConnectionState = SERVER_STATE_LISTEN;
-  return Bind();
+  return Bind(mOriginPort);
 }
 
 int
-MozQuic::Bind()
+MozQuic::Bind(int portno)
 {
-  if (mFD != MOZQUIC_SOCKET_BAD) {
-    return MOZQUIC_OK;
+  if (mFD == MOZQUIC_SOCKET_BAD) {
+    mFD = socket(AF_INET, SOCK_DGRAM, 0); // todo v6 and non 0 addr
+    fcntl(mFD, F_SETFL, fcntl(mFD, F_GETFL, 0) | O_NONBLOCK);
   }
-  mFD = socket(AF_INET, SOCK_DGRAM, 0); // todo v6 and non 0 addr
-  fcntl(mFD, F_SETFL, fcntl(mFD, F_GETFL, 0) | O_NONBLOCK);
   struct sockaddr_in sin;
   memset (&sin, 0, sizeof (sin));
   sin.sin_family = AF_INET;
-  sin.sin_port = htons(mOriginPort);
+  sin.sin_port = htons(portno);
   int rv = bind(mFD, (const sockaddr *)&sin, sizeof (sin));
   return (rv != -1) ? MOZQUIC_OK : MOZQUIC_ERR_IO;
 }
@@ -1168,6 +1183,9 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
     case FRAME_TYPE_STREAM:
       sendAck = true;
       rv = mStreamState->HandleStreamFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv == MOZQUIC_ERR_ALREADY_FINISHED) {
+        rv = MOZQUIC_OK;
+      }
       if (rv != MOZQUIC_OK) {
         return rv;
       }

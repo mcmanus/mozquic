@@ -68,24 +68,29 @@ int main(int argc, char **argv)
   test_assert(mozquic_unstable_api1(&config, "ignorePKI",
                                     has_arg(argc, argv, "-ignorePKI", &argVal), 0) == MOZQUIC_OK);
   test_assert(mozquic_unstable_api1(&config, "tolerateBadALPN", 1, 0) == MOZQUIC_OK);
+  test_assert(mozquic_unstable_api1(&config, "clientPort", 2776, 0) == MOZQUIC_OK);
   
   int numTests = 0;
   while (testList[numTests].name) {
     numTests++;
   }
   config_tests(testList, numTests, argc, argv, &config);
-  mozquic_new_connection(&parentConnection, &config);
-
-  setup_tests(testList, numTests, argc, argv, parentConnection);
-  test_assert(mozquic_start_client(parentConnection) == MOZQUIC_OK);
-
   do {
-    usleep (1000); // this is for handleio todo
-    uint32_t code = mozquic_IO(parentConnection);
-    if (code != MOZQUIC_OK) {
-      fprintf(stderr,"IO reported failure\n");
-    }
-  } while (1);
+    mozquic_new_connection(&parentConnection, &config);
+    mozquic_connection_t *p = parentConnection;
 
+    setup_tests(testList, numTests, argc, argv, parentConnection);
+    test_assert(mozquic_start_client(parentConnection) == MOZQUIC_OK);
+
+    do {
+      usleep (1000); // this is for handleio todo
+      uint32_t code = mozquic_IO(p);
+      if (code != MOZQUIC_OK) {
+        fprintf(stderr,"IO reported failure\n");
+      }
+    } while (!mozquic_get_allacked(p) || parentConnection);
+        
+    mozquic_destroy_connection(p);
+  } while (1);
   return 0;
 }

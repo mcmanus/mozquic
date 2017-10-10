@@ -96,7 +96,7 @@ class MozQuic final
 
 public:
   static const char *kAlpn;
-  static const uint32_t kForgetInitialConnectionIDsThresh = 4000; // ms
+  static const uint32_t kForgetInitialConnectionIDsThresh = 15000; // ms
 
   MozQuic(bool handleIO);
   MozQuic();
@@ -131,12 +131,15 @@ public:
   }
   void SetStreamWindow(uint64_t w) { mAdvertiseStreamWindow = w; }
   void SetConnWindowKB(uint64_t kb) { mAdvertiseConnectionWindowKB = kb; }
+  void SetDropRate(uint64_t dr) { mDropRate = dr; }
+  void SetClientPort(int clientPort) { mClientPort = clientPort; }
 
   void SetAppHandlesSendRecv() { mAppHandlesSendRecv = true; }
   void SetAppHandlesLogging() { mAppHandlesLogging = true; }
   bool IgnorePKI();
   void Destroy(uint32_t, const char *);
   uint32_t CheckPeer(uint32_t);
+  bool IsAllAcked();
   enum connectionState GetConnectionState() { return mConnectionState; }
   
   bool IsOpen() {
@@ -193,7 +196,7 @@ private:
 
   int Client1RTT();
   int Server1RTT();
-  int Bind();
+  int Bind(int portno);
   bool VersionOK(uint32_t proposed);
   uint32_t GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockaddr_in *peer);
   uint32_t ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
@@ -239,6 +242,7 @@ private:
 
   enum connectionState mConnectionState;
   int mOriginPort;
+  int mClientPort;
   std::unique_ptr<char []> mOriginName;
   struct sockaddr_in mPeer; // todo not a v4 world
 
@@ -298,6 +302,7 @@ private:
 
   uint64_t mAdvertiseStreamWindow;
   uint64_t mAdvertiseConnectionWindowKB;
+  uint16_t mDropRate;
 
   std::unique_ptr<unsigned char []> mRemoteTransportExtensionInfo;
   uint32_t mRemoteTransportExtensionInfoLen;

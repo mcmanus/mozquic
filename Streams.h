@@ -157,6 +157,7 @@ public:
 
   void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamID = next; mNextRecvStreamIDUsed = nextR; }
   void MaybeIssueFlowControlCredit();
+  bool IsAllAcked();
 
 private:
   uint32_t FlowControlPromotion();
