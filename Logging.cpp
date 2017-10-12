@@ -16,7 +16,7 @@
 namespace mozquic  {
 
 const char *Log::mCategoryName[] = {
-    "ack", "stream", "handshake"
+  "ack", "stream", "connection", "tls", "handshake"
 };
 
 static Log gLogger;

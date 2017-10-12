@@ -995,10 +995,10 @@ MozQuic::ServerConnected()
                                       this);
     ConnectionLog6(
             "decode client parameters: "
-            "maxstreamdata %ld "
-            "maxdatakb %ld "
-            "maxstreamid %ld "
-            "idle %ld\n",
+            "maxstreamdata %u "
+            "maxdatakb %u "
+            "maxstreamid %u "
+            "idle %u\n",
             mStreamState->mPeerMaxStreamData,
             peerMaxDataKB,
             mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
