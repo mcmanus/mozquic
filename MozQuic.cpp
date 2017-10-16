@@ -70,6 +70,7 @@ MozQuic::MozQuic(bool handleIO)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
   , mDropRate(0)
+  , mSmoothedRTT(0)
   , mRemoteTransportExtensionInfoLen(0)
 {
   Log::sParseSubscriptions(getenv("MOZQUIC_LOG"));

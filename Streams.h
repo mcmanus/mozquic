@@ -250,7 +250,7 @@ public:
   
   // when unacked these are set
   uint64_t mPacketNumber;
-  uint64_t mTransmitTime; // todo.. hmm if this gets queued for any cc/fc reason (same for ack)
+  uint64_t mTransmitTime;
   uint16_t mTransmitCount;
   bool     mRetransmitted; // no data after retransmitted
   enum keyPhase mTransmitKeyPhase;

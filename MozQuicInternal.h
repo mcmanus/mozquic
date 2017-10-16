@@ -177,6 +177,7 @@ private:
   uint32_t ReleaseProtectedPackets();
   bool IntegrityCheck(unsigned char *, uint32_t size);
   void ProcessAck(class FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext);
+  void RTTSample(uint64_t xmit, uint16_t delay);
 
   uint32_t HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
                           const unsigned char *pkt, const unsigned char *endpkt,
@@ -303,6 +304,8 @@ private:
   uint64_t mAdvertiseStreamWindow;
   uint64_t mAdvertiseConnectionWindowKB;
   uint16_t mDropRate;
+
+  uint16_t mSmoothedRTT;
 
   std::unique_ptr<unsigned char []> mRemoteTransportExtensionInfo;
   uint32_t mRemoteTransportExtensionInfoLen;

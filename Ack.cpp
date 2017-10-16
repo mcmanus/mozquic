@@ -235,6 +235,24 @@ MozQuic::Acknowledge(uint64_t packetNum, keyPhase kp)
 }
 
 void
+MozQuic::RTTSample(uint64_t xmit, uint16_t delay)
+{
+  uint64_t now = Timestamp();
+  assert(now >= xmit);
+  uint64_t rtt = now - xmit;
+  if (rtt < delay) {
+    return;
+  }
+  rtt -= delay;
+  if (rtt > 0xffff) {
+    rtt = 0xffff;
+  }
+  mSmoothedRTT = (mSmoothedRTT - (mSmoothedRTT >> 3)) + (rtt >> 3);
+  AckLog7("%p New RTT Sample %u now smoothed %u\n",
+          this, rtt, mSmoothedRTT);
+}
+
+void
 MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext)
 {
   // frameptr points to the beginning of the ackblock section
@@ -304,6 +322,10 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
           assert ((*dataIter)->mPacketNumber == haveAckFor);
           AckLog5("ACK'd data found for %lX (frame type %d)\n",
                   haveAckFor, (*dataIter)->mType);
+          if (ackMetaInfo->u.mAck.mLargestAcked == haveAckFor) {
+            uint64_t xmit = (*dataIter)->mTransmitTime;
+            RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
+          }
           dataIter = mStreamState->mUnAckedData.erase(dataIter);
         } while ((dataIter != mStreamState->mUnAckedData.end()) &&
                  (*dataIter)->mPacketNumber == haveAckFor);
@@ -328,6 +350,11 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
             AckLog5("haveAckFor %lX found unacked ack of %lX (+%d) transmitted %d times\n",
                     haveAckFor, acklistIter->mPacketNumber, acklistIter->mExtra,
                     acklistIter->mTransmits.size());
+            if (ackMetaInfo->u.mAck.mLargestAcked == haveAckFor) {
+              uint64_t xmit = (*vectorIter).second;
+              RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
+            }
+            
             foundAckFor = true;
             break; // vector iteration
             // need to keep looking at the rest of mStreamState->mAckList. Todo this is terribly wasteful.
