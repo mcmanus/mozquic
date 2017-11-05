@@ -65,7 +65,8 @@ public:
                                                   uint32_t &_initialMaxData,
                                                   uint32_t &_initialMaxStreamID,
                                                   uint16_t &_idleTimeout,
-                                                  unsigned char *_statelessResetToken /* 16 bytes */);
+                                                  unsigned char *_statelessResetToken /* 16 bytes */,
+                                                  MozQuic *forLogging);
 
 private:
   TransportExtension(){}

@@ -159,6 +159,12 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
   Encode2xLenx2Record(output, _offset, maxOutput, kIdleTimeout, idleTimeout);
 }
 
+#define TP_ENSURE_PARAM(x) \
+  {if (x) { Log::sDoLog(Log::CONNECTION, 1, forLogging,     \
+                        "Transport Parameter Duplicate\n");\
+            return MOZQUIC_ERR_GENERAL; }}
+
+
 uint32_t
 TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16_t inputSize,
                                                     uint32_t &_negotiatedVersion,
@@ -196,21 +202,25 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
       case kInitialMaxStreamData:
         if (len != 4) { return MOZQUIC_ERR_GENERAL; }
         Decode4ByteObject(input, offset, inputSize, _initialMaxStreamData);
+        TP_ENSURE_PARAM(maxStreamData);
         maxStreamData = true;
         break;
       case kInitialMaxData:
         if (len != 4) { return MOZQUIC_ERR_GENERAL; }
         Decode4ByteObject(input, offset, inputSize, _initialMaxDataKB);
+        TP_ENSURE_PARAM(maxData);
         maxData = true;
         break;
       case kInitialMaxStreamID:
         if (len != 4) { return MOZQUIC_ERR_GENERAL; }
         Decode4ByteObject(input, offset, inputSize, _initialMaxStreamID);
+        TP_ENSURE_PARAM(maxStreamID);
         maxStreamID = true;
         break;
       case kIdleTimeout:
         if (len != 2) { return MOZQUIC_ERR_GENERAL; }
         Decode2ByteObject(input, offset, inputSize, _idleTimeout);
+        TP_ENSURE_PARAM(idleTimeout);
         idleTimeout = true;
         break;
       case kStatelessResetToken:
@@ -263,7 +273,8 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
                                                     uint32_t &_initialMaxDataKB,
                                                     uint32_t &_initialMaxStreamID,
                                                     uint16_t &_idleTimeout,
-                                                    unsigned char *_statelessResetToken /* 16 bytes */)
+                                                    unsigned char *_statelessResetToken /* 16 bytes */,
+                                                    MozQuic *forLogging)
 {
   if (inputSize < 6) {
     return MOZQUIC_ERR_GENERAL;
@@ -314,26 +325,31 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
       case kInitialMaxStreamData:
         if (len != 4) { return MOZQUIC_ERR_GENERAL; }
         Decode4ByteObject(input, offset, inputSize, _initialMaxStreamData);
+        TP_ENSURE_PARAM(maxStreamData);
         maxStreamData = true;
         break;
       case kInitialMaxData:
         if (len != 4) { return MOZQUIC_ERR_GENERAL; }
         Decode4ByteObject(input, offset, inputSize, _initialMaxDataKB);
+        TP_ENSURE_PARAM(maxData);
         maxData = true;
         break;
       case kInitialMaxStreamID:
         if (len != 4) { return MOZQUIC_ERR_GENERAL; }
         Decode4ByteObject(input, offset, inputSize, _initialMaxStreamID);
+        TP_ENSURE_PARAM(maxStreamID);
         maxStreamID = true;
         break;
       case kIdleTimeout:
         if (len != 2) { return MOZQUIC_ERR_GENERAL; }
         Decode2ByteObject(input, offset, inputSize, _idleTimeout);
+        TP_ENSURE_PARAM(idleTimeout);
         idleTimeout = true;
         break;
       case kStatelessResetToken:
         if (len != 16) { return MOZQUIC_ERR_GENERAL; }
         Decode16ByteObject(input, offset, inputSize, _statelessResetToken);
+        TP_ENSURE_PARAM(statelessReset);
         statelessReset= true;
         break;
       default:
@@ -347,6 +363,8 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
   
   return MOZQUIC_ERR_GENERAL;
 }
+
+#undef TP_ENSURE_PARAM
 
 }
 

@@ -902,7 +902,7 @@ MozQuic::ClientConnected()
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
-                                      mStatelessResetToken);
+                                      mStatelessResetToken, this);
     mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
     if (decodeResult != MOZQUIC_OK) {
       ConnectionLog1("Decoding Server Transport Parameters: failed\n");
