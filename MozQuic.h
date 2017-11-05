@@ -49,6 +49,7 @@ extern "C" {
     MOZQUIC_EVENT_TLSINPUT               = 10, // mozquic_eventdata_tlsinput
     MOZQUIC_EVENT_PING_OK                = 11, // nullptr
     MOZQUIC_EVENT_TLS_CLIENT_TPARAMS     = 12, // mozquic_eventdata_tlsinput
+    MOZQUIC_EVENT_CLOSE_APPLICATION      = 13, // mozquic_connection_t *
   };
 
   enum {

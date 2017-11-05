@@ -1140,18 +1140,37 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
 }
 
 uint32_t
-MozQuic::HandleCloseFrame(FrameHeaderData *, bool fromCleartext,
-                          const unsigned char *, const unsigned char *,
-                          uint32_t &/*_ptr*/)
+MozQuic::HandleConnCloseFrame(FrameHeaderData *, bool fromCleartext,
+                              const unsigned char *, const unsigned char *,
+                              uint32_t &/*_ptr*/)
 {
   if (fromCleartext) {
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "close frames not allowed in cleartext\n");
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "conn close frames not allowed in cleartext\n");
     return MOZQUIC_ERR_GENERAL;
   }
-  ConnectionLog5("RECVD CLOSE\n");
+  ConnectionLog5("RECVD CONN CLOSE\n");
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_CLOSE_CONNECTION, this);
+  } else {
+    ConnectionLog9("No Event callback\n");
+  }
+  return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::HandleApplicationCloseFrame(FrameHeaderData *, bool fromCleartext,
+                                     const unsigned char *, const unsigned char *,
+                                     uint32_t &/*_ptr*/)
+{
+  if (fromCleartext) {
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "app close frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+  ConnectionLog5("RECVD APP CLOSE\n");
+  mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
+  if (mConnEventCB) {
+    mConnEventCB(mClosure, MOZQUIC_EVENT_CLOSE_APPLICATION, this);
   } else {
     ConnectionLog9("No Event callback\n");
   }
@@ -1211,7 +1230,15 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
 
     case FRAME_TYPE_CONN_CLOSE:
       sendAck = true;
-      rv = HandleCloseFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      rv = HandleConnCloseFrame(&result, fromCleartext, pkt, endpkt, ptr);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
+    case FRAME_TYPE_APPLICATION_CLOSE:
+      sendAck = true;
+      rv = HandleApplicationCloseFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {
         return rv;
       }

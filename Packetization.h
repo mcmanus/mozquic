@@ -52,7 +52,7 @@ enum FrameType {
   FRAME_TYPE_PADDING           = 0x0,
   FRAME_TYPE_RST_STREAM        = 0x1,
   FRAME_TYPE_CONN_CLOSE        = 0x2,
-  // 3 was goaway
+  FRAME_TYPE_APPLICATION_CLOSE = 0x3,
   FRAME_TYPE_MAX_DATA          = 0x4,
   FRAME_TYPE_MAX_STREAM_DATA   = 0x5,
   FRAME_TYPE_MAX_STREAM_ID     = 0x6,
@@ -106,9 +106,8 @@ public:
       uint16_t mErrorCode;
     } mConnClose;
     struct {
-      uint32_t mClientStreamID;
-      uint32_t mServerStreamID;
-    } mGoaway;
+      uint16_t mErrorCode;
+    } mApplicationClose;
     struct {
       uint64_t mMaximumData;
     } mMaxData;
@@ -133,6 +132,7 @@ enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
   FRAME_TYPE_RST_STREAM_LENGTH        = 15,
   FRAME_TYPE_CONN_CLOSE_LENGTH        = 5,
+  FRAME_TYPE_APPLICATION_CLOSE_LENGTH = 5,
   FRAME_TYPE_MAX_DATA_LENGTH          = 9,
   FRAME_TYPE_MAX_STREAM_DATA_LENGTH   = 13,
   FRAME_TYPE_MAX_STREAM_ID_LENGTH     = 5,

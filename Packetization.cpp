@@ -210,7 +210,7 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
     case FRAME_TYPE_CONN_CLOSE:
       if (pktSize < FRAME_TYPE_CONN_CLOSE_LENGTH) {
         session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "CONN_CLOSE frame length expected");
+                            "CONN_CLOSE frame length expected");
         return;
       }
 
@@ -219,28 +219,68 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       memcpy(&u.mConnClose.mErrorCode, framePtr, 2);
       u.mConnClose.mErrorCode = ntohs(u.mConnClose.mErrorCode);
       framePtr += 2;
-      uint16_t len;
-      memcpy(&len, framePtr, 2);
-      len = ntohs(len);
-      framePtr += 2;
-      if (len) {
-        if (pktSize < ((uint32_t)FRAME_TYPE_CONN_CLOSE_LENGTH + len)) {
-          session->RaiseError(MOZQUIC_ERR_GENERAL,
-                     (char *) "CONNECTION_CLOSE frame length expected");
-          return;
+      {
+        uint16_t len;
+        memcpy(&len, framePtr, 2);
+        len = ntohs(len);
+        framePtr += 2;
+        if (len) {
+          if (pktSize < ((uint32_t)FRAME_TYPE_CONN_CLOSE_LENGTH + len)) {
+            session->RaiseError(MOZQUIC_ERR_GENERAL,
+                                (char *) "CONNECTION_CLOSE frame length expected");
+            return;
+          }
+          // Log error!
+          char reason[2048];
+          if (len < 2048) {
+            memcpy(reason, framePtr, len);
+            reason[len] = '\0';
+            Log::sDoLog(Log::CONNECTION, 4, session,
+                        "Close conn code %X reason: %s\n",
+                        u.mConnClose.mErrorCode, reason);
+          }
         }
-        // Log error!
-        char reason[2048];
-        if (len < 2048) {
-          memcpy(reason, framePtr, len);
-          reason[len] = '\0';
-          Log::sDoLog(Log::CONNECTION, 4, session,
-                      "Close conn code %X reason: %s\n",
-                      u.mConnClose.mErrorCode, reason);
-        }
+        mValid = MOZQUIC_OK;
+        mFrameLen = FRAME_TYPE_CONN_CLOSE_LENGTH + len;
       }
-      mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_CONN_CLOSE_LENGTH + len;
+      return;
+
+    case FRAME_TYPE_APPLICATION_CLOSE:
+      if (pktSize < FRAME_TYPE_APPLICATION_CLOSE_LENGTH) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            "APPLICATION_CLOSE frame length expected");
+        return;
+      }
+
+      mType = FRAME_TYPE_APPLICATION_CLOSE;
+
+      memcpy(&u.mApplicationClose.mErrorCode, framePtr, 2);
+      u.mApplicationClose.mErrorCode = ntohs(u.mApplicationClose.mErrorCode);
+      framePtr += 2;
+      {
+        uint16_t len;
+        memcpy(&len, framePtr, 2);
+        len = ntohs(len);
+        framePtr += 2;
+        if (len) {
+          if (pktSize < ((uint32_t)FRAME_TYPE_APPLICATION_CLOSE_LENGTH + len)) {
+            session->RaiseError(MOZQUIC_ERR_GENERAL,
+                                (char *) "APPLICATION_CLOSE frame length expected");
+            return;
+          }
+          // Log error!
+          char reason[2048];
+          if (len < 2048) {
+            memcpy(reason, framePtr, len);
+            reason[len] = '\0';
+            Log::sDoLog(Log::CONNECTION, 4, session,
+                        "Application close code %X reason: %s\n",
+                        u.mApplicationClose.mErrorCode, reason);
+          }
+        }
+        mValid = MOZQUIC_OK;
+        mFrameLen = FRAME_TYPE_APPLICATION_CLOSE_LENGTH + len;
+      }
       return;
 
     case FRAME_TYPE_MAX_DATA:
