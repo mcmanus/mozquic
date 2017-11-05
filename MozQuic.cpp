@@ -201,7 +201,7 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
 }
 
 void
-MozQuic::Shutdown(uint32_t code, const char *reason)
+MozQuic::Shutdown(uint16_t code, const char *reason)
 {
   if (mParent) {
     for (auto iter = mParent->mChildren.begin(); iter != mParent->mChildren.end(); ++iter) {
@@ -228,7 +228,6 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
 
   unsigned char plainPkt[kMaxMTU];
   uint16_t tmp16;
-  uint32_t tmp32;
   assert(mMTU <= kMaxMTU);
 
   // todo before merge - this can't be inlined here
@@ -239,11 +238,11 @@ MozQuic::Shutdown(uint32_t code, const char *reason)
   CreateShortPacketHeader(plainPkt, mMTU - kTagLen, used);
   headerLen = used;
 
-  plainPkt[used] = FRAME_TYPE_CLOSE;
+  plainPkt[used] = FRAME_TYPE_CONN_CLOSE;
   used++;
-  tmp32 = htonl(code);
-  memcpy(plainPkt + used, &tmp32, 4);
-  used += 4;
+  tmp16 = htonl(code);
+  memcpy(plainPkt + used, &tmp16, 2);
+  used += 2;
 
   size_t reasonLen = strlen(reason);
   if (reasonLen > (mMTU - kTagLen - used - 2)) {
@@ -1210,7 +1209,7 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
-    case FRAME_TYPE_CLOSE:
+    case FRAME_TYPE_CONN_CLOSE:
       sendAck = true;
       rv = HandleCloseFrame(&result, fromCleartext, pkt, endpkt, ptr);
       if (rv != MOZQUIC_OK) {

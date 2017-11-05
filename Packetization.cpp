@@ -207,24 +207,24 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       mFrameLen = FRAME_TYPE_RST_STREAM_LENGTH;
       return;
 
-    case FRAME_TYPE_CLOSE:
-      if (pktSize < FRAME_TYPE_CLOSE_LENGTH) {
+    case FRAME_TYPE_CONN_CLOSE:
+      if (pktSize < FRAME_TYPE_CONN_CLOSE_LENGTH) {
         session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "CONNECTION_CLOSE frame length expected");
+                   (char *) "CONN_CLOSE frame length expected");
         return;
       }
 
-      mType = FRAME_TYPE_CLOSE;
+      mType = FRAME_TYPE_CONN_CLOSE;
 
-      memcpy(&u.mClose.mErrorCode, framePtr, 4);
-      u.mClose.mErrorCode = ntohl(u.mClose.mErrorCode);
-      framePtr += 4;
+      memcpy(&u.mConnClose.mErrorCode, framePtr, 2);
+      u.mConnClose.mErrorCode = ntohs(u.mConnClose.mErrorCode);
+      framePtr += 2;
       uint16_t len;
       memcpy(&len, framePtr, 2);
       len = ntohs(len);
       framePtr += 2;
       if (len) {
-        if (pktSize < ((uint32_t)FRAME_TYPE_CLOSE_LENGTH + len)) {
+        if (pktSize < ((uint32_t)FRAME_TYPE_CONN_CLOSE_LENGTH + len)) {
           session->RaiseError(MOZQUIC_ERR_GENERAL,
                      (char *) "CONNECTION_CLOSE frame length expected");
           return;
@@ -235,11 +235,12 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
           memcpy(reason, framePtr, len);
           reason[len] = '\0';
           Log::sDoLog(Log::CONNECTION, 4, session,
-                      "Close code %X reason: %s\n", u.mClose.mErrorCode, reason);
+                      "Close conn code %X reason: %s\n",
+                      u.mConnClose.mErrorCode, reason);
         }
       }
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_CLOSE_LENGTH + len;
+      mFrameLen = FRAME_TYPE_CONN_CLOSE_LENGTH + len;
       return;
 
     case FRAME_TYPE_MAX_DATA:

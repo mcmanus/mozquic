@@ -55,21 +55,20 @@ enum connectionState
   SERVER_STATE_CLOSED,
 };
 
-enum errorType {
-  ERROR_NO_ERROR            = 0x80000000,
-  ERROR_INTERNAL            = 0x80000001,
-  ERROR_CANCELLED           = 0x80000002,
-  FLOW_CONTROL_ERROR        = 0x80000003,
-  STREAM_ID_ERROR           = 0x80000004,
-  STREAM_STATE_ERROR        = 0x80000005,
-  FINAL_OFFSET_ERROR        = 0x80000006,
-  FRAME_FORMAT_ERROR        = 0x80000007,
-  ERROR_TRANSPORT_PARAMETER = 0x80000008,
-  ERROR_VERSION_NEGOTIATION = 0x80000009,
-  PROTOCOL_VIOLATION        = 0x8000000A,
-  QUIC_RECEIVED_RST         = 0x80000035,
+enum transportErrorType {
+  ERROR_NO_ERROR            = 0x0000,
+  ERROR_INTERNAL            = 0x0001,
+// missing 0x0002,
+  FLOW_CONTROL_ERROR        = 0x0003,
+  STREAM_ID_ERROR           = 0x0004,
+  STREAM_STATE_ERROR        = 0x0005,
+  FINAL_OFFSET_ERROR        = 0x0006,
+  FRAME_FORMAT_ERROR        = 0x0007,
+  ERROR_TRANSPORT_PARAMETER = 0x0008,
+  ERROR_VERSION_NEGOTIATION = 0x0009,
+  PROTOCOL_VIOLATION        = 0x000A,
   
-  // FRAME_ERROR 0x8000001XX
+  // FRAME_ERROR 0x01XX
 };
 
 enum httpErrorType {
@@ -173,7 +172,7 @@ public:
   bool DecodedOK() { return mDecodedOK; }
   void GetRemotePeerAddressHash(unsigned char *out, uint32_t *outLen);
   static uint64_t Timestamp();
-  void Shutdown(uint32_t, const char *);
+  void Shutdown(uint16_t code, const char *);
 
   void StartBackPressure() { mBackPressure = true; }
   void ReleaseBackPressure();
