@@ -89,7 +89,6 @@ public:
     struct {
       uint8_t mAckBlockLengthLen;
       uint8_t mNumBlocks;
-      uint8_t mNumTS;
       uint64_t mLargestAcked;
       uint16_t mAckDelay;
     } mAck;

@@ -102,7 +102,6 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
   // always 16bit run length
   bool newFrame = true;
   uint8_t *numBlocks = nullptr;
-  uint8_t *numTS = nullptr;
   uint64_t largestAcked;
   uint64_t lowAcked;
   for (auto iter = mStreamState->mAckList.begin(); iter != mStreamState->mAckList.end(); ) {
@@ -116,7 +115,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
 
     largestAcked = iter->mPacketNumber;
     if (newFrame) {
-      uint32_t need = 7;
+      uint32_t need = 6;
       uint8_t pnSizeType = varSize(largestAcked);
       need += 1 << pnSizeType;
       if (avail < need) {
@@ -132,9 +131,6 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       used += 1;
       numBlocks = pkt + used;
       *numBlocks = 0;
-      used += 1;
-      numTS = pkt + used;
-      *numTS = 0;
       used += 1;
       if (pnSizeType == 0) {
         pkt[used] = largestAcked & 0xff;
@@ -333,8 +329,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
     }
   }
 
-  // todo read the timestamps
-  // and obviously todo feed the times into congestion control
+  // todo feed signal into cong control
 
   // obv unacked lists should be combined (data, other frames, acks)
   for (auto iters = numRanges; iters > 0; --iters) {
@@ -372,26 +367,6 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       }
     } // haveackfor iteration
   } //ranges iteration
-
-  // each ID is absolute, but each ts is relative to previous
-  uint64_t timestamp;
-  for(int i = 0; i < ackMetaInfo->u.mAck.mNumTS; i++) {
-    uint32_t pktID = ackMetaInfo->u.mAck.mLargestAcked;
-    assert(pktID > framePtr[0]);
-    pktID = pktID - framePtr[0];
-    if (!i) {
-      memcpy(&timestamp, framePtr + 1, 4);
-      timestamp = ntohl(timestamp);
-      framePtr += 5;
-    } else {
-      uint16_t tmp16;
-      memcpy(&tmp16, framePtr + 1, 2);
-      tmp16 = ntohs(tmp16);
-      timestamp = timestamp + (ufloat16_decode(tmp16) / 1000);
-      framePtr += 3;
-    }
-    AckLog9("Timestamp for packet %lX is %lu\n", pktID, timestamp);
-  }
 }
 
 uint32_t
@@ -409,14 +384,9 @@ MozQuic::HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
   uint32_t ackBlockSectionLen =
     result->u.mAck.mAckBlockLengthLen +
     (result->u.mAck.mNumBlocks * (result->u.mAck.mAckBlockLengthLen + 1));
-  uint32_t timestampSectionLen = result->u.mAck.mNumTS * 3;
-  if (timestampSectionLen) {
-    timestampSectionLen += 2; // the first one is longer
-  }
-  assert(pkt + _ptr + ackBlockSectionLen + timestampSectionLen <= endpkt);
+  assert(pkt + _ptr + ackBlockSectionLen <= endpkt);
   ProcessAck(result, pkt + _ptr, fromCleartext);
   _ptr += ackBlockSectionLen;
-  _ptr += timestampSectionLen;
   return MOZQUIC_OK;
 }
 

@@ -131,7 +131,7 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
     // MM bits are type & 0x03
     u.mAck.mAckBlockLengthLen = 1 << (type & 0x03);
 
-    uint16_t bytesNeeded = 1 + numBlocks + 1 + ackedLen + 2;
+    uint16_t bytesNeeded = 1 + numBlocks + ackedLen + 2;
     if (bytesNeeded > pktSize) {
       if (!fromCleartext) {
         session->Shutdown(FRAME_FORMAT_ERROR, "ack frame header short");
@@ -146,8 +146,6 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
     } else {
       u.mAck.mNumBlocks = 0;
     }
-    u.mAck.mNumTS = framePtr[0];
-    framePtr++;
 
     u.mAck.mLargestAcked = 0;
     assert(sizeof(u.mAck.mLargestAcked) == 8);
@@ -161,9 +159,6 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
     u.mAck.mAckDelay = ntohs(u.mAck.mAckDelay);
     bytesNeeded += u.mAck.mAckBlockLengthLen + // required First ACK Block
                    u.mAck.mNumBlocks * (1 + u.mAck.mAckBlockLengthLen); // additional ACK Blocks
-    if (u.mAck.mNumTS) {
-      bytesNeeded += u.mAck.mNumTS * (1 + 2) + 2;
-    }
     if (bytesNeeded > pktSize) {
       if (!fromCleartext) {
         session->Shutdown(FRAME_FORMAT_ERROR, "ack frame header short2");
