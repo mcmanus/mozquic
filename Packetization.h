@@ -24,8 +24,6 @@ enum LongHeaderType {
   PACKET_TYPE_CLIENT_CLEARTEXT       = 5,
   PACKET_TYPE_0RTT_PROTECTED         = 6,
   PACKET_TYPE_1RTT_PROTECTED_KP0     = 7,
-  PACKET_TYPE_1RTT_PROTECTED_KP1     = 8,
-  PACKET_TYPE_PUBLIC_RESET           = 9,
 };
 
 class LongHeaderData
