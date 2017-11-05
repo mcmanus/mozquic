@@ -63,7 +63,7 @@ public:
   ~StreamOut();
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
   int EndStream();
-  int RstStream(uint32_t code);
+  int RstStream(uint16_t code);
   bool Done() { return mFin && mStreamUnWritten.empty(); }
   uint32_t ScrubUnWritten() { mStreamUnWritten.clear(); return mWriter->ScrubUnWritten(mStreamID); }
   void NewFlowControlLimit(uint64_t limit) {
@@ -106,7 +106,7 @@ public:
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
   bool     MaybeDeleteStream(uint32_t streamID);
-  uint32_t RstStream(uint32_t streamID, uint32_t code);
+  uint32_t RstStream(uint32_t streamID, uint16_t code);
 
   uint32_t Flush(bool forceAck);
   uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
@@ -221,8 +221,8 @@ public:
   ReliableData(ReliableData &);
   ~ReliableData();
 
-  void MakeRstStream(uint32_t code) { mType = kRstStream; mRstCode = code;}
-  void MakeStopSending(uint32_t code) { mType = kStopSending; mStopSendingCode = code;}
+  void MakeRstStream(uint16_t code) { mType = kRstStream; mRstCode = code;}
+  void MakeStopSending(uint16_t code) { mType = kStopSending; mStopSendingCode = code;}
   void MakeMaxStreamData(uint64_t offset) { mType = kMaxStreamData; mStreamCreditValue = offset;}
   void MakeMaxData(uint64_t kb) { mType = kMaxData; mConnectionCreditKB = kb;}
   void MakeMaxStreamID(uint32_t maxID) {mType = kMaxStreamID; mMaxStreamID = maxID; }
@@ -242,8 +242,8 @@ public:
   uint64_t mOffset;
   bool     mFin;
 
-  uint32_t mRstCode; // for kRstStream
-  uint32_t mStopSendingCode;
+  uint16_t mRstCode; // for kRstStream
+  uint16_t mStopSendingCode;
   uint64_t mStreamCreditValue; // for kMaxStreamData
   uint64_t mConnectionCreditKB; // for kMaxData 
   uint32_t mMaxStreamID; // for kMaxStreamID
@@ -323,11 +323,11 @@ public:
     return mOut.EndStream();
   }
 
-  int RstStream(uint32_t code) {
+  int RstStream(uint16_t code) {
     return mOut.RstStream(code);
   }
 
-  int StopSending(uint32_t code);
+  int StopSending(uint16_t code);
   
   bool Done(); // All data and fin bit given to an application and all data are transmitted and acked.
                // todo(or stream has been reseted)

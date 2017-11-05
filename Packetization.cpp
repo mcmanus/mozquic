@@ -198,9 +198,9 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       memcpy(&u.mRstStream.mStreamID, framePtr, 4);
       u.mRstStream.mStreamID = ntohl(u.mRstStream.mStreamID);
       framePtr += 4;
-      memcpy(&u.mRstStream.mErrorCode, framePtr, 4);
-      u.mRstStream.mErrorCode = ntohl(u.mRstStream.mErrorCode);
-      framePtr += 4;
+      memcpy(&u.mRstStream.mErrorCode, framePtr, 2);
+      u.mRstStream.mErrorCode = ntohs(u.mRstStream.mErrorCode);
+      framePtr += 2;
       memcpy(&u.mRstStream.mFinalOffset, framePtr, 8);
       u.mRstStream.mFinalOffset = PR_ntohll(u.mRstStream.mFinalOffset);
       mValid = MOZQUIC_OK;
@@ -356,8 +356,8 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       memcpy(&u.mStopSending.mStreamID, framePtr, 4);
       u.mStopSending.mStreamID = ntohl(u.mStopSending.mStreamID);
       framePtr += 4;
-      memcpy(&u.mStopSending.mErrorCode, framePtr, 4);
-      u.mStopSending.mErrorCode = ntohl(u.mStopSending.mErrorCode);
+      memcpy(&u.mStopSending.mErrorCode, framePtr, 2);
+      u.mStopSending.mErrorCode = ntohs(u.mStopSending.mErrorCode);
       
       mValid = MOZQUIC_OK;
       mFrameLen = FRAME_TYPE_STOP_SENDING_LENGTH;

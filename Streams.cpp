@@ -296,7 +296,7 @@ StreamState::HandleStreamIDBlockedFrame(FrameHeaderData *result, bool fromCleart
 uint32_t
 StreamState::HandleResetStreamFrame(FrameHeaderData *result, bool fromCleartext,
                                     const unsigned char *pkt, const unsigned char *endpkt,
-                                    uint32_t &_ptr)
+                                    uint32_t &)
 {
   if (fromCleartext) {
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed in cleartext\n");
@@ -343,7 +343,7 @@ StreamIn::HandleResetStream(uint64_t finalOffset)
 uint32_t
 StreamState::HandleStopSendingFrame(FrameHeaderData *result, bool fromCleartext,
                                     const unsigned char *pkt, const unsigned char *endpkt,
-                                    uint32_t &_ptr)
+                                    uint32_t &)
 {
   if (fromCleartext) {
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "stop_sending frames not allowed in cleartext\n");
@@ -357,7 +357,7 @@ StreamState::HandleStopSendingFrame(FrameHeaderData *result, bool fromCleartext,
 }
 
 uint32_t
-StreamState::RstStream(uint32_t streamID, uint32_t code)
+StreamState::RstStream(uint32_t streamID, uint16_t code)
 {
   auto i = mStreams.find(streamID);
   if (i == mStreams.end()) {
@@ -904,17 +904,17 @@ StreamState::CreateRstStreamFrame(unsigned char *&framePtr, const unsigned char 
   assert(chunk->mStreamID);
   assert(!chunk->mLen);
   uint32_t room = endpkt - framePtr;
-  if (room < 17) {
+  if (room < 15) {
     return MOZQUIC_ERR_GENERAL;
   }
   framePtr[0] = FRAME_TYPE_RST_STREAM;
   uint32_t tmp32 = htonl(chunk->mStreamID);
   memcpy(framePtr + 1, &tmp32, 4);
-  tmp32 = htonl(chunk->mRstCode);
-  memcpy(framePtr + 5, &tmp32, 4);
+  uint tmp16 = htons(chunk->mRstCode);
+  memcpy(framePtr + 5, &tmp16, 2);
   uint64_t tmp64 = PR_htonll(chunk->mOffset);
-  memcpy(framePtr + 9, &tmp64, 8);
-  framePtr += 17;
+  memcpy(framePtr + 7, &tmp64, 8);
+  framePtr += 15;
   return MOZQUIC_OK;
 }
 
@@ -984,15 +984,15 @@ StreamState::CreateStopSendingFrame(unsigned char *&framePtr, const unsigned cha
   assert(!chunk->mLen);
 
   uint32_t room = endpkt - framePtr;
-  if (room < 9) {
+  if (room < 7) {
     return MOZQUIC_ERR_GENERAL;
   }
   framePtr[0] = FRAME_TYPE_STOP_SENDING;
   uint32_t tmp32 = htonl(chunk->mStreamID);
   memcpy(framePtr + 1, &tmp32, 4);
-  tmp32 = htonl(chunk->mStopSendingCode);
-  memcpy(framePtr + 5, &tmp32, 4);
-  framePtr += 9;
+  uint16_t tmp16 = htons(chunk->mStopSendingCode);
+  memcpy(framePtr + 5, &tmp16, 2);
+  framePtr += 7;
   return MOZQUIC_OK;
 }
 
@@ -1111,7 +1111,7 @@ StreamPair::Done()
 }
 
 int
-StreamPair::StopSending(uint32_t code)
+StreamPair::StopSending(uint16_t code)
 {
   std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, 0, nullptr, 0, 0));
   tmp->MakeStopSending(code);
@@ -1462,7 +1462,7 @@ StreamOut::EndStream()
 }
 
 int
-StreamOut::RstStream(uint32_t code)
+StreamOut::RstStream(uint16_t code)
 {
   if (mFin) {
     return MOZQUIC_ERR_ALREADY_FINISHED;
