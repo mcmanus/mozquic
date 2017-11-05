@@ -40,18 +40,22 @@ MozQuic::StatelessResetSend(uint64_t connID, struct sockaddr_in *peer)
   assert(!mParent);
   ConnectionLog1("Generate Stateless Reset of connection %lx\n", connID);
   unsigned char out[kMaxMTU];
-  uint32_t pad = mMTU - 25;
-  pad = (random() % pad) & ~0x1; // force even
-  assert((pad + 25) <= kMaxMTU);
   out[0] = 0x41;
+  // c bit is yes, k bit is no..
+  uint32_t pad = mMTU - 26;
+  pad = (random() % pad) & ~0x1; // force even
+  pad = (pad > 0) ? pad : 1;
+  assert((pad + 25) <= kMaxMTU);
   uint64_t tmp64 = PR_htonll(connID);
   memcpy(out + 1, &tmp64, sizeof(tmp64));
 
-  StatelessResetCalculateToken(mStatelessResetKey, connID, out + 9); // from key and CID
-
+  // the first these is technically packet number
   for (unsigned int i=0; i < pad; i++) {
-    out[25 + i] = random() & 0xff;
+    out[9 + i] = random() & 0xff;
   }
+
+  StatelessResetCalculateToken(mStatelessResetKey, connID, out + 9 + pad); // from key and CID
+
   return Transmit(out, 25 + pad, peer);
 }
 
@@ -78,7 +82,7 @@ MozQuic::StatelessResetCalculateToken(const unsigned char *key128,
 bool
 MozQuic::StatelessResetCheckForReceipt(const unsigned char *pkt, uint32_t pktSize)
 {
-  if (pktSize < 25) {
+  if (pktSize < 18) {
     return false;
   }
   if (mConnectionState != CLIENT_STATE_CONNECTED) {
@@ -87,13 +91,21 @@ MozQuic::StatelessResetCheckForReceipt(const unsigned char *pkt, uint32_t pktSiz
   if ((pkt[0] & 0x80) != 0x00) { // only short form packets
     return false;
   }
-  uint64_t tmp64;
-  memcpy(&tmp64, pkt + 1, 8);
-  tmp64 = PR_ntohll(tmp64);
-  if (tmp64 != mConnectionID) {
-    return false;
+
+  if (pkt[0] & 0x40) {
+    if (pktSize < 26) {
+      return false;
+    }
+    // CID present
+    uint64_t tmp64;
+    memcpy(&tmp64, pkt + 1, 8);
+    tmp64 = PR_ntohll(tmp64);
+    if (tmp64 != mConnectionID) {
+      return false;
+    }
   }
-  if (memcmp(mStatelessResetToken, pkt + 9, 16)) {
+
+  if (memcmp(mStatelessResetToken, pkt + pktSize - 16, 16)) {
     return false;
   }
   ConnectionLog1("client recvd verified public reset\n");
