@@ -617,6 +617,7 @@ MozQuic::Intake(bool *partialResult)
       case PACKET_TYPE_VERSION_NEGOTIATION:
         // do not do integrity check (nop)
         break;
+
       case PACKET_TYPE_CLIENT_INITIAL:
       case PACKET_TYPE_SERVER_CLEARTEXT:
       case PACKET_TYPE_SERVER_STATELESS_RETRY:
@@ -624,6 +625,7 @@ MozQuic::Intake(bool *partialResult)
           rv = MOZQUIC_ERR_GENERAL;
         }
         break;
+
       case PACKET_TYPE_CLIENT_CLEARTEXT:
         if (!IntegrityCheck(pkt, pktSize)) {
           rv = MOZQUIC_ERR_GENERAL;
@@ -636,6 +638,7 @@ MozQuic::Intake(bool *partialResult)
           session = tmpSession->mAlive;
         }
         break;
+
       case PACKET_TYPE_0RTT_PROTECTED:
         ConnectionLog1("0RTT input not handled\n"); // todo
         rv = MOZQUIC_ERR_GENERAL;
@@ -657,6 +660,7 @@ MozQuic::Intake(bool *partialResult)
         rv = session->ProcessVersionNegotiation(pkt, pktSize, longHeader);
         // do not ack
         break;
+
       case PACKET_TYPE_CLIENT_INITIAL:
         rv = session->ProcessClientInitial(pkt, pktSize, &peer, longHeader, &tmpSession, sendAck);
         // ack after processing - find new session
@@ -670,12 +674,14 @@ MozQuic::Intake(bool *partialResult)
         rv = session->ProcessServerStatelessRetry(pkt, pktSize, longHeader);
         // do not ack
         break;
+
       case PACKET_TYPE_SERVER_CLEARTEXT:
         rv = session->ProcessServerCleartext(pkt, pktSize, longHeader, sendAck);
         if (rv == MOZQUIC_OK) {
           session->Acknowledge(longHeader.mPacketNumber, keyPhaseUnprotected);
         }
         break;
+
       case PACKET_TYPE_CLIENT_CLEARTEXT:
         rv = session->ProcessClientCleartext(pkt, pktSize, longHeader, sendAck);
         if (rv == MOZQUIC_OK) {
