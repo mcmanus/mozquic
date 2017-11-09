@@ -1210,6 +1210,7 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       break;
 
     case FRAME_TYPE_PADDING:
+      sendAck = true; // yes, padding is acked right away but pure acks are not
       break;
 
     case FRAME_TYPE_RST_STREAM:
