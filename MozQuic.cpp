@@ -636,21 +636,13 @@ MozQuic::Intake(bool *partialResult)
           session = tmpSession->mAlive;
         }
         break;
-
-      case PACKET_TYPE_1RTT_PROTECTED_KP0:
-        tmpSession = FindSession(longHeader.mConnectionID);
-        if (!tmpSession) {
-          rv = MOZQUIC_ERR_GENERAL;
-        } else {
-          session = tmpSession->mAlive;
-        }
+      case PACKET_TYPE_0RTT_PROTECTED:
+        ConnectionLog1("0RTT input not handled\n"); // todo
+        rv = MOZQUIC_ERR_GENERAL;
         break;
 
       default:
         ConnectionLog1("recv unexpected type\n");
-        // todo this could actually be out of order protected packet even in handshake
-        // and ideally would be queued. for now we rely on retrans
-        // todo
         rv = MOZQUIC_ERR_GENERAL;
         break;
       }
@@ -688,12 +680,6 @@ MozQuic::Intake(bool *partialResult)
         rv = session->ProcessClientCleartext(pkt, pktSize, longHeader, sendAck);
         if (rv == MOZQUIC_OK) {
           session->Acknowledge(longHeader.mPacketNumber, keyPhaseUnprotected);
-        }
-        break;
-      case PACKET_TYPE_1RTT_PROTECTED_KP0:
-        rv = session->ProcessGeneral(pkt, pktSize, 17, longHeader.mPacketNumber, sendAck);
-        if (rv == MOZQUIC_OK) {
-          session->Acknowledge(longHeader.mPacketNumber, keyPhase1Rtt);
         }
         break;
 
