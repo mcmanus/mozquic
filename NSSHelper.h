@@ -14,6 +14,15 @@ namespace mozquic {
 
 class MozQuic;
 
+enum operationType {
+  kEncrypt0,
+  kDecrypt0,
+//  kEncrypt1,
+//  kDecrypt1,
+  kEncryptHandshake,
+  kDecryptHandshake
+};
+
 class NSSHelper final
 {
 public:
@@ -35,7 +44,20 @@ public:
                         uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                         uint32_t &written);
 
-  bool SetLocalTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // local data to send
+
+  uint32_t EncryptHandshake(const unsigned char *aeadData, uint32_t aeadLen,
+                            const unsigned char *plaintext, uint32_t plaintextLen,
+                            uint64_t packetNumber, uint64_t cid,
+                            unsigned char *out, uint32_t outAvail,
+                            uint32_t &written);
+
+  uint32_t DecryptHandshake(const unsigned char *aeadData, uint32_t aeadLen,
+                            const unsigned char *ciphertext, uint32_t ciphertextLen,
+                            uint64_t packetNumber, uint64_t cid,
+                            unsigned char *out, uint32_t outAvail,
+                            uint32_t &written);
+
+bool SetLocalTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // local data to send
   bool SetRemoteTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // remote data recvd
   void GetRemoteTransportExtensionInfo(unsigned char * &_output, uint16_t &actual) {
     _output = mRemoteTransportExtensionInfo;
@@ -69,7 +91,7 @@ private:
   static SECStatus TransportExtensionHandler(PRFileDesc *fd, SSLHandshakeType m, const PRUint8 *data,
                                              unsigned int len, SSLAlertDescription *alert, void *arg);
   
-  uint32_t BlockOperation(bool encrypt, const unsigned char *aeadData, uint32_t aeadLen,
+  uint32_t BlockOperation(enum operationType mode, const unsigned char *aeadData, uint32_t aeadLen,
                           const unsigned char *plaintext, uint32_t plaintextLen,
                           uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                           uint32_t &written);
@@ -88,7 +110,8 @@ private:
                                           CK_MECHANISM_TYPE &packetMechanism,
                                           CK_MECHANISM_TYPE &importMechanism1,
                                           CK_MECHANISM_TYPE &importMechanism2);
-
+  void MakeHandshakeKeys(uint64_t cid);
+  
   MozQuic             *mMozQuic;
   PRFileDesc          *mFD;
   bool                 mNSSReady;
@@ -113,6 +136,12 @@ private:
   unsigned char       mPacketProtectionSenderIV0[12];
   PK11SymKey         *mPacketProtectionReceiverKey0;
   unsigned char       mPacketProtectionReceiverIV0[12];
+
+  uint64_t            mPacketProtectionHandshakeCID;
+  PK11SymKey         *mPacketProtectionHandshakeSenderKey;
+  unsigned char       mPacketProtectionHandshakeSenderIV[12];
+  PK11SymKey         *mPacketProtectionHandshakeReceiverKey;
+  unsigned char       mPacketProtectionHandshakeReceiverIV[12];
 };
 
 } //namespace

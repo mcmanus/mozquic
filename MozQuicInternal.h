@@ -132,7 +132,7 @@ public:
   void HandshakeOutput(const unsigned char *, uint32_t amt);
   void HandshakeTParamOutput(const unsigned char *, uint32_t amt);
   uint32_t HandshakeComplete(uint32_t errCode, struct mozquic_handshake_info *keyInfo);
-
+  uint64_t ConnectionID() const { return mConnectionID;}
   void SetOriginPort(int port) { mOriginPort = port; }
   void SetOriginName(const char *name);
   void SetStatelessResetKey(const unsigned char *key) { memcpy(mStatelessResetKey, key, 128); }
@@ -196,7 +196,8 @@ private:
   uint32_t BufferForLater(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
                           uint64_t packetNum);
   uint32_t ReleaseProtectedPackets();
-  bool IntegrityCheck(unsigned char *, uint32_t size);
+  bool IntegrityCheck(unsigned char *, uint32_t size, uint64_t pktNum, uint64_t connID,
+                      unsigned char *outbuf, uint32_t &outSize);
   void ProcessAck(class FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext);
   void RTTSample(uint64_t xmit, uint16_t delay);
 

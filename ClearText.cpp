@@ -15,7 +15,6 @@
 
 namespace mozquic  {
 
-static const uint32_t kFNV64Size = 8;
 static const uint32_t kMinClientInitial = 1200;
 
 #define HandshakeLog1(...) Log::sDoLog(Log::HANDSHAKE, 1, this, __VA_ARGS__);
@@ -29,39 +28,42 @@ static const uint32_t kMinClientInitial = 1200;
 #define HandshakeLog9(...) Log::sDoLog(Log::HANDSHAKE, 9, this, __VA_ARGS__);
 #define HandshakeLog10(...) Log::sDoLog(Log::HANDSHAKE, 10, this, __VA_ARGS__);
 
-static uint64_t
-fnv1a(unsigned char *p, uint32_t len)
-{
-  const uint64_t prime = 1099511628211UL;
-  uint64_t hash = 14695981039346656037UL;
-  for (uint32_t i = 0; i < len; ++i) {
-    hash ^= p[i];
-    hash *= prime;
-  }
-  return hash;
-}
-
 bool
-MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize)
+MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize,
+                        uint64_t pktNum, uint64_t connID,
+                        unsigned char *outbuf, uint32_t &outSize)
 {
   assert (pkt[0] & 0x80);
   assert (((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) ||
           ((pkt[0] & 0x7f) == PACKET_TYPE_SERVER_STATELESS_RETRY) ||
           ((pkt[0] & 0x7f) == PACKET_TYPE_SERVER_CLEARTEXT) ||
           ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_CLEARTEXT));
-  if (pktSize < (kFNV64Size + 17)) {
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"hash err\n");
+  assert (pktSize >= 17);
+
+  if (!mNSSHelper) {
+    MozQuic *tmpSession = FindSession(connID);
+    if (tmpSession) {
+      assert (tmpSession->mNSSHelper);
+      return tmpSession->IntegrityCheck(pkt, pktSize, pktNum, connID, outbuf, outSize);
+    }
+  }
+  std::unique_ptr<NSSHelper> tmpNSS;
+  if (!mNSSHelper) {
+    assert(!mIsClient);
+    // todo we really only need the handshake keys
+    tmpNSS.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get()));
+  }
+  NSSHelper *nss = tmpNSS.get() ? tmpNSS.get() : mNSSHelper.get();
+
+  if (nss->DecryptHandshake(pkt, 17, pkt + 17, pktSize - 17, pktNum, connID,
+                            outbuf + 17, kMozQuicMSS - 17, outSize) != MOZQUIC_OK) {
+    ConnectionLog1("Decrypt handshake failed packet %lX integrity error\n", pktNum);
     return false;
   }
-  uint64_t hash = fnv1a(pkt, pktSize - kFNV64Size);
-  uint64_t recvdHash;
-  memcpy(&recvdHash, pkt + pktSize - kFNV64Size, kFNV64Size);
-  recvdHash = PR_ntohll(recvdHash);
-  bool rv = recvdHash == hash;
-  if (!rv) {
-    HandshakeLog1("integrity error\n");
-  }
-  return rv;
+  memcpy(outbuf, pkt, 17);
+  outSize += 17;
+  ConnectionLog5("Decrypt handshake (pktnum=%lX) ok sz=%d\n", pktNum, outSize);
+  return true;
 }
 
 uint32_t
@@ -102,29 +104,29 @@ MozQuic::FlushStream0(bool forceAck)
     assert(mStreamState->mUnAckedData.empty());
   }
   memcpy(pkt + 1, &connID, 8);
+  connID = PR_ntohll(connID);
 
   tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
   if (mConnectionState == SERVER_STATE_SSR) {
     tmp32 = htonl(mClientInitialPacketNumber & 0xffffffff);
   }
+  uint32_t usedPacketNumber = ntohl(tmp32);
   memcpy(pkt + 9, &tmp32, 4);
   tmp32 = htonl(mVersion);
   memcpy(pkt + 13, &tmp32, 4);
 
   unsigned char *framePtr = pkt + 17;
-  mStreamState->CreateStreamFrames(framePtr, endpkt - 8, true); // last 8 are for checksum
+  mStreamState->CreateStreamFrames(framePtr, endpkt - 16, true); // last 16 are aead tag
   bool sentStream = (framePtr != (pkt + 17));
 
   // then padding as needed up to mtu on client_initial
-  uint32_t finalLen;
+  uint32_t paddingNeeded = 0;
 
   if ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) {
-    finalLen = (framePtr - pkt) + 8;
-    if (finalLen < kMinClientInitial) {
-      finalLen = kMinClientInitial;
+    if (((framePtr - pkt) + 16) < kMinClientInitial) {
+      paddingNeeded = kMinClientInitial - ((framePtr - pkt) + 16);
     }
   } else if (mConnectionState == SERVER_STATE_SSR) {
-    finalLen = ((framePtr - pkt) + 8);
     mConnectionState = SERVER_STATE_1RTT;
     mStreamState->mUnAckedData.clear();
     assert(mStreamState->mConnUnWritten.empty());
@@ -132,7 +134,7 @@ MozQuic::FlushStream0(bool forceAck)
       mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
     }
   } else {
-    uint32_t room = endpkt - framePtr - 8; // the last 8 are for checksum
+    uint32_t room = endpkt - framePtr - 16; // the last 16 are for aead tag
     uint32_t used;
     if (AckPiggyBack(framePtr, mNextTransmitPacketNumber, room, keyPhaseUnprotected, used) == MOZQUIC_OK) {
       if (used) {
@@ -140,27 +142,37 @@ MozQuic::FlushStream0(bool forceAck)
       }
       framePtr += used;
     }
-    finalLen = ((framePtr - pkt) + 8);
   }
 
   if (framePtr != (pkt + 17)) {
-    uint32_t paddingNeeded = finalLen - 8 - (framePtr - pkt);
+    assert(framePtr > (pkt + 17));
     memset (framePtr, 0, paddingNeeded);
     framePtr += paddingNeeded;
 
-    // then 8 bytes of checksum on cleartext packets
-    assert (kFNV64Size == 8);
-    uint64_t hash = fnv1a(pkt, finalLen - kFNV64Size);
-    hash = PR_htonll(hash);
-    memcpy(framePtr, &hash, kFNV64Size);
-    uint32_t code = Transmit(pkt, finalLen, nullptr);
+    unsigned char cipherPkt[kMozQuicMSS];
+    uint32_t cipherLen = 0;
+    memcpy(cipherPkt, pkt, 17);
+    uint32_t rv = mNSSHelper->EncryptHandshake(pkt, 17, pkt + 17, framePtr - (pkt + 17),
+                                               usedPacketNumber, connID,
+                                               cipherPkt + 17, kMozQuicMSS - 17, cipherLen);
+    if (rv != MOZQUIC_OK) {
+      HandshakeLog1("TRANSMIT0[%lX] this=%p Encrypt Fail %x\n",
+                    usedPacketNumber, this, rv);
+      return rv;
+    }
+    assert (cipherLen == (framePtr - (pkt + 17)) + 16);
+    uint32_t code = Transmit(cipherPkt, cipherLen + 17, nullptr);
     if (code != MOZQUIC_OK) {
+      HandshakeLog1("TRANSMIT0[%lX] this=%p Transmit Fail %x\n",
+                    usedPacketNumber, this, rv);
       return code;
     }
 
-    HandshakeLog5("TRANSMIT0[%lX] this=%p len=%d total0=%d\n",
-                  mNextTransmitPacketNumber, this, finalLen,
-                  mNextTransmitPacketNumber - mOriginalTransmitPacketNumber);
+    Log::sDoLogCID(Log::HANDSHAKE, 5, this, connID,
+                   "TRANSMIT0[%lX] this=%p len=%d total0=%d\n",
+                   usedPacketNumber, this, cipherLen + 17,
+                   mNextTransmitPacketNumber - mOriginalTransmitPacketNumber);
+
     mNextTransmitPacketNumber++;
 
     if (sentStream && !mStreamState->mConnUnWritten.empty()) {
@@ -218,7 +230,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
   SetInitialPacketNumber();
 
   bool sendack = false;
-  return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendack, true);
+  return ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendack, true);
 }
 
 uint32_t
@@ -341,12 +353,12 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
     }
 
     HandshakeLog4("server clear text changed connID to %lx\n",
-            header.mConnectionID);
+                  header.mConnectionID);
     mConnectionID = header.mConnectionID;
   }
   mReceivedServerClearText = true;
 
-  return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck, true);
+  return ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
 }
 
 int
@@ -370,7 +382,7 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  if (pktSize < kMinClientInitial) {
+  if (pktSize < (kMinClientInitial - 16)) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"client initial packet too small\n");
     return MOZQUIC_ERR_GENERAL;
   }
@@ -401,7 +413,7 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
   assert(!mIsChild);
   assert(!mIsClient);
   mChildren.emplace_back(child->mAlive);
-  child->ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck, true);
+  child->ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
   child->mConnectionState = SERVER_STATE_1RTT;
 
   if (mConnEventCB) {
@@ -430,7 +442,7 @@ MozQuic::ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
     return MOZQUIC_ERR_GENERAL;
   }
 
-  return ProcessGeneralDecoded(pkt + 17, pktSize - 17 - 8, sendAck, true);
+  return ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
 }
 
 uint32_t

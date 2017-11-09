@@ -287,6 +287,14 @@ MozQuic::StartClient()
 {
   assert(!mHandleIO); // todo
   mIsClient = true;
+
+  mConnectionState = CLIENT_STATE_1RTT;
+  for (int i=0; i < 4; i++) {
+    mConnectionID = mConnectionID << 16;
+    mConnectionID = mConnectionID | (random() & 0xffff);
+  }
+  SetInitialPacketNumber();
+
   mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
   mStreamState->InitIDs(1,2);
   mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
@@ -296,13 +304,6 @@ MozQuic::StartClient()
 
   assert(!mClientOriginalOfferedVersion);
   mClientOriginalOfferedVersion = mVersion;
-
-  mConnectionState = CLIENT_STATE_1RTT;
-  for (int i=0; i < 4; i++) {
-    mConnectionID = mConnectionID << 16;
-    mConnectionID = mConnectionID | (random() & 0xffff);
-  }
-  SetInitialPacketNumber();
 
   if (mFD == MOZQUIC_SOCKET_BAD) {
     // the application did not pass in its own fd
@@ -389,7 +390,6 @@ MozQuic::FindSession(uint64_t cid)
 
   auto i = mConnectionHash.find(cid);
   if (i == mConnectionHash.end()) {
-    ConnectionLog2("FindSession() could not find id in hash\n");
     return nullptr;
   }
   return (*i).second;
@@ -544,10 +544,13 @@ MozQuic::Intake(bool *partialResult)
           mConnectionState == CLIENT_STATE_CLOSED);
   uint32_t rv = MOZQUIC_OK;
 
-  unsigned char pkt[kMozQuicMSS];
   bool sendAck;
   do {
+    unsigned char pktReal1[kMozQuicMSS];
+    unsigned char pktReal2[kMozQuicMSS];
+    unsigned char *pkt = pktReal1;
     uint32_t pktSize = 0;
+    uint32_t decodedSize = 0;
     sendAck = false;
     struct sockaddr_in peer;
     rv = Recv(pkt, kMozQuicMSS, pktSize, &peer);
@@ -559,7 +562,7 @@ MozQuic::Intake(bool *partialResult)
     std::shared_ptr<MozQuic> session(mAlive); // default
     MozQuic *tmpSession = nullptr;
       
-    if (!(pkt[0] & 0x80)) {
+    if (!(pkt[0] & 0x80)) { // protected packets
       ShortHeaderData tmpShortHeader(pkt, pktSize, 0, mConnectionID);
       if (pktSize < tmpShortHeader.mHeaderSize) {
         return rv;
@@ -621,18 +624,27 @@ MozQuic::Intake(bool *partialResult)
       case PACKET_TYPE_CLIENT_INITIAL:
       case PACKET_TYPE_SERVER_CLEARTEXT:
       case PACKET_TYPE_SERVER_STATELESS_RETRY:
-        if (!IntegrityCheck(pkt, pktSize)) {
+        if (!IntegrityCheck(pkt, pktSize, longHeader.mPacketNumber, longHeader.mConnectionID,
+                            pktReal2, decodedSize)) {
           rv = MOZQUIC_ERR_GENERAL;
         }
+        pkt = pktReal2;
+        pktSize = decodedSize;
         break;
 
       case PACKET_TYPE_CLIENT_CLEARTEXT:
-        if (!IntegrityCheck(pkt, pktSize)) {
+        if (!IntegrityCheck(pkt, pktSize, longHeader.mPacketNumber, longHeader.mConnectionID,
+                            pktReal2, decodedSize)) {
           rv = MOZQUIC_ERR_GENERAL;
           break;
         }
+        pkt = pktReal2;
+        pktSize = decodedSize;
+
         tmpSession = FindSession(longHeader.mConnectionID);
         if (!tmpSession) {
+          ConnectionLog1("FindSession() could not find id in hash %lX\n",
+                         longHeader.mConnectionID);
           rv = MOZQUIC_ERR_GENERAL;
         } else {
           session = tmpSession->mAlive;
@@ -1365,7 +1377,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
       child->mConnectionID = child->mConnectionID | (random() & 0xffff);
     }
   } while (mConnectionHash.count(child->mConnectionID) != 0);
-
+  
   child->SetInitialPacketNumber();
 
   child->mNSSHelper.reset(new NSSHelper(child, mTolerateBadALPN, mOriginName.get()));

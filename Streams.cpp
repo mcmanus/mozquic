@@ -145,7 +145,7 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                                const unsigned char *pkt, const unsigned char *endpkt,
                                uint32_t &_ptr)
 {
-  StreamLog5("recv stream %d len=%d offset=%d fin=%d\n",
+  StreamLog5("recv stream %lu len=%lu offset=%lu fin=%d\n",
              result->u.mStream.mStreamID,
              result->u.mStream.mDataLen,
              result->u.mStream.mOffset,
