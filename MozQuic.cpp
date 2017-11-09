@@ -1432,7 +1432,7 @@ MozQuic::NSSInput(void *buf, int32_t amount)
   bool fin = false;
 
   uint32_t code = mStreamState->mStream0->Read((unsigned char *)buf,
-                                 amount, amt, fin);
+                                               amount, amt, fin);
   if (code != MOZQUIC_OK) {
     PR_SetError(PR_IO_ERROR, 0);
     return -1;
