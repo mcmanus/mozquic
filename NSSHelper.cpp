@@ -535,7 +535,7 @@ NSSHelper::MakeHandshakeKeys(uint64_t cid)
   unsigned char expandOut[16];
 
   mPacketProtectionHandshakeCID = cid;
-  TlsLog1("MakeHandshakeKeys for ConnID %lX\n", mPacketProtectionHandshakeCID);
+  TlsLog5("MakeHandshakeKeys for ConnID %lX\n", mPacketProtectionHandshakeCID);
   uint64_t tmp64 = PR_htonll(mPacketProtectionHandshakeCID);
   SECItem cidItem = { siBuffer, (unsigned char *)&tmp64, 8 };
 
@@ -713,14 +713,14 @@ NSSHelper::BlockOperation(enum operationType mode,
     memcpy(nonce, mPacketProtectionReceiverIV0, sizeof(nonce));
     mech = mPacketProtectionMech;
   } else if (mode == kEncryptHandshake) {
-    TlsLog1("BlockOperation encrypt handshake with cidkey %lX\n",
+    TlsLog5("BlockOperation encrypt handshake with cidkey %lX\n",
             mPacketProtectionHandshakeCID);
     key = mPacketProtectionHandshakeSenderKey;
     memcpy(nonce, mPacketProtectionHandshakeSenderIV, sizeof(nonce));
     mech = CKM_AES_GCM;
   } else {
     assert (mode == kDecryptHandshake);
-    TlsLog1("BlockOperation decrypt handshake with cidkey %lX\n",
+    TlsLog5("BlockOperation decrypt handshake with cidkey %lX\n",
             mPacketProtectionHandshakeCID);
     key = mPacketProtectionHandshakeReceiverKey;
     mech = CKM_AES_GCM;
