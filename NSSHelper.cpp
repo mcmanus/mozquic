@@ -99,7 +99,6 @@ tls13_HkdfExtract(PK11SymKey *ikm1, PK11SymKey *ikm2, SSLHashType baseHash,
   SECStatus rv;
   SECItem *salt;
   PK11SymKey *prk;
-  PK11SlotInfo *slot = NULL;
 
   params.bExtract = CK_TRUE;
   params.bExpand = CK_FALSE;
@@ -133,8 +132,6 @@ tls13_HkdfExtract(PK11SymKey *ikm1, PK11SymKey *ikm2, SSLHashType baseHash,
   prk = PK11_Derive(ikm2, kTlsHkdfInfo[baseHash].pkcs11Mech,
                     &paramsi, kTlsHkdfInfo[baseHash].pkcs11Mech,
                     CKA_DERIVE, kTlsHkdfInfo[baseHash].hashSize);
-  if (slot)
-    PK11_FreeSlot(slot);
   if (!prk)
     return SECFailure;
 
@@ -225,7 +222,7 @@ tls13_HkdfExpandLabelRaw(PK11SymKey *prk, SSLHashType baseHash,
   PK11SymKey *derived = NULL;
   SECItem *rawkey;
   SECStatus rv;
-
+  
   rv = tls13_HkdfExpandLabel(prk, baseHash, label, labelLen,
                              kTlsHkdfInfo[baseHash].pkcs11Mech, outputLen,
                              &derived);
@@ -527,14 +524,15 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
 void
 NSSHelper::MakeHandshakeKeys(uint64_t cid)
 {
-  static const char *clientLabel = "QUIC client handshake secret";
-  static const char *serverLabel = "QUIC server handshake secret";
+  static const char *clientLabel = "QUIC client cleartext Secret";
+  static const char *serverLabel = "QUIC server cleartext Secret";
   PK11SlotInfo *slot = nullptr;
   PK11SymKey *cidKey = nullptr;
   PK11SymKey *handshakeSecret = nullptr;
-  unsigned char expandOut[16];
-
+  unsigned char expandOut[32];
+    
   mPacketProtectionHandshakeCID = cid;
+
   TlsLog5("MakeHandshakeKeys for ConnID %lX\n", mPacketProtectionHandshakeCID);
   uint64_t tmp64 = PR_htonll(mPacketProtectionHandshakeCID);
   SECItem cidItem = { siBuffer, (unsigned char *)&tmp64, 8 };
@@ -555,41 +553,42 @@ NSSHelper::MakeHandshakeKeys(uint64_t cid)
       !handshakeSecret) {
     goto cleanup;
   }
-
-
+  assert (PK11_ExtractKeyValue(handshakeSecret) == SECSuccess);
+  assert (PK11_GetKeyData(handshakeSecret)->len == 32);
+  
   if (tls13_HkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
                                clientLabel, strlen(clientLabel),
-                               expandOut, 16) != SECSuccess) {
+                               expandOut, 32) != SECSuccess) {
     goto cleanup;
   }
 
   if (mIsClient) {
-    MakeKeyFromRaw(expandOut, 16, 16, ssl_hash_sha256,
+    MakeKeyFromRaw(expandOut, 32, 16, ssl_hash_sha256,
                    CKM_NSS_HKDF_SHA256, CKM_AES_KEY_GEN,
                    mPacketProtectionHandshakeSenderIV, &mPacketProtectionHandshakeSenderKey);
   } else {
-    MakeKeyFromRaw(expandOut, 16, 16, ssl_hash_sha256,
+    MakeKeyFromRaw(expandOut, 32, 16, ssl_hash_sha256,
                    CKM_NSS_HKDF_SHA256, CKM_AES_KEY_GEN,
                    mPacketProtectionHandshakeReceiverIV, &mPacketProtectionHandshakeReceiverKey);
   }
       
   if (tls13_HkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
                                serverLabel, strlen(serverLabel),
-                               expandOut, 16) != SECSuccess) {
+                               expandOut, 32) != SECSuccess) {
     goto cleanup;
   }
 
   if (mIsClient) {
-    MakeKeyFromRaw(expandOut, 16, 16, ssl_hash_sha256,
+    MakeKeyFromRaw(expandOut, 32, 16, ssl_hash_sha256,
                    CKM_NSS_HKDF_SHA256, CKM_AES_KEY_GEN,
                    mPacketProtectionHandshakeReceiverIV, &mPacketProtectionHandshakeReceiverKey);
   } else {
-    MakeKeyFromRaw(expandOut, 16, 16, ssl_hash_sha256,
+    MakeKeyFromRaw(expandOut, 32, 16, ssl_hash_sha256,
                    CKM_NSS_HKDF_SHA256, CKM_AES_KEY_GEN,
                    mPacketProtectionHandshakeSenderIV, &mPacketProtectionHandshakeSenderKey);
   }
 
-  cleanup:
+cleanup:
   if (slot) {
     PK11_FreeSlot(slot);
   }

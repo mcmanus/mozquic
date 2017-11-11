@@ -57,7 +57,7 @@ public:
                             unsigned char *out, uint32_t outAvail,
                             uint32_t &written);
 
-bool SetLocalTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // local data to send
+  bool SetLocalTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // local data to send
   bool SetRemoteTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // remote data recvd
   void GetRemoteTransportExtensionInfo(unsigned char * &_output, uint16_t &actual) {
     _output = mRemoteTransportExtensionInfo;
