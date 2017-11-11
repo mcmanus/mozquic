@@ -55,6 +55,12 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize,
   }
   NSSHelper *nss = tmpNSS.get() ? tmpNSS.get() : mNSSHelper.get();
 
+  assert(mOriginalConnectionID ||
+         ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL));
+  if ((pkt[0] & 0x7f) != PACKET_TYPE_CLIENT_INITIAL) {
+    connID = mOriginalConnectionID;
+  }
+  
   if (nss->DecryptHandshake(pkt, 17, pkt + 17, pktSize - 17, pktNum, connID,
                             outbuf + 17, kMozQuicMSS - 17, outSize) != MOZQUIC_OK) {
     ConnectionLog1("Decrypt handshake failed packet %lX integrity error\n", pktNum);
@@ -152,8 +158,10 @@ MozQuic::FlushStream0(bool forceAck)
     unsigned char cipherPkt[kMozQuicMSS];
     uint32_t cipherLen = 0;
     memcpy(cipherPkt, pkt, 17);
+
+    assert(mOriginalConnectionID);
     uint32_t rv = mNSSHelper->EncryptHandshake(pkt, 17, pkt + 17, framePtr - (pkt + 17),
-                                               usedPacketNumber, connID,
+                                               usedPacketNumber, mOriginalConnectionID,
                                                cipherPkt + 17, kMozQuicMSS - 17, cipherLen);
     if (rv != MOZQUIC_OK) {
       HandshakeLog1("TRANSMIT0[%lX] this=%p Encrypt Fail %x\n",

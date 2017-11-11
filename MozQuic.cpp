@@ -293,6 +293,7 @@ MozQuic::StartClient()
     mConnectionID = mConnectionID << 16;
     mConnectionID = mConnectionID | (random() & 0xffff);
   }
+  mOriginalConnectionID = mConnectionID;
   SetInitialPacketNumber();
 
   mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
