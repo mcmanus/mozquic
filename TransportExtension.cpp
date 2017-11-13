@@ -19,6 +19,7 @@ enum TransportExtensionID {
   kOmitConnectionID     = 0x4,
   kMaxPacketSize        = 0x5,
   kStatelessResetToken  = 0x6,
+  kAckDelayExponent     = 0x7,
 };
 
 void
