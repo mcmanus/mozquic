@@ -43,6 +43,7 @@ public:
                                               __uint128_t initialMaxData,
                                               uint32_t initialMaxStreamID,
                                               uint16_t idleTimeout,
+                                              bool     omitCID,
                                               uint16_t maxPacket);
   static uint32_t DecodeClientTransportParameters(unsigned char *input, uint16_t inputSize,
                                                   uint32_t &_negotiatedVersion,
@@ -51,6 +52,7 @@ public:
                                                   uint32_t &_initialMaxData,
                                                   uint32_t &_initialMaxStreamID,
                                                   uint16_t &_idleTimeout,
+                                                  bool     &_omitCID,
                                                   uint16_t &_maxPacket,
                                                   MozQuic *forLogging);
   
@@ -60,6 +62,7 @@ public:
                                               __uint128_t initialMaxData,
                                               uint32_t initialMaxStreamID,
                                               uint16_t idleTimeout,
+                                              bool     omitCID,
                                               uint16_t maxPacket,
                                               unsigned char *statelessResetToken /* 16 bytes */);
   static uint32_t DecodeServerTransportParameters(unsigned char *input, uint16_t inputSize,
@@ -68,6 +71,7 @@ public:
                                                   uint32_t &_initialMaxData,
                                                   uint32_t &_initialMaxStreamID,
                                                   uint16_t &_idleTimeout,
+                                                  bool     &_omitCID,
                                                   uint16_t &_maxPacket,
                                                   unsigned char *_statelessResetToken /* 16 bytes */,
                                                   MozQuic *forLogging);

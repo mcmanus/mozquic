@@ -68,6 +68,8 @@ MozQuic::MozQuic(bool handleIO)
   , mPMTUD1PacketNumber(0)
   , mPMTUDTarget(kMaxMTU)
   , mDecodedOK(false)
+  , mLocalOmitCID(false)
+  , mPeerOmitCID(false)
   , mPeerIdleTimeout(kIdleTimeoutDefault)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
@@ -151,7 +153,7 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                            unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
                            bool addAcks, uint32_t MTU)
 {
-  assert(headerLen >= 11);
+  assert(headerLen >= 3);
   assert(headerLen <= 13);
 
   if (!MTU) {
@@ -290,6 +292,7 @@ MozQuic::StartClient()
 {
   assert(!mHandleIO); // todo
   mIsClient = true;
+  mLocalOmitCID = true;
 
   mConnectionState = CLIENT_STATE_1RTT;
   for (int i=0; i < 4; i++) {
@@ -427,7 +430,7 @@ MozQuic::EnsureSetupClientTransportParameters()
                                     mStreamState->mLocalMaxStreamData,
                                     mStreamState->mLocalMaxData,
                                     mStreamState->mLocalMaxStreamID,
-                                    kIdleTimeoutDefault,
+                                    kIdleTimeoutDefault, mLocalOmitCID,
                                     mLocalMaxSizeAllowed);
   if (mAppHandlesSendRecv) {
     struct mozquic_eventdata_tlsinput data;
@@ -505,7 +508,7 @@ MozQuic::Server1RTT()
                                       mStreamState->mLocalMaxStreamData,
                                       mStreamState->mLocalMaxData,
                                       mStreamState->mLocalMaxStreamID,
-                                      kIdleTimeoutDefault,
+                                      kIdleTimeoutDefault, mLocalOmitCID,
                                       mLocalMaxSizeAllowed,
                                       resetToken);
     mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
@@ -570,7 +573,7 @@ MozQuic::Intake(bool *partialResult)
     MozQuic *tmpSession = nullptr;
       
     if (!(pkt[0] & 0x80)) { // protected packets
-      ShortHeaderData tmpShortHeader(pkt, pktSize, 0, mConnectionID);
+      ShortHeaderData tmpShortHeader(pkt, pktSize, 0, mLocalOmitCID ? mConnectionID : 0);
       if (pktSize < tmpShortHeader.mHeaderSize) {
         return rv;
       }
@@ -584,10 +587,13 @@ MozQuic::Intake(bool *partialResult)
         continue;
       }
       session = tmpSession->mAlive;
-      ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber, mConnectionID);
+      ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber,
+                                  mLocalOmitCID ? mConnectionID : 0);
       assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
-      ConnectionLogCID5(shortHeader.mConnectionID, "SHORTFORM PACKET[%d] pkt# %lX hdrsize=%d\n",
-                     pktSize, shortHeader.mPacketNumber, shortHeader.mHeaderSize);
+      ConnectionLogCID5(shortHeader.mConnectionID,
+                        "SHORTFORM PACKET[%d] pkt# %lX hdrsize=%d explicitcid=%d\n",
+                        pktSize, shortHeader.mPacketNumber, shortHeader.mHeaderSize,
+                        (pkt[0] & 0x40));
       rv = session->ProcessGeneral(pkt, pktSize,
                                    shortHeader.mHeaderSize, shortHeader.mPacketNumber, sendAck);
       if (rv == MOZQUIC_OK) {
@@ -912,7 +918,7 @@ MozQuic::ClientConnected()
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
-                                      mMaxPacketConfig,
+                                      mPeerOmitCID, mMaxPacketConfig,
                                       mStatelessResetToken, this);
     mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
     if (decodeResult != MOZQUIC_OK) {
@@ -1004,17 +1010,18 @@ MozQuic::ServerConnected()
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
-                                      mMaxPacketConfig, this);
+                                      mPeerOmitCID, mMaxPacketConfig, this);
     ConnectionLog6(
             "decode client parameters: "
             "maxstreamdata %u "
             "maxdatakb %u "
             "maxstreamid %u "
             "idle %u "
+            "omitCID %d "
             "maxpacket %u\n",
             mStreamState->mPeerMaxStreamData,
             peerMaxDataKB,
-            mStreamState->mPeerMaxStreamID, mPeerIdleTimeout, mMaxPacketConfig);
+            mStreamState->mPeerMaxStreamID, mPeerIdleTimeout, mPeerOmitCID, mMaxPacketConfig);
             
     mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
     Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,

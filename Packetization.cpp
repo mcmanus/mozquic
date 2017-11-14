@@ -29,13 +29,15 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   }
 
   // section 5.2 of transport short form header:
-  // (0 c=1 k=0) | type [2 or 3]
-  pkt[0] = 0x40 | pnSizeType;
+  // (0, mPeerOmitCID, k=0) | type [2 or 3]
+  pkt[0] = ((!mPeerOmitCID) ? 0x40 : 0x00) | pnSizeType;
+  used = 1;
 
-  // todo store a network order version of this
-  uint64_t tmp64 = PR_htonll(mConnectionID);
-  memcpy(pkt + 1, &tmp64, 8);
-  used = 9;
+  if (!mPeerOmitCID) {
+    uint64_t tmp64 = PR_htonll(mConnectionID);
+    memcpy(pkt + used, &tmp64, 8);
+    used += 8;
+  }
 
   if (pnSizeType == 2) {
     uint16_t tmp16 = htons(mNextTransmitPacketNumber & 0xffff);

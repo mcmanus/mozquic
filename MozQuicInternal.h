@@ -326,6 +326,8 @@ private:
   uint16_t mPMTUDTarget;
 
   bool     mDecodedOK;
+  bool     mLocalOmitCID;
+  bool     mPeerOmitCID;
 
   uint16_t mPeerIdleTimeout;
 
