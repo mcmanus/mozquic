@@ -153,6 +153,7 @@ public:
   void SetStreamWindow(uint64_t w) { mAdvertiseStreamWindow = w; }
   void SetConnWindowKB(uint64_t kb) { mAdvertiseConnectionWindowKB = kb; }
   void SetDropRate(uint64_t dr) { mDropRate = dr; }
+  void SetMaxSizeAllowed(uint16_t ms) { mLocalMaxSizeAllowed = ms; }
   void SetClientPort(int clientPort) { mClientPort = clientPort; }
 
   void SetAppHandlesSendRecv() { mAppHandlesSendRecv = true; }
@@ -293,7 +294,8 @@ private:
   };
   std::unordered_map<uint64_t, struct InitialClientPacketInfo> mConnectionHashOriginalNew;
 
-  uint32_t mMTU;
+  uint16_t mMaxPacketConfig;
+  uint16_t mMTU;
   uint64_t mConnectionID;
   uint64_t mOriginalConnectionID;
   uint64_t mNextTransmitPacketNumber;
@@ -321,6 +323,7 @@ private:
   uint64_t mPingDeadline;
   uint64_t mPMTUD1Deadline;
   uint64_t mPMTUD1PacketNumber;
+  uint16_t mPMTUDTarget;
 
   bool     mDecodedOK;
 
@@ -329,6 +332,7 @@ private:
   uint64_t mAdvertiseStreamWindow;
   uint64_t mAdvertiseConnectionWindowKB;
   uint16_t mDropRate;
+  uint16_t mLocalMaxSizeAllowed;
 
   uint16_t mSmoothedRTT;
 

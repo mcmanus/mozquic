@@ -55,23 +55,27 @@ MozQuic::StartPMTUD1()
   if (mMTU >= kMaxMTU) {
     return;
   }
+  if (mMTU >= mMaxPacketConfig) {
+    return;
+  }
   unsigned char plainPkt[kMaxMTU];
   uint32_t used = 0;
+  mPMTUDTarget = (kMaxMTU < mMaxPacketConfig) ? kMaxMTU : mMaxPacketConfig;
 
-  CreateShortPacketHeader(plainPkt, kMaxMTU - kTagLen, used);
+  CreateShortPacketHeader(plainPkt, mPMTUDTarget - kTagLen, used);
   uint32_t headerLen = used;
   plainPkt[used] = FRAME_TYPE_PING;
   used++;
-  uint32_t room = kMaxMTU - used - kTagLen;
+  uint32_t room = mPMTUDTarget - used - kTagLen;
   memset(plainPkt + used, FRAME_TYPE_PADDING, room);
   used += room;
 
-  ConnectionLog5("pmtud1: %d MTU test started\n", kMaxMTU);
+  ConnectionLog5("pmtud1: %d MTU test started\n", mPMTUDTarget);
   mPMTUD1PacketNumber = mNextTransmitPacketNumber;
   mPMTUD1Deadline = Timestamp() + 3000; // 3 seconds to ack the ping
   if (ProtectedTransmit(plainPkt, headerLen,
                         plainPkt + headerLen, room + 1,
-                        kMaxMTU - headerLen - kTagLen, false, kMaxMTU) != MOZQUIC_OK) {
+                        mPMTUDTarget - headerLen - kTagLen, false, mPMTUDTarget) != MOZQUIC_OK) {
     mPMTUD1PacketNumber = 0;
   }
 }
@@ -80,17 +84,17 @@ void
 MozQuic::CompletePMTUD1()
 {
   assert (mPMTUD1PacketNumber);
-  ConnectionLog5("pmtud1: %d MTU CONFIRMED.\n", kMaxMTU);
+  ConnectionLog5("pmtud1: %d MTU CONFIRMED.\n", mPMTUDTarget);
   mPMTUD1PacketNumber = 0;
   mPMTUD1Deadline = 0;
-  mMTU = kMaxMTU;
+  mMTU = mPMTUDTarget;
 }
 
 void
 MozQuic::AbortPMTUD1()
 {
   assert (mPMTUD1PacketNumber);
-  ConnectionLog1("pmtud1: %d MTU CHECK Failed.\n", kMaxMTU);
+  ConnectionLog1("pmtud1: %d MTU CHECK Failed.\n", mPMTUDTarget);
   mPMTUD1PacketNumber = 0;
   mPMTUD1Deadline = 0;
 }

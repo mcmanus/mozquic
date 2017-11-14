@@ -42,7 +42,8 @@ public:
                                               uint32_t initialMaxStreamData,
                                               __uint128_t initialMaxData,
                                               uint32_t initialMaxStreamID,
-                                              uint16_t idleTimeout);
+                                              uint16_t idleTimeout,
+                                              uint16_t maxPacket);
   static uint32_t DecodeClientTransportParameters(unsigned char *input, uint16_t inputSize,
                                                   uint32_t &_negotiatedVersion,
                                                   uint32_t &_initialVersion,
@@ -50,6 +51,7 @@ public:
                                                   uint32_t &_initialMaxData,
                                                   uint32_t &_initialMaxStreamID,
                                                   uint16_t &_idleTimeout,
+                                                  uint16_t &_maxPacket,
                                                   MozQuic *forLogging);
   
   static void EncodeServerTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
@@ -58,6 +60,7 @@ public:
                                               __uint128_t initialMaxData,
                                               uint32_t initialMaxStreamID,
                                               uint16_t idleTimeout,
+                                              uint16_t maxPacket,
                                               unsigned char *statelessResetToken /* 16 bytes */);
   static uint32_t DecodeServerTransportParameters(unsigned char *input, uint16_t inputSize,
                                                   uint32_t *versionList, uint16_t &_versionListSize,
@@ -65,6 +68,7 @@ public:
                                                   uint32_t &_initialMaxData,
                                                   uint32_t &_initialMaxStreamID,
                                                   uint16_t &_idleTimeout,
+                                                  uint16_t &_maxPacket,
                                                   unsigned char *_statelessResetToken /* 16 bytes */,
                                                   MozQuic *forLogging);
 

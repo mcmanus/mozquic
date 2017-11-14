@@ -30,6 +30,7 @@ struct mozquic_internal_config_t
   uint64_t connWindowKB;
   uint64_t dropRate;
   int clientPort;
+  uint16_t maxSizeAllowed;
 };
   
 uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t arg1, uint64_t )
@@ -57,6 +58,8 @@ uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uin
     internal->dropRate = arg1;
   } else if (!strcasecmp(name, "clientPort")) {
     internal->clientPort = arg1;
+  } else if (!strcasecmp(name, "maxSizeAllowed")) {
+    internal->maxSizeAllowed = arg1;
   } else {
     return MOZQUIC_ERR_GENERAL;
   }
@@ -133,6 +136,9 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   }
   if (internal->clientPort) {
     q->SetClientPort(internal->clientPort);
+  }
+  if (internal->maxSizeAllowed) {
+    q->SetMaxSizeAllowed(internal->maxSizeAllowed);
   }
   
   unsigned char empty[128];

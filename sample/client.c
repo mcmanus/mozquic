@@ -197,6 +197,7 @@ int main(int argc, char **argv)
   assert(mozquic_unstable_api1(&config, "greaseVersionNegotiation", 0, 0) == MOZQUIC_OK);
   assert(mozquic_unstable_api1(&config, "tolerateBadALPN", 1, 0) == MOZQUIC_OK);
   assert(mozquic_unstable_api1(&config, "tolerateNoTransportParams", 1, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "maxSizeAllowed", 1470, 0) == MOZQUIC_OK);
 
   mozquic_new_connection(&c, &config);
   mozquic_set_event_callback(c, connEventCB);

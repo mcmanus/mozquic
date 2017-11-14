@@ -50,6 +50,7 @@ MozQuic::MozQuic(bool handleIO)
   , mVersion(kMozQuicVersion1)
 //  , mVersion(kMozQuicIetfID7)
   , mClientOriginalOfferedVersion(0)
+  , mMaxPacketConfig(kDefaultMaxPacketConfig)
   , mMTU(kInitialMTU)
   , mConnectionID(0)
   , mOriginalConnectionID(0)
@@ -65,11 +66,13 @@ MozQuic::MozQuic(bool handleIO)
   , mPingDeadline(0)
   , mPMTUD1Deadline(0)
   , mPMTUD1PacketNumber(0)
+  , mPMTUDTarget(kMaxMTU)
   , mDecodedOK(false)
   , mPeerIdleTimeout(kIdleTimeoutDefault)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
   , mDropRate(0)
+  , mLocalMaxSizeAllowed(0)
   , mSmoothedRTT(0)
   , mRemoteTransportExtensionInfoLen(0)
 {
@@ -424,7 +427,8 @@ MozQuic::EnsureSetupClientTransportParameters()
                                     mStreamState->mLocalMaxStreamData,
                                     mStreamState->mLocalMaxData,
                                     mStreamState->mLocalMaxStreamID,
-                                    kIdleTimeoutDefault);
+                                    kIdleTimeoutDefault,
+                                    mLocalMaxSizeAllowed);
   if (mAppHandlesSendRecv) {
     struct mozquic_eventdata_tlsinput data;
     data.data = te;
@@ -501,7 +505,9 @@ MozQuic::Server1RTT()
                                       mStreamState->mLocalMaxStreamData,
                                       mStreamState->mLocalMaxData,
                                       mStreamState->mLocalMaxStreamID,
-                                      kIdleTimeoutDefault, resetToken);
+                                      kIdleTimeoutDefault,
+                                      mLocalMaxSizeAllowed,
+                                      resetToken);
     mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
     mSetupTransportExtension = true;
   }
@@ -906,6 +912,7 @@ MozQuic::ClientConnected()
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
+                                      mMaxPacketConfig,
                                       mStatelessResetToken, this);
     mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
     if (decodeResult != MOZQUIC_OK) {
@@ -997,16 +1004,17 @@ MozQuic::ServerConnected()
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
-                                      this);
+                                      mMaxPacketConfig, this);
     ConnectionLog6(
             "decode client parameters: "
             "maxstreamdata %u "
             "maxdatakb %u "
             "maxstreamid %u "
-            "idle %u\n",
+            "idle %u "
+            "maxpacket %u\n",
             mStreamState->mPeerMaxStreamData,
             peerMaxDataKB,
-            mStreamState->mPeerMaxStreamID, mPeerIdleTimeout);
+            mStreamState->mPeerMaxStreamID, mPeerIdleTimeout, mMaxPacketConfig);
             
     mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
     Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,
