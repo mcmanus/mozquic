@@ -1098,7 +1098,7 @@ MozQuic::BufferForLater(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
 {
   
   mBufferedProtectedPackets.emplace_back(pkt, pktSize, headerSize, packetNum);
-  return MOZQUIC_OK;
+  return MOZQUIC_ERR_DEFERRED;
 }
 
 uint32_t

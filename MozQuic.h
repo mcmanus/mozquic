@@ -18,7 +18,7 @@ extern "C" {
 
 #define MOZQUIC_ALPN "hq-07"
   
-  static const uint32_t mozquic_library_version = 1;
+static const uint32_t mozquic_library_version = 1;
 
   enum {
     MOZQUIC_OK                   = 0,
@@ -29,6 +29,7 @@ extern "C" {
     MOZQUIC_ERR_CRYPTO           = 5,
     MOZQUIC_ERR_VERSION          = 6,
     MOZQUIC_ERR_ALREADY_FINISHED = 7,
+    MOZQUIC_ERR_DEFERRED         = 8,
   };
 
   // The event Callbacks receive an application specified closure,
