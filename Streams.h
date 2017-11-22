@@ -44,6 +44,8 @@ public:
   bool Transmitted() { return !mTransmits.empty(); }
 };
 
+class StreamOut;
+
 class FlowController
 {
 public:
@@ -53,7 +55,7 @@ public:
   virtual uint32_t GetIncrement() = 0;
   virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) = 0;
   virtual uint32_t ConnectionReadBytes(uint64_t amt) = 0;
-  virtual void     SignalReadyToWrite(uint32_t streamID) = 0;
+  virtual void     SignalReadyToWrite(StreamOut *streamOut) = 0;
 };
 
 class StreamOut
@@ -102,7 +104,7 @@ public:
   uint32_t GetIncrement() override;
   uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) override;
   uint32_t ConnectionReadBytes(uint64_t amt) override;
-  void     SignalReadyToWrite(uint32_t streamID) override;
+  void     SignalReadyToWrite(StreamOut *out) override;
   
   uint32_t StartNewStream(StreamPair **outStream, const void *data, uint32_t amount, bool fin);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
@@ -163,7 +165,7 @@ public:
 
 private:
   uint32_t FlowControlPromotion();
-  uint32_t FlowControlPromotionForStreamPair(StreamPair *);
+  uint32_t FlowControlPromotionForStreamPair(StreamOut *);
   uint64_t CalculateConnectionCharge(ReliableData *data, StreamOut *out);
   
   MozQuic *mMozQuic;
@@ -191,6 +193,8 @@ private: // these still need friend mozquic
   // when issue #48 is resolved, this can become an unordered map
   std::map<uint32_t, std::shared_ptr<StreamPair>> mStreams;
 
+  // This is a list of streams that are ready to write data but are blocked by
+  // the connection flow control.
   std::list<uint32_t> mStreamsReadyToWrite;
 
   // retransmit happens off of mUnAckedData by

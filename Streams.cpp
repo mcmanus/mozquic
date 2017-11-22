@@ -208,10 +208,15 @@ StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartex
              i->second->mOut.mFlowControlLimit);
   if (i->second->mOut.mFlowControlLimit < result->u.mMaxStreamData.mMaximumStreamData) {
     i->second->mOut.mFlowControlLimit = result->u.mMaxStreamData.mMaximumStreamData;
-    if (i->second->mOut.mBlocked && !i->second->mOut.mStreamUnWritten.empty()) {
-      i->second->mOut.mWriter->SignalReadyToWrite(i->second->mOut.mStreamID);
+    if (i->second->mOut.mBlocked) {
+      StreamLog5("stream %X has blocked, unblocke it.\n", streamID);
+      // The stream was blocked on the flow control, unblocked it and continue
+      // writing if there are data to write.
+      i->second->mOut.mBlocked = false;
+      if (!i->second->mOut.mStreamUnWritten.empty()) {
+        i->second->mOut.mWriter->SignalReadyToWrite(&i->second->mOut);
+      }
     }
-    i->second->mOut.mBlocked = false;
   }
   return MOZQUIC_OK;
 }
@@ -231,6 +236,12 @@ StreamState::HandleMaxDataFrame(FrameHeaderData *result, bool fromCleartext,
              curLimitKB, result->u.mMaxData.mMaximumData);
   if (result->u.mMaxData.mMaximumData > curLimitKB) {
     mPeerMaxData = ((__uint128_t) result->u.mMaxData.mMaximumData) << 10;
+    if (mMaxDataBlocked) {
+      StreamLog5("conn was blocked by the flow control. Check if there were "
+                 "streams that wants to write new data.\n");
+      mMaxDataBlocked = false;
+      FlowControlPromotion();
+    }
   }
   return MOZQUIC_OK;
 }
@@ -412,10 +423,8 @@ StreamState::CalculateConnectionCharge(ReliableData *data, StreamOut *out)
 }
 
 uint32_t
-StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
+StreamState::FlowControlPromotionForStreamPair(StreamOut *out)
 {
-  StreamOut *out = &sp->mOut;
-
   for (auto iBuffer = out->mStreamUnWritten.begin();
        iBuffer != out->mStreamUnWritten.end(); ) {
 
@@ -519,12 +528,6 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
     mMaxDataSent += newConnectionCharge;
     assert(mMaxDataSent <= mPeerMaxData);
 
-    if ((*iBuffer)->mLen) {
-      out->mBlocked = false;
-      if (((*iBuffer)->mStreamID)) {
-        mMaxDataBlocked = false;
-      }
-    }
     uint64_t pmd = mPeerMaxData; // will trunc, but just for logging
     uint64_t mds = mMaxDataSent; // will trunc, but just for logging
     StreamLog6("promoting chunk stream %d %ld.%d [stream limit=%ld] [conn limit %llu of %lld]\n",
@@ -548,13 +551,13 @@ StreamState::FlowControlPromotion()
   while (!mStreamsReadyToWrite.empty()) {
     auto streamID = mStreamsReadyToWrite.front();
     if (!streamID) {
-      FlowControlPromotionForStreamPair(mStream0.get());
+      FlowControlPromotionForStreamPair(&mStream0.get()->mOut);
       if (mStream0->mOut.mStreamUnWritten.empty()) {
         mStreamsReadyToWrite.pop_front();
       }
     } else {
       auto streamPair = mStreams[streamID];
-      FlowControlPromotionForStreamPair(streamPair.get());
+      FlowControlPromotionForStreamPair(&streamPair.get()->mOut);
 
       if (MaybeDeleteStream(streamPair->mStreamID) ||
           streamPair->mOut.mBlocked || streamPair->mOut.mStreamUnWritten.empty()) {
@@ -758,7 +761,6 @@ StreamState::Flush(bool forceAck)
     mMozQuic->FlushStream0(forceAck);
   }
 
-  FlowControlPromotion();
   if (mConnUnWritten.empty() && !forceAck) {
     return MOZQUIC_OK;
   }
@@ -800,9 +802,15 @@ StreamState::ConnectionWrite(std::unique_ptr<ReliableData> &p)
 }
 
 void
-StreamState::SignalReadyToWrite(uint32_t streamID)
+StreamState::SignalReadyToWrite(StreamOut *out)
 {
-  mStreamsReadyToWrite.push_back(streamID);
+  FlowControlPromotionForStreamPair(out);
+  if (mMaxDataBlocked && !out->mBlocked &&
+      !out->mStreamUnWritten.empty()) {
+    // This stream still has data to write but it is blocked by the connection
+    // flow control.
+    mStreamsReadyToWrite.push_back(out->mStreamID);
+  }
 }
 
 uint32_t
@@ -1451,7 +1459,7 @@ StreamOut::StreamWrite(std::unique_ptr<ReliableData> &p)
   mStreamUnWritten.push_back(std::move(p));
 
   if (signalReadyToWrite) {
-    mWriter->SignalReadyToWrite(mStreamID);
+    mWriter->SignalReadyToWrite(this);
   }
 
   return MOZQUIC_OK;
