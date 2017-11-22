@@ -965,7 +965,9 @@ StreamState::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned c
     auto i = mStreams.find(chunk->mStreamID);
     if (i == mStreams.end() ||
         (*i).second->mIn.mFinRecvd ||
-        (*i).second->mIn.mRstRecvd) {
+        (*i).second->mIn.mRstRecvd ||
+        (*i).second->mIn.mLocalMaxStreamData > chunk->mStreamCreditValue) {
+      StreamLog5("not generating max stream data id=%d\n", chunk->mStreamID);
       return MOZQUIC_ERR_GENERAL;
     }
   }
@@ -1041,7 +1043,10 @@ StreamState::CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *e
   assert(!chunk->mStreamID);
 
   uint32_t room = endpkt - framePtr;
-  if (room < 9) {
+  if ((room < 9) ||
+      ((mLocalMaxData >> 10) > chunk->mConnectionCreditKB)) {
+    StreamLog5("not generating max data val=%ld (KB) last sent val=%ld (KB)\n",
+                chunk->mConnectionCreditKB, (mLocalMaxData >> 10));
     return MOZQUIC_ERR_GENERAL;
   }
   framePtr[0] = FRAME_TYPE_MAX_DATA;
