@@ -408,6 +408,9 @@ StreamState::ScrubUnWritten(uint32_t streamID)
       iter2++;
     }
   }
+
+  mStreamsReadyToWrite.remove(streamID);
+
   return MOZQUIC_OK;
 }
 
@@ -542,9 +545,10 @@ StreamState::FlowControlPromotionForStreamPair(StreamOut *out)
   return MOZQUIC_OK;
 }
 
-// This fx() identifies buffers in streampair.out.mStreamUnWritten and
-// promotoes them to the connection scoped mConnUnWritten according to
-// flow control rules
+// This fx() is called when the connection flow control is unblocked.
+// It goes through the list of the streams that are waiting to write data
+// and promotes mStreamUnWritten buffers to the connection scoped
+// mConnUnWritten.
 uint32_t
 StreamState::FlowControlPromotion()
 {
