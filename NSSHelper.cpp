@@ -415,7 +415,7 @@ NSSHelper::HandshakeSecret(unsigned int ciphersuite,
   didHandshakeFail = didHandshakeFail ||
     MakeKeyFromRaw(mExternalRecvSecret, secretSize, keySize, hashType, importMechanism1,
                    importMechanism2, mPacketProtectionReceiverIV0, &mPacketProtectionReceiverKey0) != MOZQUIC_OK;
-  memset(mExternalSendSecret, 0, sizeof(mExternalRecvSecret));
+  memset(mExternalRecvSecret, 0, sizeof(mExternalRecvSecret));
 
   mHandshakeComplete = true;
   if (didHandshakeFail) {
