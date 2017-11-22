@@ -208,6 +208,10 @@ StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartex
              i->second->mOut.mFlowControlLimit);
   if (i->second->mOut.mFlowControlLimit < result->u.mMaxStreamData.mMaximumStreamData) {
     i->second->mOut.mFlowControlLimit = result->u.mMaxStreamData.mMaximumStreamData;
+    if (i->second->mOut.mBlocked && !i->second->mOut.mStreamUnWritten.empty()) {
+      i->second->mOut.mWriter->SignalReadyToWrite(i->second->mOut.mStreamID);
+    }
+    i->second->mOut.mBlocked = false;
   }
   return MOZQUIC_OK;
 }
@@ -541,14 +545,24 @@ StreamState::FlowControlPromotionForStreamPair(StreamPair *sp)
 uint32_t
 StreamState::FlowControlPromotion()
 {
-  // todo something better than polling
-  if (mStream0) {
-    FlowControlPromotionForStreamPair(mStream0.get());
-  }
-  for (auto iStreamPair = mStreams.begin(); iStreamPair != mStreams.end(); iStreamPair++) {
-    FlowControlPromotionForStreamPair(iStreamPair->second.get());
-    if (MaybeDeleteStream(iStreamPair->second->mStreamID)) {
-      return FlowControlPromotion(); // vector needs to be restarted
+  while (!mStreamsReadyToWrite.empty()) {
+    auto streamID = mStreamsReadyToWrite.front();
+    if (!streamID) {
+      FlowControlPromotionForStreamPair(mStream0.get());
+      if (mStream0->mOut.mStreamUnWritten.empty()) {
+        mStreamsReadyToWrite.pop_front();
+      }
+    } else {
+      auto streamPair = mStreams[streamID];
+      FlowControlPromotionForStreamPair(streamPair.get());
+
+      if (MaybeDeleteStream(streamPair->mStreamID) ||
+          streamPair->mOut.mBlocked || streamPair->mOut.mStreamUnWritten.empty()) {
+        mStreamsReadyToWrite.pop_front();
+      }
+    }
+    if (mMaxDataBlocked) {
+      return MOZQUIC_OK;
     }
   }
   return MOZQUIC_OK;
@@ -783,6 +797,12 @@ StreamState::ConnectionWrite(std::unique_ptr<ReliableData> &p)
   mConnUnWritten.push_back(std::move(p));
 
   return MOZQUIC_OK;
+}
+
+void
+StreamState::SignalReadyToWrite(uint32_t streamID)
+{
+  mStreamsReadyToWrite.push_back(streamID);
 }
 
 uint32_t
@@ -1426,11 +1446,16 @@ StreamOut::~StreamOut()
 uint32_t
 StreamOut::StreamWrite(std::unique_ptr<ReliableData> &p)
 {
+  bool signalReadyToWrite = (mStreamUnWritten.empty() && !mBlocked) ? true : false;
+
   mStreamUnWritten.push_back(std::move(p));
+
+  if (signalReadyToWrite) {
+    mWriter->SignalReadyToWrite(mStreamID);
+  }
 
   return MOZQUIC_OK;
 }
-
 
 uint32_t
 StreamOut::Write(const unsigned char *data, uint32_t len, bool fin)

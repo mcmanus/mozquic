@@ -53,6 +53,7 @@ public:
   virtual uint32_t GetIncrement() = 0;
   virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) = 0;
   virtual uint32_t ConnectionReadBytes(uint64_t amt) = 0;
+  virtual void     SignalReadyToWrite(uint32_t streamID) = 0;
 };
 
 class StreamOut
@@ -101,6 +102,7 @@ public:
   uint32_t GetIncrement() override;
   uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) override;
   uint32_t ConnectionReadBytes(uint64_t amt) override;
+  void     SignalReadyToWrite(uint32_t streamID) override;
   
   uint32_t StartNewStream(StreamPair **outStream, const void *data, uint32_t amount, bool fin);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
@@ -188,6 +190,8 @@ private: // these still need friend mozquic
 
   // when issue #48 is resolved, this can become an unordered map
   std::map<uint32_t, std::shared_ptr<StreamPair>> mStreams;
+
+  std::list<uint32_t> mStreamsReadyToWrite;
 
   // retransmit happens off of mUnAckedData by
   // duplicating it and placing it in mConnUnWritten. The
