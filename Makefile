@@ -38,6 +38,7 @@ OBJS += MozQuic.o
 OBJS += NSSHelper.o
 OBJS += Packetization.o
 OBJS += Ping.o
+OBJS += Sender.o
 OBJS += StatelessReset.o
 OBJS += Streams.o
 OBJS += TransportExtension.o

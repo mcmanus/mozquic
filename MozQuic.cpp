@@ -8,6 +8,7 @@
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "NSSHelper.h"
+#include "Sender.h"
 #include "Streams.h"
 #include "TransportExtension.h"
 
@@ -75,7 +76,6 @@ MozQuic::MozQuic(bool handleIO)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
   , mDropRate(0)
   , mLocalMaxSizeAllowed(0)
-  , mSmoothedRTT(0)
   , mRemoteTransportExtensionInfoLen(0)
 {
   Log::sParseSubscriptions(getenv("MOZQUIC_LOG"));
@@ -91,6 +91,7 @@ MozQuic::MozQuic(bool handleIO)
   memset(&mPeer, 0, sizeof(mPeer));
   memset(mStatelessResetKey, 0, sizeof(mStatelessResetKey));
   memset(mStatelessResetToken, 0x80, sizeof(mStatelessResetToken));
+  mSendState.reset(new Sender(this));
 }
 
 MozQuic::~MozQuic()
@@ -119,6 +120,16 @@ MozQuic::Transmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *ex
   // this would be a reasonable place to insert a queuing layer that
   // thought about cong control, flow control, priority, and pacing
 
+  // 4.6. Pacing Rate
+  
+  // The pacing rate is a function of the mode, the congestion window,
+  // and the smoothed rtt. Specifically, the pacing rate is 2 times
+  // the congestion window divided by the smoothed RTT during slow
+  // start and 1.25 times the congestion window divided by the
+  // smoothed RTT during congestion avoidance. In order to fairly
+  // compete with flows that are not pacing, it is recommended to not
+  // pace the first 10 sent packets when exiting quiescence.
+  
   if (mDropRate && ((random() % 100) <  mDropRate)) {
     ConnectionLog2("Transmit dropped due to drop rate\n");
     return MOZQUIC_OK;

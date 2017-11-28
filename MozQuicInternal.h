@@ -104,6 +104,7 @@ enum keyPhase {
 class StreamPair;
 class StreamAck;
 class NSSHelper;
+class Sender;
 class StreamState;
 class ReliableData;
 class BufferedPacket;
@@ -200,7 +201,6 @@ private:
   bool IntegrityCheck(unsigned char *, uint32_t size, uint64_t pktNum, uint64_t connID,
                       unsigned char *outbuf, uint32_t &outSize);
   void ProcessAck(class FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext);
-  void RTTSample(uint64_t xmit, uint16_t delay);
 
   uint32_t HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
                           const unsigned char *pkt, const unsigned char *endpkt,
@@ -308,6 +308,7 @@ private:
 
   std::unique_ptr<NSSHelper>   mNSSHelper;
   std::unique_ptr<StreamState> mStreamState;
+  std::unique_ptr<Sender>      mSendState;
 
   // parent and children are only defined on the server
   MozQuic *mParent; // only in child
@@ -335,8 +336,6 @@ private:
   uint64_t mAdvertiseConnectionWindowKB;
   uint16_t mDropRate;
   uint16_t mLocalMaxSizeAllowed;
-
-  uint16_t mSmoothedRTT;
 
   std::unique_ptr<unsigned char []> mRemoteTransportExtensionInfo;
   uint32_t mRemoteTransportExtensionInfoLen;

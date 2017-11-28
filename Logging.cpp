@@ -16,7 +16,8 @@
 namespace mozquic  {
 
 const char *Log::mCategoryName[] = {
-  "ack", "stream", "connection", "tls", "handshake"
+  "ack", "stream", "connection", "tls", "handshake", "sender",
+  ""
 };
 
 static Log gLogger;
@@ -87,6 +88,7 @@ Log::DoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid, const
 Log::Log()
 {
   memset(mCategory, 0, sizeof (uint32_t) * kCategoryCount);
+  assert(mCategoryName[kCategoryCount][0] == 0);
 }
 
 int

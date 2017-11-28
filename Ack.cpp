@@ -6,6 +6,7 @@
 #include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
+#include "Sender.h"
 #include "Streams.h"
 #include "ufloat16.h"
 
@@ -231,24 +232,6 @@ MozQuic::Acknowledge(uint64_t packetNum, keyPhase kp)
 }
 
 void
-MozQuic::RTTSample(uint64_t xmit, uint16_t delay)
-{
-  uint64_t now = Timestamp();
-  assert(now >= xmit);
-  uint64_t rtt = now - xmit;
-  if (rtt < delay) {
-    return;
-  }
-  rtt -= delay;
-  if (rtt > 0xffff) {
-    rtt = 0xffff;
-  }
-  mSmoothedRTT = (mSmoothedRTT - (mSmoothedRTT >> 3)) + (rtt >> 3);
-  AckLog7("%p New RTT Sample %u now smoothed %u\n",
-          this, rtt, mSmoothedRTT);
-}
-
-void
 MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext)
 {
   // frameptr points to the beginning of the ackblock section
@@ -320,7 +303,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
                   haveAckFor, (*dataIter)->mType);
           if (ackMetaInfo->u.mAck.mLargestAcked == haveAckFor) {
             uint64_t xmit = (*dataIter)->mTransmitTime;
-            RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
+            mSendState->RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
           }
           dataIter = mStreamState->mUnAckedData.erase(dataIter);
         } while ((dataIter != mStreamState->mUnAckedData.end()) &&
@@ -347,7 +330,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
                     acklistIter->mTransmits.size());
             if (ackMetaInfo->u.mAck.mLargestAcked == haveAckFor) {
               uint64_t xmit = (*vectorIter).second;
-              RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
+              mSendState->RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
             }
             
             foundAckFor = true;

@@ -24,7 +24,7 @@ public:
   static void sParseSubscriptions(char *envStr);
   enum 
   {
-    ACK, STREAM, CONNECTION, TLS, HANDSHAKE,
+    ACK, STREAM, CONNECTION, TLS, HANDSHAKE, SENDER,
     kCategoryCount
   };
 
@@ -37,7 +37,7 @@ private:
   uint32_t Subscribe(const char *type, int level);
 
   uint32_t mCategory[kCategoryCount];
-  static const char *mCategoryName[kCategoryCount];
+  static const char *mCategoryName[kCategoryCount + 1];
 };
 
 #define AckLog1(...) Log::sDoLog(Log::ACK, 1, this, __VA_ARGS__);
