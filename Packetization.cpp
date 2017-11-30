@@ -23,8 +23,8 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   // always too short as it doesn't allow a useful window
   // if (nextNumber - lowestUnacked) > 16000 then use 4.
   uint8_t pnSizeType = 2; // 2 bytes
-  if (!mStreamState->mUnAckedData.empty() &&
-      ((mNextTransmitPacketNumber - mStreamState->mUnAckedData.front()->mPacketNumber) > 16000)) {
+  if (!mStreamState->mUnAckedPackets.empty() &&
+      ((mNextTransmitPacketNumber - mStreamState->mUnAckedPackets.front()->mPacketNumber) > 16000)) {
     pnSizeType = 3; // 4 bytes
   }
 

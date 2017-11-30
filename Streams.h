@@ -13,8 +13,7 @@ enum  {
   kMaxStreamIDDefault   = 1024,
   kMaxStreamDataDefault = 10 * 1024 * 1024,
   kMaxDataDefault       = 50 * 1024 * 1024,
-  kRetransmitThresh     = 500,
-  kForgetUnAckedThresh  = 4000, // ms
+  kForgetUnAckedThresh  = 6000,
 };
 
 class StreamAck
@@ -45,6 +44,7 @@ public:
 };
 
 class StreamOut;
+class TransmittedPacket;
 
 class FlowController
 {
@@ -113,6 +113,7 @@ public:
   uint32_t RstStream(uint32_t streamID, uint16_t code);
 
   uint32_t Flush(bool forceAck);
+  void     TrackPacket(uint64_t packetNumber, uint32_t packetSize);
   uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                              const unsigned char *pkt, const unsigned char *endpkt,
                              uint32_t &_ptr);
@@ -140,8 +141,8 @@ public:
   uint32_t HandleStopSendingFrame(FrameHeaderData *result, bool fromCleartext,
                                   const unsigned char *pkt, const unsigned char *endpkt,
                                   uint32_t &_ptr);
-  uint32_t CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt,
-                              bool justZero);
+  uint32_t CreateFrames(unsigned char *&framePtr, const unsigned char *endpkt,
+                        bool justZero, TransmittedPacket *);
   uint32_t CreateRstStreamFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk);
   uint32_t CreateStopSendingFrame(unsigned char *&framePtr, const unsigned char *endpkt,
@@ -197,7 +198,7 @@ private: // these still need friend mozquic
   // the connection flow control.
   std::list<uint32_t> mStreamsReadyToWrite;
 
-  // retransmit happens off of mUnAckedData by
+  // retransmit happens off of the FrameList in mUnAckedPackets
   // duplicating it and placing it in mConnUnWritten. The
   // dup'd entry is marked retransmitted so it doesn't repeat that. After a
   // certain amount of time the retransmitted packet is just forgotten (as
@@ -205,10 +206,10 @@ private: // these still need friend mozquic
   // incarnation)
   // mUnackedData is sorted by the packet number it was sent in.
   std::list<std::unique_ptr<ReliableData>> mConnUnWritten;
-  std::list<std::unique_ptr<ReliableData>> mUnAckedData;
+  std::list<std::unique_ptr<TransmittedPacket>> mUnAckedPackets;
 
   // macklist is the current state of all unacked acks - maybe written out,
-  // maybe not. ordered with the highest packet ack'd at front.Each time
+  // maybe not. ordered with the highest packet ack'd at front. Each time
   // the whole set needs to be written out. each entry in acklist contains
   // a vector of pairs (transmitTime, transmitID) representing each time it
   // is written. Upon receipt of an ack we need to find transmitID and
@@ -221,6 +222,7 @@ private: // these still need friend mozquic
 
 class ReliableData
 {
+  // this more or less corresponds to a reliable frame
 public:
   ReliableData(uint32_t id, uint64_t offset, const unsigned char *data,
                uint32_t len, bool fin);
@@ -257,11 +259,24 @@ public:
   uint32_t mMaxStreamID; // for kMaxStreamID
   
   // when unacked these are set
-  uint64_t mPacketNumber;
-  uint64_t mTransmitTime;
-  uint16_t mTransmitCount;
-  bool     mRetransmitted; // no data after retransmitted
   enum keyPhase mTransmitKeyPhase;
+};
+
+class TransmittedPacket
+{
+public:
+  TransmittedPacket(uint64_t packetNumber)
+    : mPacketNumber(packetNumber), mPacketLen(0), mTransmitTime(0)
+    , mRetransmitted(false)
+  {
+  }
+
+  uint64_t mPacketNumber;
+  uint32_t mPacketLen;
+  uint64_t mTransmitTime;
+  bool     mRetransmitted; // no framelist after retransmitted
+  std::list<std::unique_ptr<ReliableData>> mFrameList;
+private:
 };
 
 class StreamIn

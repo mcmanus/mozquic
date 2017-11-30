@@ -6,6 +6,7 @@
 #include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
+#include "Sender.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -56,7 +57,7 @@ MozQuic::StatelessResetSend(uint64_t connID, struct sockaddr_in *peer)
 
   StatelessResetCalculateToken(mStatelessResetKey, connID, out + 9 + pad); // from key and CID
 
-  return Transmit(out, 25 + pad, peer);
+  return mSendState->Transmit(0, true, out, 25 + pad, peer);
 }
 
 uint32_t

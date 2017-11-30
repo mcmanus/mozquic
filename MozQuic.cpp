@@ -74,7 +74,6 @@ MozQuic::MozQuic(bool handleIO)
   , mPeerIdleTimeout(kIdleTimeoutDefault)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
-  , mDropRate(0)
   , mLocalMaxSizeAllowed(0)
   , mRemoteTransportExtensionInfoLen(0)
 {
@@ -115,26 +114,10 @@ MozQuic::Destroy(uint32_t code, const char *reason)
 }
 
 uint32_t
-MozQuic::Transmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer)
+MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer)
 {
-  // this would be a reasonable place to insert a queuing layer that
-  // thought about cong control, flow control, priority, and pacing
+  // should only be called by 'sender' class after pacing and cong control conditions met.
 
-  // 4.6. Pacing Rate
-  
-  // The pacing rate is a function of the mode, the congestion window,
-  // and the smoothed rtt. Specifically, the pacing rate is 2 times
-  // the congestion window divided by the smoothed RTT during slow
-  // start and 1.25 times the congestion window divided by the
-  // smoothed RTT during congestion avoidance. In order to fairly
-  // compete with flows that are not pacing, it is recommended to not
-  // pace the first 10 sent packets when exiting quiescence.
-  
-  if (mDropRate && ((random() % 100) <  mDropRate)) {
-    ConnectionLog2("Transmit dropped due to drop rate\n");
-    return MOZQUIC_OK;
-  }
-  
   if (mAppHandlesSendRecv) {
     struct mozquic_eventdata_transmit data;
     data.pkt = pkt;
@@ -162,11 +145,14 @@ MozQuic::Transmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *ex
 uint32_t
 MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                            unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
-                           bool addAcks, uint32_t MTU)
+                           bool addAcks, uint32_t MTU, uint32_t *bytesOut)
 {
   assert(headerLen >= 3);
   assert(headerLen <= 13);
-
+  bool bareAck = dataLen == 0;
+  if (bytesOut) {
+    *bytesOut = 0;
+  }
   if (!MTU) {
     MTU = mMTU;
   }
@@ -204,14 +190,17 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     return rv;
   }
 
-  rv = Transmit(cipherPkt, written + headerLen, nullptr);
+  rv = mSendState->Transmit(mNextTransmitPacketNumber, bareAck, cipherPkt, written + headerLen, nullptr);
   if (rv != MOZQUIC_OK) {
     return rv;
   }
-  
+  if (bytesOut) {
+    *bytesOut = written + headerLen;
+  }
+
   ConnectionLog5("TRANSMIT[%lX] this=%p len=%d\n",
                  mNextTransmitPacketNumber, this, written + headerLen);
-  mNextTransmitPacketNumber++;
+    mNextTransmitPacketNumber++;
 
   return MOZQUIC_OK;
 }
@@ -750,6 +739,7 @@ MozQuic::IO()
     Intake(&partialResult);
     mStreamState->RetransmitTimer();
     ClearOldInitialConnectIdsTimer();
+    mSendState->Tick(Timestamp());
     mStreamState->Flush(false);
 
     if (mIsClient) {
@@ -902,6 +892,7 @@ MozQuic::ClientConnected()
 {
   ConnectionLog4("CLIENT_STATE_CONNECTED\n");
   assert(mConnectionState == CLIENT_STATE_1RTT);
+  mSendState->Connected();
   unsigned char *extensionInfo = nullptr;
   uint16_t extensionInfoLen = 0;
   uint32_t peerVersionList[256];
@@ -1003,6 +994,7 @@ MozQuic::ServerConnected()
   assert (mIsChild && !mIsClient);
   ConnectionLog4("SERVER_STATE_CONNECTED\n");
   assert(mConnectionState == SERVER_STATE_1RTT);
+  mSendState->Connected();
   unsigned char *extensionInfo = nullptr;
   uint16_t extensionInfoLen = 0;
   uint32_t peerNegotiatedVersion, peerInitialVersion;
@@ -1081,27 +1073,6 @@ MozQuic::ServerConnected()
   return MaybeSendAck();
 }
 
-class BufferedPacket
-{
-public:
-  BufferedPacket(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
-                 uint64_t packetNum)
-    : mData(new unsigned char[pktSize])
-    , mLen(pktSize)
-    , mHeaderSize(headerSize)
-    , mPacketNum(packetNum)
-  {
-    memcpy((void *)mData.get(), pkt, mLen);
-  }
-  ~BufferedPacket()
-  {
-  }
-
-  std::unique_ptr<const unsigned char []>mData;
-  uint32_t mLen;
-  uint32_t mHeaderSize;
-  uint32_t mPacketNum;
-};
 
 uint32_t
 MozQuic::BufferForLater(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
@@ -1409,6 +1380,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
 
   child->mNSSHelper.reset(new NSSHelper(child, mTolerateBadALPN, mOriginName.get()));
   child->mVersion = mVersion;
+  child->mSendState->SetDropRate(mSendState->DropRate());
   child->mTimestampConnBegin = Timestamp();
   child->mOriginalConnectionID = aConnectionID;
   child->mAppHandlesSendRecv = mAppHandlesSendRecv;

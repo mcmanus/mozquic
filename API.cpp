@@ -9,6 +9,7 @@ static int mozQuicInit = 0;
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "NSSHelper.h"
+#include "Sender.h"
 #include "Streams.h"
 
 #include <assert.h>
@@ -347,6 +348,13 @@ bool
 MozQuic::IgnorePKI()
 {
   return mIgnorePKI || mIsLoopback;
+}
+
+
+void
+MozQuic::SetDropRate(uint64_t dr)
+{
+  mSendState->SetDropRate(dr);
 }
 
 void

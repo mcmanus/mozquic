@@ -156,8 +156,8 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
 
       // timestamp is microseconds (10^-6) as 16 bit fixed point #
       assert(iter->mReceiveTime.size());
-      uint64_t delay64 = (Timestamp() - *(iter->mReceiveTime.begin())) * 1000;
-      uint16_t delay = htons(ufloat16_encode(delay64));
+      uint64_t delay64 = Timestamp() - *(iter->mReceiveTime.begin());
+      uint16_t delay = htons(delay64);
       memcpy(pkt + used, &delay, 2);
       used += 2;
       uint16_t extra = htons(iter->mExtra);
@@ -261,7 +261,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
               fromCleartext ? "cleartext" : "protected",
               largestAcked - extra, largestAcked);
       // form a stack here so we can process them starting at the
-      // lowest packet number, which is how mStreamState->mUnAckedData is ordered and
+      // lowest packet number, which is how mStreamState->mUnAckedPackets is ordered and
       // do it all in one pass
       assert(numRanges < 257);
       ackStack[numRanges++] =
@@ -278,7 +278,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
     framePtr++;
   } while (1);
 
-  auto dataIter = mStreamState->mUnAckedData.begin();
+  auto dataIter = mStreamState->mUnAckedPackets.begin();
   for (auto iters = numRanges; iters > 0; --iters) {
     uint64_t haveAckFor = ackStack[iters - 1].first;
     uint64_t haveAckForEnd = haveAckFor + ackStack[iters - 1].second;
@@ -292,28 +292,24 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
     for (; haveAckFor < haveAckForEnd; haveAckFor++) {
 
       // skip over stuff that is too low
-      for (; (dataIter != mStreamState->mUnAckedData.end()) && ((*dataIter)->mPacketNumber < haveAckFor); dataIter++);
+      for (; (dataIter != mStreamState->mUnAckedPackets.end()) && ((*dataIter)->mPacketNumber < haveAckFor); dataIter++);
 
-      if ((dataIter == mStreamState->mUnAckedData.end()) || ((*dataIter)->mPacketNumber > haveAckFor)) {
-        AckLog8("ACK'd data not found for %lX ack\n", haveAckFor);
+      if ((dataIter == mStreamState->mUnAckedPackets.end()) || ((*dataIter)->mPacketNumber > haveAckFor)) {
+        AckLog8("ACK'd packet not found for %lX ack\n", haveAckFor);
       } else {
-        do {
-          assert ((*dataIter)->mPacketNumber == haveAckFor);
-          AckLog5("ACK'd data found for %lX (frame type %d)\n",
-                  haveAckFor, (*dataIter)->mType);
-          if (ackMetaInfo->u.mAck.mLargestAcked == haveAckFor) {
-            uint64_t xmit = (*dataIter)->mTransmitTime;
-            mSendState->RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
-          }
-          dataIter = mStreamState->mUnAckedData.erase(dataIter);
-        } while ((dataIter != mStreamState->mUnAckedData.end()) &&
-                 (*dataIter)->mPacketNumber == haveAckFor);
+        assert ((*dataIter)->mPacketNumber == haveAckFor);
+        AckLog5("ACK'd packet found for %lX ack. packet size %d\n", haveAckFor,
+                (*dataIter)->mPacketLen);
+        if (ackMetaInfo->u.mAck.mLargestAcked == haveAckFor) {
+          uint64_t xmit = (*dataIter)->mTransmitTime;
+          mSendState->RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
+        }
+        mSendState->Ack((*dataIter)->mPacketNumber, (*dataIter)->mPacketLen);
+        dataIter = mStreamState->mUnAckedPackets.erase(dataIter);
       }
     }
   }
-
-  // todo feed signal into cong control
-
+  
   // obv unacked lists should be combined (data, other frames, acks)
   for (auto iters = numRanges; iters > 0; --iters) {
     uint64_t haveAckFor = ackStack[iters - 1].first;
@@ -328,11 +324,6 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
             AckLog5("haveAckFor %lX found unacked ack of %lX (+%d) transmitted %d times\n",
                     haveAckFor, acklistIter->mPacketNumber, acklistIter->mExtra,
                     acklistIter->mTransmits.size());
-            if (ackMetaInfo->u.mAck.mLargestAcked == haveAckFor) {
-              uint64_t xmit = (*vectorIter).second;
-              mSendState->RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
-            }
-            
             foundAckFor = true;
             break; // vector iteration
             // need to keep looking at the rest of mStreamState->mAckList. Todo this is terribly wasteful.

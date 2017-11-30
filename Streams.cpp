@@ -6,6 +6,7 @@
 #include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
+#include "Sender.h"
 #include "Streams.h"
 
 #include "assert.h"
@@ -56,7 +57,7 @@ StreamState::StartNewStream(StreamPair **outStream, const void *data,
 bool
 StreamState::IsAllAcked()
 {
-  return mUnAckedData.empty()  && mConnUnWritten.empty();
+  return mUnAckedPackets.empty()  && mConnUnWritten.empty();
 }
 
 uint32_t
@@ -385,8 +386,7 @@ StreamState::RstStream(uint32_t streamID, uint16_t code)
 uint32_t
 StreamState::ScrubUnWritten(uint32_t streamID)
 {
-  auto iter = mConnUnWritten.begin();
-  while (iter != mConnUnWritten.end()) {
+  for (auto iter = mConnUnWritten.begin(); iter != mConnUnWritten.end();) {
     auto chunk = (*iter).get();
     if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kRstStream) {
       iter = mConnUnWritten.erase(iter);
@@ -397,18 +397,19 @@ StreamState::ScrubUnWritten(uint32_t streamID)
     }
   }
 
-  auto iter2 = mUnAckedData.begin();
-  while (iter2 != mUnAckedData.end()) {
-    auto chunk = (*iter2).get();
-    if (chunk->mStreamID == streamID && chunk->mType != ReliableData::kRstStream) {
-      iter2 = mUnAckedData.erase(iter2);
-      StreamLog6("scrubbing chunk %p of unacked id %d\n",
-                 chunk, streamID);
-    } else {
-      iter2++;
+  for (auto packetIter = mUnAckedPackets.begin(); packetIter != mUnAckedPackets.end(); packetIter++) {
+    for (auto frameIter = (*packetIter)->mFrameList.begin();
+         frameIter != (*packetIter)->mFrameList.end(); ) {
+      if ((*frameIter)->mStreamID == streamID &&
+          (*frameIter)->mType != ReliableData::kRstStream) {
+        frameIter = (*packetIter)->mFrameList.erase(frameIter);
+        StreamLog5("scrubbing frame of unacked id %d\n", streamID);
+      } else {
+        frameIter++;
+      }
     }
   }
-
+  
   mStreamsReadyToWrite.remove(streamID);
 
   return MOZQUIC_OK;
@@ -603,7 +604,8 @@ static uint8_t varSize(uint64_t input)
 }
 
 uint32_t
-StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *endpkt, bool justZero)
+StreamState::CreateFrames(unsigned char *&framePtr, const unsigned char *endpkt, bool justZero,
+                          TransmittedPacket *transmittedPacket)
 {
   auto iter = mConnUnWritten.begin();
   while (iter != mConnUnWritten.end()) {
@@ -739,8 +741,6 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
       framePtr += (*iter)->mLen;
     }
   
-    (*iter)->mPacketNumber = mMozQuic->mNextTransmitPacketNumber;
-    (*iter)->mTransmitTime = MozQuic::Timestamp();
     if ((mMozQuic->GetConnectionState() == CLIENT_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == SERVER_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT)) {
@@ -748,11 +748,9 @@ StreamState::CreateStreamFrames(unsigned char *&framePtr, const unsigned char *e
     } else {
       (*iter)->mTransmitKeyPhase = keyPhaseUnprotected;
     }
-    (*iter)->mRetransmitted = false;
-
     // move it to the unacked list
     std::unique_ptr<ReliableData> x(std::move(*iter));
-    mUnAckedData.push_back(std::move(x));
+    transmittedPacket->mFrameList.push_back(std::move(x));
     iter = mConnUnWritten.erase(iter);
   }
   return MOZQUIC_OK;
@@ -778,19 +776,41 @@ StreamState::Flush(bool forceAck)
 
   unsigned char *framePtr = plainPkt + headerLen;
   const unsigned char *endpkt = plainPkt + mtu - kTagLen; // reserve 16 for aead tag
-  CreateStreamFrames(framePtr, endpkt, false);
+  std::unique_ptr<TransmittedPacket> packet(new TransmittedPacket(mMozQuic->mNextTransmitPacketNumber));
 
+  if (mMozQuic->mSendState->EmptyQueue() && mMozQuic->mSendState->CanSendNow(kInitialMTU)) {
+    CreateFrames(framePtr, endpkt, false, packet.get());
+  } else if (!forceAck) {
+    return MOZQUIC_OK;
+  }
+
+  uint32_t bytesOut = 0;
+  bool bareAck = framePtr == (plainPkt + headerLen);
   uint32_t rv = mMozQuic->ProtectedTransmit(plainPkt, headerLen,
                                             plainPkt + headerLen, framePtr - (plainPkt + headerLen),
-                                            mtu - headerLen - kTagLen, true);
+                                            mtu - headerLen - kTagLen, true, 0, &bytesOut);
   if (rv != MOZQUIC_OK) {
     return rv;
+  }
+  if (!bareAck && bytesOut) {
+    packet->mTransmitTime = MozQuic::Timestamp();
+    packet->mPacketLen = bytesOut;
+    mUnAckedPackets.push_back(std::move(packet));
   }
 
   if (!mConnUnWritten.empty()) {
     return Flush(false);
   }
   return MOZQUIC_OK;
+}
+
+void
+StreamState::TrackPacket(uint64_t packetNumber, uint32_t packetSize)
+{
+  std::unique_ptr<TransmittedPacket> packet(new TransmittedPacket(packetNumber));
+  packet->mTransmitTime = MozQuic::Timestamp();
+  packet->mPacketLen = packetSize;
+  mUnAckedPackets.push_back(std::move(packet));
 }
 
 uint32_t
@@ -882,7 +902,7 @@ StreamState::ConnectionReadBytes(uint64_t amt)
 uint32_t
 StreamState::RetransmitTimer()
 {
-  if (mUnAckedData.empty()) {
+  if (mUnAckedPackets.empty()) {
     return MOZQUIC_OK;
   }
 
@@ -891,37 +911,45 @@ StreamState::RetransmitTimer()
   uint64_t now = MozQuic::Timestamp();
   uint64_t discardEpoch = now - kForgetUnAckedThresh;
 
-  for (auto i = mUnAckedData.begin(); i != mUnAckedData.end(); ) {
-    // just a linear backoff for now
-    uint64_t retransEpoch = now - (kRetransmitThresh * (*i)->mTransmitCount);
-    if ((*i)->mTransmitTime > retransEpoch) {
+  for (auto packetIter = mUnAckedPackets.begin(); packetIter != mUnAckedPackets.end(); ) {
+
+    uint64_t retransEpoch = now - (mMozQuic->mSendState->SmoothedRTT() * 4);
+    if ((*packetIter)->mTransmitTime > retransEpoch) {
       break;
     }
-    if (((*i)->mTransmitTime <= discardEpoch) && (*i)->mRetransmitted) {
-      // this is only on packets that we are keeping around for timestamp purposes
-      StreamLog7("old unacked packet forgotten %lX\n",
-                 (*i)->mPacketNumber);
-      assert(!(*i)->mData);
-      i = mUnAckedData.erase(i);
-    } else if (!(*i)->mRetransmitted) {
-      assert((*i)->mData);
-      StreamLog4("data associated with packet %lX retransmitted\n",
-                 (*i)->mPacketNumber);
-      (*i)->mRetransmitted = true;
 
+    if (((*packetIter)->mTransmitTime <= discardEpoch) && (*packetIter)->mRetransmitted) {
+      // this is only on packets that we are keeping around for timestamp purposes
+      StreamLog7("old unacked packet forgotten %lX\n", (*packetIter)->mPacketNumber);
+      assert((*packetIter)->mFrameList.empty());
+      packetIter = mUnAckedPackets.erase(packetIter);
+      continue;
+    }
+
+    if ((*packetIter)->mRetransmitted) {
+      packetIter++;
+      continue;
+    }
+
+    (*packetIter)->mRetransmitted = true;
+    mMozQuic->mSendState->ReportLoss((*packetIter)->mPacketNumber,
+                                     (*packetIter)->mPacketLen);
+
+    for (auto frameIter = (*packetIter)->mFrameList.begin();
+         frameIter != (*packetIter)->mFrameList.end(); frameIter++) {
+      StreamLog4("data associated with packet %lX retransmitted type %d\n",
+                 (*packetIter)->mPacketNumber, (*frameIter)->mType);
       // move the data pointer from iter to tmp
-      std::unique_ptr<ReliableData> tmp(new ReliableData(*(*i)));
-      assert(!(*i)->mData);
+      std::unique_ptr<ReliableData> tmp(new ReliableData(*(*frameIter)));
+      assert(!(*frameIter)->mData);
       assert(tmp->mData);
 
       // its ok to bypass the per out stream flow control window on rexmit
       ConnectionWrite(tmp);
-      i++;
-    } else {
-      i++;
     }
+    (*packetIter)->mFrameList.clear();
+    packetIter++;
   }
-
   return MOZQUIC_OK;
 }
 
@@ -1532,9 +1560,6 @@ ReliableData::ReliableData(uint32_t id, uint64_t offset,
   , mRstCode(0)
   , mStreamCreditValue(0)
   , mConnectionCreditKB(0)
-  , mTransmitTime(0)
-  , mTransmitCount(1)
-  , mRetransmitted(false)
   , mTransmitKeyPhase(keyPhaseUnknown)
 {
   if ((0xfffffffffffffffe - offset) < len) {
@@ -1554,9 +1579,6 @@ ReliableData::ReliableData(ReliableData &orig)
   , mRstCode(orig.mRstCode)
   , mStreamCreditValue(orig.mStreamCreditValue)
   , mConnectionCreditKB(orig.mConnectionCreditKB)
-  , mTransmitTime(0)
-  , mTransmitCount(orig.mTransmitCount + 1)
-  , mRetransmitted(false)
   , mTransmitKeyPhase(keyPhaseUnknown)
 {
   mData = std::move(orig.mData);

@@ -24,10 +24,204 @@ namespace mozquic {
 
 Sender::Sender(MozQuic *session)
   : mMozQuic(session)
-  , mSmoothedRTT(0)
+  , mSmoothedRTT(100)
+  , mDropRate(0)
+  , mCCState(false)
+  , mPacingTicker(0)
+  , mWindow(kDefaultMSS * 10) // bytes
+  , mWindowUsed(0)
+  , mUnPacedPacketCredits(10)
+  , mLastSend(0)
+  , mSSThresh(0xffffffff)
+  , mEndOfRecovery(0)
 {
 }
+
+void
+Sender::Connected()
+{
+  SenderLog5("Connected - slow start\n");
+  mCCState = true;
+}
   
+bool
+Sender::CanSendNow(uint64_t amt)
+{
+  // 4.6. Pacing Rate
+  
+  // The pacing rate is a function of the mode, the congestion window,
+  // and the smoothed rtt. Specifically, the pacing rate is 2 times
+  // the congestion window divided by the smoothed RTT during slow
+  // start and 1.25 times the congestion window divided by the
+  // smoothed RTT during congestion avoidance. In order to fairly
+  // compete with flows that are not pacing, it is recommended to not
+  // pace the first 10 sent packets when exiting quiescence.
+
+  mPacingTicker = 0;
+  if (mCCState == false) {
+    return true;
+  }
+  if (mWindowUsed < mWindow) {
+    // window ok. check pacing.
+    if (mUnPacedPacketCredits) {
+      return true;
+    }
+    uint64_t window;
+    if (mWindow < mSSThresh) { // slowstart
+      window = 2 * mWindow;
+    } else {
+      window = mWindow + (mWindow >> 2);
+    }
+    uint64_t rate = window / mSmoothedRTT; // bytes per ms
+    if (rate < 15) { // min
+      rate = 15;
+    }
+    uint64_t spaceNeeded = amt / rate; // ms
+    if (spaceNeeded > 25) {
+      spaceNeeded = 25; // max gap
+    }
+    assert(MozQuic::Timestamp() >= mLastSend);
+    uint64_t actualSpace = MozQuic::Timestamp() - mLastSend;
+    if (actualSpace < spaceNeeded) {
+      SenderLog8("Pacing requires %ld ms gap (have %ld)\n", spaceNeeded, actualSpace);
+      mPacingTicker = mLastSend + spaceNeeded;
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+uint32_t
+Sender::Tick(const uint64_t now)
+{
+  if (mQueue.empty()) {
+    return MOZQUIC_OK;
+  }
+  
+  if ((now < mPacingTicker) || !CanSendNow(mQueue.front()->mLen)) {
+    return MOZQUIC_OK;
+  }
+
+  do {
+    mLastSend = MozQuic::Timestamp();
+    mWindowUsed += mQueue.front()->mBareAck ? 0 : mQueue.front()->mLen;
+    if (mUnPacedPacketCredits) {
+      mUnPacedPacketCredits--;
+    }
+    SenderLog7("Packet Sent from Queue Tick #%lX %ld (now %ld/%ld)\n",
+               mQueue.front()->mPacketNum,
+               mQueue.front()->mLen, mWindowUsed, mWindow);
+    mMozQuic->RealTransmit(mQueue.front()->mData.get(),
+                           mQueue.front()->mLen,
+                           mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr);
+    mQueue.pop_front();
+    
+  } while (!mQueue.empty() && CanSendNow(mQueue.front()->mLen));
+  return MOZQUIC_OK;
+}
+
+uint32_t
+Sender::Transmit(uint64_t packetNumber, bool bareAck,
+                 const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer)
+{
+  // in order to queue we need to copy the packet, as its probably on the stack of
+  // the caller. So avoid that if possible.
+  assert (mQueue.empty() || (mCCState == true));
+
+  if (mDropRate && ((random() % 100) <  mDropRate)) {
+    SenderLog2("Transmit dropped due to drop rate\n");
+    return MOZQUIC_OK;
+  }
+
+  SenderLog8("Sender::Transmit %ld %d\n", len, bareAck);
+  bool canSendNow = CanSendNow(len) || bareAck;
+  if (mQueue.empty() && canSendNow) {
+    mLastSend = MozQuic::Timestamp();
+    mWindowUsed += bareAck ? 0 : len;
+    if (mUnPacedPacketCredits) {
+      mUnPacedPacketCredits--;
+    }
+    SenderLog7("Packet Sent Without Queue #%lX %d now (%ld/%ld)\n",
+               packetNumber, len, mWindowUsed, mWindow);
+    return mMozQuic->RealTransmit(pkt, len, explicitPeer);
+  }
+  mQueue.emplace_back(new BufferedPacket(pkt, len, explicitPeer, packetNumber, bareAck));
+  SenderLog7("Packet Queued %lX (gateok=%d)\n", packetNumber, canSendNow);
+  if (!canSendNow) {
+    return MOZQUIC_OK;
+  }
+  do {
+    mLastSend = MozQuic::Timestamp();
+    mWindowUsed += bareAck ? 0 : mQueue.front()->mLen;
+    if (mUnPacedPacketCredits) {
+      mUnPacedPacketCredits--;
+    }
+    SenderLog7("Packet Sent from Queue #%lX %d now (%ld/%ld)\n",
+               mQueue.front()->mPacketNum,
+               mQueue.front()->mLen, mWindowUsed, mWindow);
+    mMozQuic->RealTransmit(mQueue.front()->mData.get(),
+                           mQueue.front()->mLen,
+                           mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr);
+    mQueue.pop_front();
+    
+  } while (!mQueue.empty() && (CanSendNow(mQueue.front()->mLen) || mQueue.front()->mBareAck));
+  
+  return MOZQUIC_OK;
+}
+
+void
+Sender::Ack(uint64_t packetNumber, uint32_t bytes)
+{
+  if (mWindowUsed >= bytes) {
+    mWindowUsed -= bytes;
+  } else {
+    mWindowUsed = 0;
+  }
+
+  if (packetNumber < mEndOfRecovery) {
+    SenderLog6("Acknowledgment of %ld (now %ld/%ld) [recovery]\n",
+               bytes, mWindowUsed, mWindow);
+    return;
+  }
+
+  if (mWindow < mSSThresh) {
+    mWindow += bytes;
+  } else {
+    mWindow = kDefaultMSS * bytes / mWindow;
+  }
+  if (mWindow < kMinWindow) {
+    mWindow = kMinWindow;
+  }
+  
+  SenderLog6("Acknowledgment [%lX] %lu (now %lu/%lu) ssthresh=%lu\n",
+             packetNumber, bytes, mWindowUsed, mWindow, mSSThresh);
+}
+
+void
+Sender::ReportLoss(uint64_t packetNumber, uint32_t bytes)
+{
+  SenderLog6("Report Loss [%lX] %lu endRecovery=%lX\n",
+             packetNumber, bytes, mEndOfRecovery);
+
+  if (mWindowUsed >= bytes) {
+    mWindowUsed -= bytes;
+  } else {
+    mWindowUsed = 0;
+  }
+
+  if (mEndOfRecovery < packetNumber) {
+    mEndOfRecovery = packetNumber;
+    mWindow = mWindow >> 1;
+    if (mWindow < kMinWindow) {
+      mWindow = kMinWindow;
+    }
+    mSSThresh = mWindow;
+    SenderLog6("Report Loss (now %lu/%lu) ssthresh=%lu\n",
+               mWindowUsed, mWindow, mSSThresh);
+  }
+}
+
 void
 Sender::RTTSample(uint64_t xmit, uint16_t delay)
 {
@@ -41,9 +235,16 @@ Sender::RTTSample(uint64_t xmit, uint16_t delay)
   if (rtt > 0xffff) {
     rtt = 0xffff;
   }
-  mSmoothedRTT = (mSmoothedRTT - (mSmoothedRTT >> 3)) + (rtt >> 3);
-  SenderLog7("New RTT Sample %u now smoothed %u\n",
-             rtt, mSmoothedRTT);
+  if (mCCState) {
+    mSmoothedRTT = (mSmoothedRTT - (mSmoothedRTT >> 3)) + (rtt >> 3);
+  } else {
+    mSmoothedRTT = rtt;
+  }
+  if (mSmoothedRTT < 1) {
+    mSmoothedRTT = 1;
+  }
+
+  SenderLog6("New RTT Sample %u now smoothed %u\n", rtt, mSmoothedRTT);
 }
 
 }

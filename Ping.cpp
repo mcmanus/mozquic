@@ -6,6 +6,7 @@
 #include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
+#include "Streams.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -73,10 +74,14 @@ MozQuic::StartPMTUD1()
   ConnectionLog5("pmtud1: %d MTU test started\n", mPMTUDTarget);
   mPMTUD1PacketNumber = mNextTransmitPacketNumber;
   mPMTUD1Deadline = Timestamp() + 3000; // 3 seconds to ack the ping
+  uint32_t bytesOut = 0;
   if (ProtectedTransmit(plainPkt, headerLen,
                         plainPkt + headerLen, room + 1,
-                        mPMTUDTarget - headerLen - kTagLen, false, mPMTUDTarget) != MOZQUIC_OK) {
+                        mPMTUDTarget - headerLen - kTagLen, false, mPMTUDTarget, &bytesOut) != MOZQUIC_OK) {
     mPMTUD1PacketNumber = 0;
+  }
+  else {
+    mStreamState->TrackPacket(mPMTUD1PacketNumber, bytesOut);
   }
 }
 

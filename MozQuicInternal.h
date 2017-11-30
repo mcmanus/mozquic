@@ -153,7 +153,7 @@ public:
   }
   void SetStreamWindow(uint64_t w) { mAdvertiseStreamWindow = w; }
   void SetConnWindowKB(uint64_t kb) { mAdvertiseConnectionWindowKB = kb; }
-  void SetDropRate(uint64_t dr) { mDropRate = dr; }
+  void SetDropRate(uint64_t dr);
   void SetMaxSizeAllowed(uint16_t ms) { mLocalMaxSizeAllowed = ms; }
   void SetClientPort(int clientPort) { mClientPort = clientPort; }
 
@@ -178,6 +178,7 @@ public:
 
   void StartBackPressure() { mBackPressure = true; }
   void ReleaseBackPressure();
+  uint32_t RealTransmit(const unsigned char *, uint32_t len, struct sockaddr_in *peer);
   
 private:
   void RaiseError(uint32_t err, const char *fmt, ...);
@@ -235,11 +236,10 @@ private:
   void CompletePMTUD1();
   void AbortPMTUD1();
 
-  uint32_t Transmit(const unsigned char *, uint32_t len, struct sockaddr_in *peer);
   uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
   uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                              unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
-                             bool addAcks, uint32_t mtuOverride = 0);
+                             bool addAcks, uint32_t mtuOverride = 0, uint32_t *bytesOut = nullptr);
 
   // Stateless Reset
   bool     StatelessResetCheckForReceipt(const unsigned char *pkt, uint32_t pktSize);
@@ -334,7 +334,6 @@ private:
 
   uint64_t mAdvertiseStreamWindow;
   uint64_t mAdvertiseConnectionWindowKB;
-  uint16_t mDropRate;
   uint16_t mLocalMaxSizeAllowed;
 
   std::unique_ptr<unsigned char []> mRemoteTransportExtensionInfo;

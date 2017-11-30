@@ -7,6 +7,7 @@
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
 #include "NSSHelper.h"
+#include "Sender.h"
 #include "Streams.h"
 
 #include <assert.h>
@@ -107,7 +108,7 @@ MozQuic::FlushStream0(bool forceAck)
   if (mConnectionState == SERVER_STATE_SSR) {
     HandshakeLog4("Generating Server Stateless Retry.\n");
     connID = PR_htonll(mOriginalConnectionID);
-    assert(mStreamState->mUnAckedData.empty());
+    assert(mStreamState->mUnAckedPackets.empty());
   }
   memcpy(pkt + 1, &connID, 8);
   connID = PR_ntohll(connID);
@@ -121,12 +122,14 @@ MozQuic::FlushStream0(bool forceAck)
   tmp32 = htonl(mVersion);
   memcpy(pkt + 13, &tmp32, 4);
 
+  std::unique_ptr<TransmittedPacket> packet(new TransmittedPacket(mNextTransmitPacketNumber));
   unsigned char *framePtr = pkt + 17;
-  mStreamState->CreateStreamFrames(framePtr, endpkt - 16, true); // last 16 are aead tag
+  mStreamState->CreateFrames(framePtr, endpkt - 16, true, packet.get()); // last 16 are aead tag
   bool sentStream = (framePtr != (pkt + 17));
 
   // then padding as needed up to mtu on client_initial
   uint32_t paddingNeeded = 0;
+  bool bareAck = false;
 
   if ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) {
     if (((framePtr - pkt) + 16) < kMinClientInitial) {
@@ -134,7 +137,7 @@ MozQuic::FlushStream0(bool forceAck)
     }
   } else if (mConnectionState == SERVER_STATE_SSR) {
     mConnectionState = SERVER_STATE_1RTT;
-    mStreamState->mUnAckedData.clear();
+    mStreamState->mUnAckedPackets.clear();
     assert(mStreamState->mConnUnWritten.empty());
     if (mConnEventCB) {
       mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
@@ -142,6 +145,7 @@ MozQuic::FlushStream0(bool forceAck)
   } else {
     uint32_t room = endpkt - framePtr - 16; // the last 16 are for aead tag
     uint32_t used;
+    bareAck = framePtr == (pkt + 17);
     if (AckPiggyBack(framePtr, mNextTransmitPacketNumber, room, keyPhaseUnprotected, used) == MOZQUIC_OK) {
       if (used) {
         AckLog6("Handy-Ack FlushStream0 packet %lX frame-len=%d\n", mNextTransmitPacketNumber, used);
@@ -169,12 +173,15 @@ MozQuic::FlushStream0(bool forceAck)
       return rv;
     }
     assert (cipherLen == (framePtr - (pkt + 17)) + 16);
-    uint32_t code = Transmit(cipherPkt, cipherLen + 17, nullptr);
+    uint32_t code = mSendState->Transmit(mNextTransmitPacketNumber, bareAck, cipherPkt, cipherLen + 17, nullptr);
     if (code != MOZQUIC_OK) {
       HandshakeLog1("TRANSMIT0[%lX] this=%p Transmit Fail %x\n",
                     usedPacketNumber, this, rv);
       return code;
     }
+    packet->mTransmitTime = MozQuic::Timestamp();
+    packet->mPacketLen = cipherLen + 17;
+    mStreamState->mUnAckedPackets.push_back(std::move(packet));
 
     Log::sDoLogCID(Log::HANDSHAKE, 5, this, connID,
                    "TRANSMIT0[%lX] this=%p len=%d total0=%d\n",
@@ -218,7 +225,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
   // in the header as the ack, so need to find that on the unacked list.
   // then we can reset the unacked list
   bool foundReference = false;
-  for (auto i = mStreamState->mUnAckedData.begin(); i != mStreamState->mUnAckedData.end(); i++) {
+  for (auto i = mStreamState->mUnAckedPackets.begin(); i != mStreamState->mUnAckedPackets.end(); i++) {
     if ((*i)->mPacketNumber == header.mPacketNumber) {
       foundReference = true;
       break;
@@ -233,7 +240,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
                                               kMaxStreamDataDefault,
                                               mStreamState->mLocalMaxStreamData));
   mSetupTransportExtension = false;
-  mStreamState->mUnAckedData.clear();
+  mStreamState->mUnAckedPackets.clear();
   mStreamState->mConnUnWritten.clear();
   SetInitialPacketNumber();
 
@@ -275,7 +282,7 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
   // in the header as the ack, so need to find that on the unacked list.
   // then we can reset the unacked list
   bool foundReference = false;
-  for (auto i = mStreamState->mUnAckedData.begin(); i != mStreamState->mUnAckedData.end(); i++) {
+  for (auto i = mStreamState->mUnAckedPackets.begin(); i != mStreamState->mUnAckedPackets.end(); i++) {
     if ((*i)->mPacketNumber == header.mPacketNumber) {
       foundReference = true;
       break;
@@ -316,7 +323,7 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
                                                 kMaxStreamDataDefault,
                                                 mStreamState->mLocalMaxStreamData));
     mSetupTransportExtension  = false;
-    mStreamState->mUnAckedData.clear();
+    mStreamState->mUnAckedPackets.clear();
     
     return MOZQUIC_OK;
   }
@@ -496,7 +503,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
     }
   }
 
-  return Transmit(pkt, framePtr - pkt, peer);
+  return mSendState->Transmit(clientHeader.mPacketNumber, true, pkt, framePtr - pkt, peer);
 }
 
 }
