@@ -185,7 +185,27 @@ MozQuic::EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint3
 
   return MOZQUIC_OK;
 }
-  
+
+uint32_t
+MozQuic::CreateLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
+                                uint32_t &used)
+{
+  pkt[0] = 0x80 | PACKET_TYPE_0RTT_PROTECTED;
+
+  uint64_t tmp64 = PR_htonll(mConnectionID);
+  memcpy(pkt + 1, &tmp64, 8);
+
+  uint32_t tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
+  memcpy(pkt + 9, &tmp32, 4);
+
+  tmp32 = htonl(mVersion);
+  memcpy(pkt + 13, &tmp32, 4);
+
+  used = 17;
+
+  return MOZQUIC_OK;
+}
+
 FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
                                  MozQuic *session, bool fromCleartext)
 {

@@ -69,6 +69,16 @@
             "Name" : "unistreams",
             "ClientArgs": ["-qdrive-test13"],
             "ServerArgs": ["-qdrive-test13"]
+        },
+	{
+            "Name" : "0RTT",
+            "ClientArgs": ["-qdrive-test12"],
+            "ServerArgs": ["-qdrive-test12"]
+        },
+	{
+            "Name" : "0RTTDataReject",
+            "ClientArgs": ["-qdrive-test13"],
+            "ServerArgs": ["-qdrive-test13"]
         }
     ]
 }

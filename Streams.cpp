@@ -13,6 +13,8 @@
 #include "stdlib.h"
 #include "unistd.h"
 
+#include <algorithm>
+
 namespace mozquic  {
 
 #define StreamLog1(...) Log::sDoLog(Log::STREAM, 1, mMozQuic, __VA_ARGS__);
@@ -475,6 +477,37 @@ StreamState::ScrubUnWritten(uint32_t streamID)
   return MOZQUIC_OK;
 }
 
+void
+StreamState::Reset0RTTData()
+{
+  auto iter = mConnUnWritten.rbegin();
+  while (iter != mConnUnWritten.rend()) {
+    auto chunk = (*iter).get();
+    if (chunk->mType == ReliableData::kStream && chunk->mStreamID) {
+      auto i = mStreams.find(chunk->mStreamID);
+      assert (i != mStreams.end());
+      std::unique_ptr<ReliableData> x(std::move(chunk));
+      (*i).second->mOut.mStreamUnWritten.push_front(std::move(x));
+      mStreamsReadyToWrite.push_front(chunk->mStreamID);
+    }
+    iter++;
+  }
+
+  auto iter2 = mUnAckedData.rbegin();
+  while (iter2 != mUnAckedData.rend()) {
+    auto chunk = (*iter2).get();
+    if (chunk->mType == ReliableData::kStream && chunk->mStreamID) {
+      auto i = mStreams.find(chunk->mStreamID);
+      assert (i != mStreams.end());
+      std::unique_ptr<ReliableData> x(std::move(chunk));
+      (*i).second->mOut.mStreamUnWritten.push_front(std::move(x));
+      mStreamsReadyToWrite.push_front(chunk->mStreamID);
+    }
+    iter2++;
+  }
+  mStreamsReadyToWrite.unique();
+}
+
 uint64_t
 StreamState::CalculateConnectionCharge(ReliableData *data, StreamOut *out)
 {
@@ -785,7 +818,7 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
                  mMozQuic->mNextTransmitPacketNumber);
       framePtr += (*iter)->mLen;
     }
-    
+  
     if ((mMozQuic->GetConnectionState() == CLIENT_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == SERVER_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT)) {
@@ -805,7 +838,7 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
 uint32_t
 StreamState::Flush(bool forceAck)
 {
-  if (!mMozQuic->DecodedOK()) {
+  if (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) {
     mMozQuic->FlushStream0(forceAck);
   }
 
@@ -818,7 +851,15 @@ StreamState::Flush(bool forceAck)
   uint32_t mtu = mMozQuic->mMTU;
   assert(mtu <= kMaxMTU);
 
-  mMozQuic->CreateShortPacketHeader(plainPkt, mtu - kTagLen, headerLen);
+  if (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT) {
+    mMozQuic->CreateLongPacketHeader(plainPkt, mtu - kTagLen, headerLen);
+  } else if ((mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) &&
+             (mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED)) {
+    // if 0RTT data gets rejected, wait for the connected state to send data.
+    return MOZQUIC_OK;
+  } else {
+    mMozQuic->CreateShortPacketHeader(plainPkt, mtu - kTagLen, headerLen);
+  }
 
   unsigned char *framePtr = plainPkt + headerLen;
   const unsigned char *endpkt = plainPkt + mtu - kTagLen; // reserve 16 for aead tag
@@ -879,7 +920,9 @@ StreamState::SignalReadyToWrite(StreamOut *out)
       !out->mStreamUnWritten.empty()) {
     // This stream still has data to write but it is blocked by the connection
     // flow control.
-    mStreamsReadyToWrite.push_back(out->mStreamID);
+    if (std::find(mStreamsReadyToWrite.begin(), mStreamsReadyToWrite.end(), out->mStreamID) == mStreamsReadyToWrite.end()) {
+      mStreamsReadyToWrite.push_back(out->mStreamID);
+    }
   }
 }
 
