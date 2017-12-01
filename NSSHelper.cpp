@@ -905,16 +905,13 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, false);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, true);
   SSL_OptionSet(mFD, SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_NEVER);
-  if (!mMozQuic->Enabled0RTT()) {
-    SSL_OptionSet(mFD, SSL_NO_CACHE, true);
-    SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, false);
-  } else {
-    SSL_OptionSet(mFD, SSL_NO_CACHE, false);
-    SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, true);
+  SSL_OptionSet(mFD, SSL_NO_CACHE, false);
+  SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, true);
+  if (mMozQuic->Enabled0RTT()) {
     SSL_OptionSet(mFD, SSL_ENABLE_0RTT_DATA, true);
     if (!mMozQuic->Reject0RTTData()) {
-      // I we do not set this option all 0rtt data will be rejected.
-      // We will use this to test the case when 0rtt data are rejected.
+      // If this option is not set 0rtt data will be rejected.
+      // We will use this to test the case when the server rejects 0rtt data.
       SSL_SetupAntiReplay(1000, 1, 3);
     }
   }
@@ -1005,12 +1002,9 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, true);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, false);
   SSL_OptionSet(mFD, SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_NEVER);
-  if (!mMozQuic->Enabled0RTT()) {
-    SSL_OptionSet(mFD, SSL_NO_CACHE, true); // todo why does this cause fails?
-    SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, false);
-  } else {
-    SSL_OptionSet(mFD, SSL_NO_CACHE, false);
-    SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, true);
+  SSL_OptionSet(mFD, SSL_NO_CACHE, false);
+  SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, true);
+  if (mMozQuic->Enabled0RTT()) {
     SSL_OptionSet(mFD, SSL_ENABLE_0RTT_DATA, true);
   }
   SSL_OptionSet(mFD, SSL_REQUEST_CERTIFICATE, false);
