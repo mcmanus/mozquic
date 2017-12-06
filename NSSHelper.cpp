@@ -849,9 +849,6 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   , mPacketProtectionHandshakeSenderKey(nullptr)
   , mPacketProtectionHandshakeReceiverKey(nullptr)
 {
-  PRNetAddr addr;
-  memset(&addr,0,sizeof(addr));
-  addr.raw.family = PR_AF_INET;
   memset(mExternalSendSecret, 0, sizeof(mExternalSendSecret));
   memset(mExternalRecvSecret, 0, sizeof(mExternalRecvSecret));
 
@@ -922,7 +919,6 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
     TlsLog1("Transport ExtensionSupport not possible. not connecting\n");
   }
   MakeHandshakeKeys(mMozQuic->ConnectionID());
-  PR_Connect(mFD, &addr, 0);
   // if you Read() from the helper, it pulls through the tls layer from the mozquic::stream0 buffer where
   // peer data lke the client hello is stored.. if you Write() to the helper something
   // like "", the tls layer adds the server hello on the way out into mozquic::stream0
