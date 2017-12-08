@@ -53,7 +53,91 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   return MOZQUIC_OK;
 }
 
+uint32_t
+MozQuic::DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result) 
+{
+  if (avail < 1) {
+    return MOZQUIC_ERR_GENERAL;
+  }
 
+  if ((ptr[0] & 0xC0) == 0x00) {
+    result = ptr[0] & ~0xC0;
+    
+  } else if ((ptr[0] & 0xC0) == 0x40) {
+    if (avail < 2) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    uint16_t tmp16;
+    memcpy(&tmp16, ptr, sizeof(tmp16));
+    ((unsigned char *)&tmp16)[0] &= ~0xC0;
+    result = ntohs(tmp16);
+    
+  } else if ((ptr[0] & 0xC0) == 0x80) {
+    if (avail < 4) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    uint32_t tmp32;
+    memcpy(&tmp32, ptr, sizeof(tmp32));
+    ((unsigned char *)&tmp32)[0] &= ~0xC0;
+    result = ntohl(tmp32);
+
+  } else {
+    assert ((ptr[0] & 0xC0) == 0xC);
+    if (avail < 8) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    uint64_t tmp64;
+    memcpy(&tmp64, ptr, sizeof(tmp64));
+    ((unsigned char *)&tmp64)[0] &= ~0xC0;
+    result = PR_ntohll(tmp64);
+  }
+  return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint32_t &used)
+{
+  used = 0;
+  if (input < (1 << 6)) {
+    if (avail < 1) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    used = 1;
+    dest[0] = (uint8_t) input;
+  } else if (input < (1 << 14)) {
+    if (avail < 2) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    used = 2;
+    uint16_t tmp16 = (uint16_t) input;
+    tmp16 = htons(tmp16);
+    memcpy(dest, &tmp16, sizeof(tmp16));
+    dest[0] |= 0x40;
+  } else if (input < (1 << 30)) {
+    if (avail < 4) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    used = 4;
+    uint16_t tmp32 = (uint32_t) input;
+    tmp32 = htonl(tmp32);
+    memcpy(dest, &tmp32, sizeof(tmp32));
+    dest[0] |= 0x80;
+  } else if (input < (1ULL << 62)) {
+    if (avail < 8) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    used = 8;
+    input = PR_htonll(input);
+    memcpy(dest, &input, sizeof(input));
+    dest[0] |= 0xC0;
+  } else {
+    // out of range
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  return MOZQUIC_OK;
+}
+  
 FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
                                  MozQuic *session, bool fromCleartext)
 {

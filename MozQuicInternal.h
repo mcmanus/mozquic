@@ -236,6 +236,9 @@ private:
   void CompletePMTUD1();
   void AbortPMTUD1();
 
+  static uint32_t EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint32_t &used);
+  static uint32_t DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result);
+
   uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
   uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                              unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
