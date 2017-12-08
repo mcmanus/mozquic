@@ -185,6 +185,13 @@ Sender::Ack(uint64_t packetNumber, uint32_t bytes)
     return;
   }
 
+  if (mEndOfRecovery) {
+    // leaving recovery
+    mEndOfRecovery = 0;
+    SenderLog5("leaving recovery\n");
+    mUnPacedPacketCredits = 10;
+  }
+
   if (mWindow < mSSThresh) {
     mWindow += bytes;
   } else {
