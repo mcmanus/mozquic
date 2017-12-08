@@ -8,7 +8,6 @@
 #include "MozQuicInternal.h"
 #include "Sender.h"
 #include "Streams.h"
-#include "ufloat16.h"
 
 #include <array>
 #include <assert.h>
