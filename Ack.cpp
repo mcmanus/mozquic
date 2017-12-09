@@ -121,9 +121,10 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       used += outputSize;
       avail -= outputSize;
 
-      // timestamp is microseconds (10^-6) but here is milliseconds.. todo scale
+      // todo scale transport parameter
       assert(iter->mReceiveTime.size());
       uint64_t delay64 = Timestamp() - *(iter->mReceiveTime.begin());
+      delay64 *= 1000; // wire encoding is microseconds
       if (EncodeVarint(delay64, pkt + used, avail, outputSize) != MOZQUIC_OK) {
         AckLog6("Cannot create new ack frame due to lack of space in packet\n");
         used = 0;
@@ -319,7 +320,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
                 (*dataIter)->mPacketLen);
         if (ackMetaInfo->u.mAck.mLargestAcked == haveAckFor) {
           uint64_t xmit = (*dataIter)->mTransmitTime;
-          mSendState->RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay);
+          mSendState->RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay / 1000);
         }
         mSendState->Ack((*dataIter)->mPacketNumber, (*dataIter)->mPacketLen);
         dataIter = mStreamState->mUnAckedPackets.erase(dataIter);
