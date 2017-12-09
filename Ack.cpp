@@ -8,6 +8,7 @@
 #include "MozQuicInternal.h"
 #include "Sender.h"
 #include "Streams.h"
+#include "TransportExtension.h"
 
 #include <array>
 #include <assert.h>
@@ -125,6 +126,12 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       assert(iter->mReceiveTime.size());
       uint64_t delay64 = Timestamp() - *(iter->mReceiveTime.begin());
       delay64 *= 1000; // wire encoding is microseconds
+      if (kp != keyPhaseUnprotected) {
+        delay64 /= (1ULL << mLocalAckDelayExponent);
+      } else {
+        delay64 /= (1ULL << kDefaultAckDelayExponent);
+      }
+
       if (EncodeVarint(delay64, pkt + used, avail, outputSize) != MOZQUIC_OK) {
         AckLog6("Cannot create new ack frame due to lack of space in packet\n");
         used = 0;
@@ -320,7 +327,10 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
                 (*dataIter)->mPacketLen);
         if (ackMetaInfo->u.mAck.mLargestAcked == haveAckFor) {
           uint64_t xmit = (*dataIter)->mTransmitTime;
-          mSendState->RTTSample(xmit, ackMetaInfo->u.mAck.mAckDelay / 1000);
+          mSendState->RTTSample(xmit,
+                                ackMetaInfo->u.mAck.mAckDelay *
+                                (1ULL << (fromCleartext ? kDefaultAckDelayExponent : mPeerAckDelayExponent)) /
+                                1000ULL);
         }
         mSendState->Ack((*dataIter)->mPacketNumber, (*dataIter)->mPacketLen);
         dataIter = mStreamState->mUnAckedPackets.erase(dataIter);

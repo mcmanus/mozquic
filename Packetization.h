@@ -10,7 +10,6 @@ namespace mozquic  {
 enum {
   kMaxMTU = 1472,
   kInitialMTU = 1200,
-  kDefaultMaxPacketConfig = 65527,
   kMozQuicMSS = 16384,
   kTagLen = 16,
 

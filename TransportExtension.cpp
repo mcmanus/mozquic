@@ -73,6 +73,15 @@ TransportExtension::Encode16ByteObject(unsigned char *output, uint16_t &_offset,
 }
 
 void
+TransportExtension::Encode2xLenx1Record(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
+                                        uint16_t object1, uint8_t object2)
+{
+  Encode2ByteObject(output, _offset, maxOutput, object1);
+  Encode2ByteObject(output, _offset, maxOutput, 1);
+  Encode1ByteObject(output, _offset, maxOutput, object2);
+}
+
+void
 TransportExtension::Encode2xLenx2Record(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
                                    uint16_t object1, uint16_t object2)
 {
@@ -146,7 +155,8 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
                                                     uint32_t initialMaxStreamID,
                                                     uint16_t idleTimeout,
                                                     bool omitCID,
-                                                    uint16_t maxPacket)
+                                                    uint16_t maxPacket,
+                                                    uint8_t ackDelayExponent)
 {
   assert(!(initialMaxDataBytes & 0x3ff));
   assert((initialMaxDataBytes >> 10) <= 0xffffffff);
@@ -156,6 +166,10 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
   if (maxPacket > 1200 && maxPacket != kDefaultMaxPacketConfig) {
     maxPacketESize += 6;
   }
+  uint16_t ackDelayExponentESize = 0;
+  if (ackDelayExponent != kDefaultAckDelayExponent) {
+    ackDelayExponentESize += 5;
+  }
   uint16_t omitCIDESize = 0;
   if (omitCID) {
     omitCIDESize += 4;
@@ -163,8 +177,8 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
       
   Encode4ByteObject(output, _offset, maxOutput, negotiatedVersion);
   Encode4ByteObject(output, _offset, maxOutput, initialVersion);
-  Encode2ByteObject(output, _offset, maxOutput, 30 + maxPacketESize + omitCIDESize); // size parameters
-
+  Encode2ByteObject(output, _offset, maxOutput, 30 + maxPacketESize + omitCIDESize +
+                    ackDelayExponentESize); // size parameters
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamData, initialMaxStreamData);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxData, initialMaxDataKB);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamID, initialMaxStreamID);
@@ -175,6 +189,9 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
   }
   if (maxPacketESize) {
     Encode2xLenx2Record(output, _offset, maxOutput, kMaxPacketSize, maxPacket);
+  }
+  if (ackDelayExponentESize) {
+    Encode2xLenx1Record(output, _offset, maxOutput, kAckDelayExponent, ackDelayExponent);
   }
 }
 
@@ -194,6 +211,7 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
                                                     uint16_t &_idleTimeout,
                                                     bool     &_omitCID,
                                                     uint16_t &_maxPacket,
+                                                    uint8_t  &_ackDelayExponent,
                                                     MozQuic *forLogging)
 {
   if (inputSize < 10) { // the version fields and size of params
@@ -212,8 +230,9 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
   offset = 0;
   inputSize = paramSize;
   bool maxStreamData = false, maxData = false, maxStreamID = false,
-    idleTimeout = false, maxPacket = false, omitCID = false;
+    idleTimeout = false, maxPacket = false, omitCID = false, aDE = false;
   _maxPacket = kDefaultMaxPacketConfig;
+  _ackDelayExponent = kDefaultAckDelayExponent;
   _omitCID = false;
 
   while (inputSize - offset >= 4) {
@@ -263,6 +282,18 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
         Log::sDoLog(Log::CONNECTION, 1, forLogging,
                     "Server Decoded Stateless Reset Token\n");
         return MOZQUIC_ERR_GENERAL;
+        break;
+      case kAckDelayExponent:
+        if (len != 1) { return MOZQUIC_ERR_GENERAL; }
+        Decode1ByteObject(input, offset, inputSize, _ackDelayExponent);
+        TP_ENSURE_PARAM(aDE);
+        if (_ackDelayExponent > 20) {
+          Log::sDoLog(Log::CONNECTION, 1, forLogging, 
+                      "AckDelayExponent Recvd Too Large\n");
+          return MOZQUIC_ERR_GENERAL;
+        }
+        break;
+
       default:
         offset += len;
         break;
@@ -281,6 +312,7 @@ TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint1
                                                     uint16_t idleTimeout,
                                                     bool omitCID,
                                                     uint16_t maxPacket,
+                                                    uint8_t ackDelayExponent,
                                                     unsigned char *statelessResetToken /* 16 bytes */)
 {
   assert(!(initialMaxDataBytes & 0x3ff));
@@ -297,11 +329,16 @@ TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint1
   if (maxPacket > 1200 && maxPacket != kDefaultMaxPacketConfig) {
     maxPacketESize += 6;
   }
+  uint16_t ackDelayExponentESize = 0;
+  if (ackDelayExponent != kDefaultAckDelayExponent) {
+    ackDelayExponentESize += 5;
+  }
   uint16_t omitCIDESize = 0;
   if (omitCID) {
     omitCIDESize += 4;
   }
-  Encode2ByteObject(output, _offset, maxOutput, 50 + maxPacketESize + omitCIDESize); // size of parameters
+  Encode2ByteObject(output, _offset, maxOutput, 50 + maxPacketESize + omitCIDESize +
+                    ackDelayExponentESize ); // size of parameters
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamData, initialMaxStreamData);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxData, initialMaxDataKB);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamID, initialMaxStreamID);
@@ -312,6 +349,9 @@ TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint1
   }
   if (maxPacketESize) {
     Encode2xLenx2Record(output, _offset, maxOutput, kMaxPacketSize, maxPacket);
+  }
+  if (ackDelayExponentESize) {
+    Encode2xLenx1Record(output, _offset, maxOutput, kAckDelayExponent, ackDelayExponent);
   }
   Encode2ByteObject(output, _offset, maxOutput, kStatelessResetToken);
   Encode2ByteObject(output, _offset, maxOutput, 16);
@@ -327,6 +367,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
                                                     uint16_t &_idleTimeout,
                                                     bool     &_omitCID,
                                                     uint16_t &_maxPacket,
+                                                    uint8_t  &_ackDelayExponent,
                                                     unsigned char *_statelessResetToken /* 16 bytes */,
                                                     MozQuic *forLogging)
 {
@@ -364,10 +405,11 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
   offset = 0;
   inputSize = paramSize;
   bool maxStreamData = false, maxData = false, maxStreamID = false,
-    idleTimeout = false, maxPacket = false, omitCID = false;
+    idleTimeout = false, maxPacket = false, omitCID = false, aDE = false;
   bool statelessReset = false;
   _maxPacket = kDefaultMaxPacketConfig;
   _omitCID = false;
+  _ackDelayExponent = kDefaultAckDelayExponent;
 
   do {
     if (inputSize - offset < 4) {
@@ -419,6 +461,17 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
         Decode16ByteObject(input, offset, inputSize, _statelessResetToken);
         TP_ENSURE_PARAM(statelessReset);
         break;
+      case kAckDelayExponent:
+        if (len != 1) { return MOZQUIC_ERR_GENERAL; }
+        Decode1ByteObject(input, offset, inputSize, _ackDelayExponent);
+        TP_ENSURE_PARAM(aDE);
+        if (_ackDelayExponent > 20) {
+          Log::sDoLog(Log::CONNECTION, 1, forLogging, 
+                      "AckDelayExponent Recvd Too large\n");
+          return MOZQUIC_ERR_GENERAL;
+        }
+        break;
+
       default:
         offset += len;
         break;

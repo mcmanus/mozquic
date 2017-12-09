@@ -230,7 +230,7 @@ Sender::ReportLoss(uint64_t packetNumber, uint32_t bytes)
 }
 
 void
-Sender::RTTSample(uint64_t xmit, uint16_t delay)
+Sender::RTTSample(uint64_t xmit, uint64_t delay)
 {
   uint64_t now = MozQuic::Timestamp();
   assert(now >= xmit);

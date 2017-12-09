@@ -72,6 +72,8 @@ MozQuic::MozQuic(bool handleIO)
   , mLocalOmitCID(false)
   , mPeerOmitCID(false)
   , mPeerIdleTimeout(kIdleTimeoutDefault)
+  , mPeerAckDelayExponent(kDefaultAckDelayExponent)
+  , mLocalAckDelayExponent(10)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
   , mLocalMaxSizeAllowed(0)
@@ -432,7 +434,8 @@ MozQuic::EnsureSetupClientTransportParameters()
                                     mStreamState->mLocalMaxData,
                                     mStreamState->mLocalMaxStreamID,
                                     kIdleTimeoutDefault, mLocalOmitCID,
-                                    mLocalMaxSizeAllowed);
+                                    mLocalMaxSizeAllowed,
+                                    mLocalAckDelayExponent);
   if (mAppHandlesSendRecv) {
     struct mozquic_eventdata_tlsinput data;
     data.data = te;
@@ -511,6 +514,7 @@ MozQuic::Server1RTT()
                                       mStreamState->mLocalMaxStreamID,
                                       kIdleTimeoutDefault, mLocalOmitCID,
                                       mLocalMaxSizeAllowed,
+                                      mLocalAckDelayExponent,
                                       resetToken);
     mNSSHelper->SetLocalTransportExtensionInfo(te, teLength);
     mSetupTransportExtension = true;
@@ -921,7 +925,7 @@ MozQuic::ClientConnected()
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
-                                      mPeerOmitCID, mMaxPacketConfig,
+                                      mPeerOmitCID, mMaxPacketConfig, mPeerAckDelayExponent,
                                       mStatelessResetToken, this);
     mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
     if (decodeResult != MOZQUIC_OK) {
@@ -1014,7 +1018,7 @@ MozQuic::ServerConnected()
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID, mPeerIdleTimeout,
-                                      mPeerOmitCID, mMaxPacketConfig, this);
+                                      mPeerOmitCID, mMaxPacketConfig, mPeerAckDelayExponent, this);
     ConnectionLog6(
             "decode client parameters: "
             "maxstreamdata %u "

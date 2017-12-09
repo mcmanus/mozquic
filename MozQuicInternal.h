@@ -342,6 +342,9 @@ private:
 
   uint16_t mPeerIdleTimeout;
 
+  uint8_t  mPeerAckDelayExponent;
+  uint8_t  mLocalAckDelayExponent;
+
   uint64_t mAdvertiseStreamWindow;
   uint64_t mAdvertiseConnectionWindowKB;
   uint16_t mLocalMaxSizeAllowed;

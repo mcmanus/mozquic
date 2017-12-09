@@ -64,7 +64,7 @@ public:
   Sender(MozQuic *session);
   uint32_t Transmit(uint64_t packetNumber, bool bareAck,
                     const unsigned char *, uint32_t len, struct sockaddr_in *peer);
-  void RTTSample(uint64_t xmit, uint16_t delay);
+  void RTTSample(uint64_t xmit, uint64_t delay);
   void Ack(uint64_t packetNumber, uint32_t packetLength);
   void ReportLoss(uint64_t packetNumber, uint32_t packetLength);
   void SetDropRate(uint64_t dr) { mDropRate = dr; }

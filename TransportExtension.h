@@ -8,7 +8,10 @@
 namespace mozquic  {
 
 class MozQuic;
-  
+
+const uint16_t kDefaultMaxPacketConfig = 65527;
+const uint8_t  kDefaultAckDelayExponent = 3;
+
 class TransportExtension {
 private:
   static void Encode1ByteObject(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
@@ -19,6 +22,8 @@ private:
                                 uint32_t object);
   static void Encode16ByteObject(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
                                 unsigned char *object);
+  static void Encode2xLenx1Record(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
+                                  uint16_t object1, uint8_t object2);
   static void Encode2xLenx2Record(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
                                uint16_t object1, uint16_t object2);
   static void Encode2xLenx4Record(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
@@ -44,7 +49,8 @@ public:
                                               uint32_t initialMaxStreamID,
                                               uint16_t idleTimeout,
                                               bool     omitCID,
-                                              uint16_t maxPacket);
+                                              uint16_t maxPacket,
+                                              uint8_t ackDelayExponent);
   static uint32_t DecodeClientTransportParameters(unsigned char *input, uint16_t inputSize,
                                                   uint32_t &_negotiatedVersion,
                                                   uint32_t &_initialVersion,
@@ -54,6 +60,7 @@ public:
                                                   uint16_t &_idleTimeout,
                                                   bool     &_omitCID,
                                                   uint16_t &_maxPacket,
+                                                  uint8_t  &_ackDelayExponent,
                                                   MozQuic *forLogging);
   
   static void EncodeServerTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
@@ -64,6 +71,7 @@ public:
                                               uint16_t idleTimeout,
                                               bool     omitCID,
                                               uint16_t maxPacket,
+                                              uint8_t ackDelayExponent,
                                               unsigned char *statelessResetToken /* 16 bytes */);
   static uint32_t DecodeServerTransportParameters(unsigned char *input, uint16_t inputSize,
                                                   uint32_t *versionList, uint16_t &_versionListSize,
@@ -73,6 +81,7 @@ public:
                                                   uint16_t &_idleTimeout,
                                                   bool     &_omitCID,
                                                   uint16_t &_maxPacket,
+                                                  uint8_t  &_ackDelayExponent,
                                                   unsigned char *_statelessResetToken /* 16 bytes */,
                                                   MozQuic *forLogging);
 
