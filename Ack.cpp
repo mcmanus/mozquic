@@ -16,23 +16,14 @@
 
 namespace mozquic  {
 
-static uint8_t varSize(uint64_t input)
-{
-  // returns 0->3 depending on magnitude of input
-  return (input < 0x100) ? 0 : (input < 0x10000) ? 1 : (input < 0x100000000UL) ? 2 : 3;
-}
-
 // a request to acknowledge a packetnumber
 void
 MozQuic::AckScoreboard(uint64_t packetNumber, enum keyPhase kp)
 {
-  // todo out of order packets should be coalesced
   if (mStreamState->mAckList.empty()) {
     mStreamState->mAckList.emplace_front(packetNumber, Timestamp(), kp);
     return;
   }
-  // todo coalesce also in case where two ranges can be combined
-
   auto iter = mStreamState->mAckList.begin();
   for (; iter != mStreamState->mAckList.end(); ++iter) {
     if ((iter->mPhase == kp) &&
@@ -73,8 +64,8 @@ MozQuic::MaybeSendAck()
   }
   // todo for doing some kind of delack
 
-  auto iter = mStreamState->mAckList.begin();
-  for (; iter != mStreamState->mAckList.end(); ++iter) {
+  for (auto iter = mStreamState->mAckList.begin();
+       iter != mStreamState->mAckList.end(); ++iter) {
     if (iter->Transmitted()) {
       continue;
     }
@@ -87,11 +78,10 @@ MozQuic::MaybeSendAck()
 }
 
 // To clarify.. an ack frame for 15,14,13,11,10,8,2,1
-// numblocks=3
-// largest=15, first ack block length = 2 // 15, 14, 13
-// ack block 1 = {1, 2} // 11, 10
-// ack block 2 = {1, 1} // 8
-// ack block 3 = {5, 2} / 2, 1
+// ackblockcount=3, largest=15, 1stAckBlock= 2 // 15,14,13
+// #1 gap=0, additional ack block=1 // 11,10
+// #2 gap=0, additional ack block=0 // 8
+// #3 gap=4, additional ack block=1 // 2, 1
 
 uint32_t
 MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, keyPhase kp, uint32_t &used)
@@ -99,120 +89,130 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
   used = 0;
 
   // build as many ack frames as will fit
-  // always 16bit run length
+  uint64_t lowAcked = 0;
   bool newFrame = true;
-  uint8_t *numBlocks = nullptr;
-  uint64_t largestAcked;
-  uint64_t lowAcked;
-  for (auto iter = mStreamState->mAckList.begin(); iter != mStreamState->mAckList.end(); ) {
-    // list  ordered as 7/2, 2/1.. (with gap @4 @3)
-    // i.e. highest num first
+  uint32_t outputSize = 0;
+  unsigned char *ackBlockLocation;
+  uint32_t ackBlockCounter = 0;
+  uint32_t offsetRollbackExtra = 0;
+  uint32_t offsetCheckpoint = 0;
+
+  for (auto iter = mStreamState->mAckList.begin(); iter != mStreamState->mAckList.end(); iter++) {
+    // list ordered as 7/2, 2/1.. (ack 7,6,5.. 2,1 but not 4,3 or 0) i.e. highest num first
     if ((kp <= keyPhaseUnprotected) && iter->mPhase >= keyPhase0Rtt) {
       AckLog6("skip ack generation of %lX wrong kp need %d\n", iter->mPacketNumber, kp);
-      ++iter;
       continue;
     }
 
-    largestAcked = iter->mPacketNumber;
     if (newFrame) {
-      uint32_t need = 6;
-      uint8_t pnSizeType = varSize(largestAcked);
-      need += 1 << pnSizeType;
-      if (avail < need) {
-        AckLog6("Cannot create new ack frame due to lack of space in packet %d of %d\n",
-                avail, need);
+      newFrame = false;
+      assert(!used);
+      if (avail < 5) {
+        return MOZQUIC_OK;
+      }
+      
+      pkt[0] = FRAME_TYPE_ACK;
+      used = 1;
+
+      if (EncodeVarint(iter->mPacketNumber, pkt + used, avail, outputSize) != MOZQUIC_OK) {
+        AckLog6("Cannot create new ack frame due to lack of space in packet\n");
         return MOZQUIC_OK; // ok to return as we haven't written any of the frame
       }
+      used += outputSize;
+      avail -= outputSize;
 
-      newFrame = false;
-
-      // ack with numblocks, 16/32 bit largest and 16 bit run
-      pkt[0] = 0xb0 | (pnSizeType << 2) | 0x01;
-      used += 1;
-      numBlocks = pkt + used;
-      *numBlocks = 0;
-      used += 1;
-      if (pnSizeType == 0) {
-        pkt[used] = largestAcked & 0xff;
-        used += 1;
-      } else if (pnSizeType == 1) {
-        uint16_t packet16 = largestAcked & 0xffff;
-        packet16 = htons(packet16);
-        memcpy(pkt + used, &packet16, 2);
-        used += 2;
-      } else if (pnSizeType == 2) {
-        uint32_t packet32 = largestAcked & 0xffffffff;
-        packet32 = htonl(packet32);
-        memcpy(pkt + used, &packet32, 4);
-        used += 4;
-      } else {
-        assert (pnSizeType == 3);
-        uint32_t packet64 = largestAcked;
-        packet64 = PR_htonll(packet64);
-        memcpy(pkt + used, &packet64, 8);
-        used += 8;
-      }
-
-      // timestamp is microseconds (10^-6) as 16 bit fixed point #
+      // timestamp is microseconds (10^-6) but here is milliseconds.. todo scale
       assert(iter->mReceiveTime.size());
       uint64_t delay64 = Timestamp() - *(iter->mReceiveTime.begin());
-      uint16_t delay = htons(delay64);
-      memcpy(pkt + used, &delay, 2);
+      if (EncodeVarint(delay64, pkt + used, avail, outputSize) != MOZQUIC_OK) {
+        AckLog6("Cannot create new ack frame due to lack of space in packet\n");
+        used = 0;
+        return MOZQUIC_OK; // ok to return as we haven't written any of the frame
+      }
+      used += outputSize;
+      avail -= outputSize;
+
+      // we will fill in ackBlockLength at the end, until then reserve 2 bytes for it
+      if (avail < 2) {
+        AckLog6("Cannot create new ack frame due to lack of space in packet\n");
+        used = 0;
+        return MOZQUIC_OK; // ok to return as we haven't written any of the frame
+      }
+      ackBlockLocation = pkt + used;
       used += 2;
-      uint16_t extra = htons(iter->mExtra);
-      memcpy(pkt + used, &extra, 2); // first ack block len
-      used += 2;
+      avail -= 2;
+
+      offsetRollbackExtra = used;
+      if (EncodeVarint(iter->mExtra, pkt + used, avail, outputSize) != MOZQUIC_OK) {
+        used = 0;
+        return MOZQUIC_OK; // ok to return as we haven't written any of the frame
+      }
+      used += outputSize;
+      avail -= outputSize;
+
       lowAcked = iter->mPacketNumber - iter->mExtra;
-      pkt += used;
-      avail -= used;
+      offsetCheckpoint = used;
     } else {
       assert(lowAcked > iter->mPacketNumber);
-      if (avail < 3) {
-        AckLog6("Cannot create new ack frame due to lack of space in packet %d of %d\n",
-                avail, 3);
-        break; // do not return as we have a partially written frame
-      }
-      uint64_t gap = lowAcked - iter->mPacketNumber - 1;
 
-      while (gap > 255) {
-        if (avail < 3) {
+      if ((lowAcked - iter->mPacketNumber) == 1) {
+        if (avail < 7) {
+          // this expands the last entry by an unknown amount
+          // and we don't have a checkpoint to pop back to when running out of
+          // room - so just don't start this operation if the worst case cannot
+          // be accommodated.
           break;
         }
-        *numBlocks = *numBlocks + 1;
-        AckLog9("gap %d is an empty 255 gap\n", *numBlocks);
-        pkt[0] = 255; // empty block
-        pkt[1] = 0;
-        pkt[2] = 0;
-        lowAcked -= 255;
-        pkt += 3;
-        used += 3;
-        avail -= 3;
-        gap -= 255;
+        // crud. There is no gap here which is not allowed by the packet format.
+        // so we need to logically coalesce the last list entry with this one
+        assert(offsetRollbackExtra);
+        assert(used > offsetRollbackExtra);
+        avail += (used - offsetRollbackExtra);
+        used = offsetRollbackExtra;
+        uint64_t lastExtra;
+        uint32_t lenExtra;
+        DecodeVarint(pkt + offsetRollbackExtra, avail, lastExtra, lenExtra);
+        uint64_t newExtra = lastExtra + 1 + iter->mExtra;
+        lowAcked -= 1 + iter->mExtra;
+        if (EncodeVarint(newExtra, pkt + used, avail, outputSize) != MOZQUIC_OK) {
+          used = offsetCheckpoint;
+          break;
+        }
+        used += outputSize;
+        avail -= outputSize;
+        offsetCheckpoint = used;
+      } else {
+        uint64_t gap = lowAcked - iter->mPacketNumber - 2;
+
+        if (EncodeVarint(gap, pkt + used, avail, outputSize) != MOZQUIC_OK) {
+          used = offsetCheckpoint;
+          break;
+        }
+        used += outputSize;
+        avail -= outputSize;
+
+        offsetRollbackExtra = used;
+        if (EncodeVarint(iter->mExtra, pkt + used, avail, outputSize) != MOZQUIC_OK) {
+          used = offsetCheckpoint;
+          break;
+        }
+        used += outputSize;
+        avail -= outputSize;
+
+        lowAcked -= iter->mExtra + 2;
+        ackBlockCounter++;
+        offsetCheckpoint = used;
       }
-      if (avail < 3) {
-        break;
-      }
-      assert(gap <= 255);
-      *numBlocks = *numBlocks + 1;
-      pkt[0] = gap;
-      uint16_t ackBlockLen = htons(iter->mExtra + 1);
-      memcpy(pkt + 1, &ackBlockLen, 2);
-      lowAcked -= (gap + iter->mExtra + 1);
-      pkt += 3;
-      used += 3;
-      avail -= 3;
     }
 
     AckLog6("created ack of %lX (%d extra) into pn=%lX @ block %d [%d prev transmits]\n",
-            iter->mPacketNumber, iter->mExtra, pktNumOfAck, *numBlocks, iter->mTransmits.size());
-
+            iter->mPacketNumber, iter->mExtra, pktNumOfAck, ackBlockCounter, iter->mTransmits.size());
     iter->mTransmits.push_back(std::pair<uint64_t, uint64_t>(pktNumOfAck, Timestamp()));
-    ++iter;
-    if (*numBlocks == 0xff) {
-      break;
-    }
   }
 
+  // this does not impact used or avail as we are just filling in a hole that
+  // has already been accounted for
+  EncodeVarintAs2(ackBlockCounter, ackBlockLocation);
   return MOZQUIC_OK;
 }
 
@@ -231,51 +231,69 @@ MozQuic::Acknowledge(uint64_t packetNum, keyPhase kp)
 }
 
 void
-MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext)
+MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
+                    const unsigned char *endOfPacket, bool fromCleartext,
+                    uint32_t &used)
 {
   // frameptr points to the beginning of the ackblock section
-  // we have already runtime tested that there is enough data there
-  // to read the ackblocks and the tsblocks
   assert (ackMetaInfo->mType == FRAME_TYPE_ACK);
+  assert (ackMetaInfo->u.mAck.mAckBlocks <= 4096);
+
+  const unsigned char *originalFramePtr = framePtr;
+  used = 0;
+
   uint16_t numRanges = 0;
-  uint16_t blocksProcessed = 0;
-  bool firstPass = true;
-  std::array<std::pair<uint64_t, uint64_t>, 257> ackStack;
+  std::array<std::pair<uint64_t, uint64_t>, 4096> ackStack;
 
   uint64_t largestAcked = ackMetaInfo->u.mAck.mLargestAcked;
-  const uint8_t blockLengthLen = ackMetaInfo->u.mAck.mAckBlockLengthLen;
-  do {
-    uint64_t extra = 0;
-    memcpy(((char *)&extra) + (8 - blockLengthLen), framePtr, blockLengthLen);
-    extra = PR_ntohll(extra);
-    framePtr += blockLengthLen;
+  for (uint32_t idx = 0; idx < ackMetaInfo->u.mAck.mAckBlocks; idx++) {
+    if (largestAcked == 0ULL - 1) {
+      RaiseError(MOZQUIC_ERR_GENERAL, (char *) "invalid ack encoding");
+      return;
+    }
 
-    if (firstPass || extra) {
-      if (!firstPass) {
-        extra--;
+    uint32_t used;
+    if (idx != 0) { // mind the gap
+      uint64_t gap;
+      if (DecodeVarint(framePtr, endOfPacket - framePtr, gap, used) != MOZQUIC_OK) {
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
+        return;
       }
-      firstPass = false;
-
-      AckLog6("ACK RECVD (%s) FOR %lX -> %lX\n",
-              fromCleartext ? "cleartext" : "protected",
-              largestAcked - extra, largestAcked);
-      // form a stack here so we can process them starting at the
-      // lowest packet number, which is how mStreamState->mUnAckedPackets is ordered and
-      // do it all in one pass
-      assert(numRanges < 257);
-      ackStack[numRanges++] =
-        std::pair<uint64_t, uint64_t>(largestAcked - extra, extra + 1);
-
-      largestAcked--;
-      largestAcked -= extra;
+      framePtr += used;
+      if (largestAcked < (gap + 1)) {
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "invalid ack encoding");
+        return;
+      } 
+      largestAcked -= gap + 1;
     }
-    if (blocksProcessed++ == ackMetaInfo->u.mAck.mNumBlocks) {
-      break;
+    uint64_t extra = 0;
+
+    if (DecodeVarint(framePtr, endOfPacket - framePtr, extra, used) != MOZQUIC_OK) {
+      RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
+      return;
     }
-    uint8_t gap = *framePtr;
-    largestAcked -= gap;
-    framePtr++;
-  } while (1);
+    framePtr += used;
+
+    AckLog6("ACK RECVD (%s) FOR %lX -> %lX\n",
+            fromCleartext ? "cleartext" : "protected",
+            largestAcked - extra, largestAcked);
+
+    // form a stack here so we can process them starting at the
+    // lowest packet number, which is how mStreamState->mUnAckedPackets is ordered and
+    // do it all in one pass
+    if (numRanges >= 4096) {
+      RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame too long to handle");
+      return;
+    }
+    ackStack[numRanges++] =
+      std::pair<uint64_t, uint64_t>(largestAcked - extra, extra + 1);
+
+    if (largestAcked < (extra)) {
+      RaiseError(MOZQUIC_ERR_GENERAL, (char *) "invalid ack encoding");
+      return;
+    } 
+    largestAcked -= extra + 1;
+  }
 
   auto dataIter = mStreamState->mUnAckedPackets.begin();
   for (auto iters = numRanges; iters > 0; --iters) {
@@ -340,6 +358,8 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       }
     } // haveackfor iteration
   } //ranges iteration
+
+  used = framePtr -originalFramePtr;
 }
 
 uint32_t
@@ -353,13 +373,10 @@ MozQuic::HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  // _ptr now points at ack block section
-  uint32_t ackBlockSectionLen =
-    result->u.mAck.mAckBlockLengthLen +
-    (result->u.mAck.mNumBlocks * (result->u.mAck.mAckBlockLengthLen + 1));
-  assert(pkt + _ptr + ackBlockSectionLen <= endpkt);
-  ProcessAck(result, pkt + _ptr, fromCleartext);
-  _ptr += ackBlockSectionLen;
+  // pkt + _ptr now points at ack blocks
+  uint32_t used;
+  ProcessAck(result, pkt + _ptr, endpkt, fromCleartext, used);
+  _ptr += used;
   return MOZQUIC_OK;
 }
 

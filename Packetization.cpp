@@ -54,14 +54,16 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
 }
 
 uint32_t
-MozQuic::DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result) 
+MozQuic::DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result, uint32_t &used) 
 {
+  used = 0;
   if (avail < 1) {
     return MOZQUIC_ERR_GENERAL;
   }
 
   if ((ptr[0] & 0xC0) == 0x00) {
     result = ptr[0] & ~0xC0;
+    used = 1;
     
   } else if ((ptr[0] & 0xC0) == 0x40) {
     if (avail < 2) {
@@ -71,6 +73,7 @@ MozQuic::DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result
     memcpy(&tmp16, ptr, sizeof(tmp16));
     ((unsigned char *)&tmp16)[0] &= ~0xC0;
     result = ntohs(tmp16);
+    used = 2;
     
   } else if ((ptr[0] & 0xC0) == 0x80) {
     if (avail < 4) {
@@ -80,9 +83,10 @@ MozQuic::DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result
     memcpy(&tmp32, ptr, sizeof(tmp32));
     ((unsigned char *)&tmp32)[0] &= ~0xC0;
     result = ntohl(tmp32);
+    used = 4;
 
   } else {
-    assert ((ptr[0] & 0xC0) == 0xC);
+    assert ((ptr[0] & 0xC0) == 0xC0);
     if (avail < 8) {
       return MOZQUIC_ERR_GENERAL;
     }
@@ -90,8 +94,45 @@ MozQuic::DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result
     memcpy(&tmp64, ptr, sizeof(tmp64));
     ((unsigned char *)&tmp64)[0] &= ~0xC0;
     result = PR_ntohll(tmp64);
+    used = 8;
   }
   return MOZQUIC_OK;
+}
+
+void
+MozQuic::EncodeVarintAs1(uint64_t input, unsigned char *dest)
+{
+  assert (input < (1 << 6));
+  dest[0] = (uint8_t) input;
+}
+
+void
+MozQuic::EncodeVarintAs2(uint64_t input, unsigned char *dest)
+{
+  assert (input < (1 << 14));
+  uint16_t tmp16 = (uint16_t) input;
+  tmp16 = htons(tmp16);
+  memcpy(dest, &tmp16, sizeof(tmp16));
+  dest[0] |= 0x40;
+}
+
+void
+MozQuic::EncodeVarintAs4(uint64_t input, unsigned char *dest)
+{
+  assert (input < (1 << 30));
+  uint32_t tmp32 = (uint32_t) input;
+  tmp32 = htonl(tmp32);
+  memcpy(dest, &tmp32, sizeof(tmp32));
+  dest[0] |= 0x80;
+}
+
+void
+MozQuic::EncodeVarintAs8(uint64_t input, unsigned char *dest)
+{
+  assert (input < (1ULL << 62));
+  input = PR_htonll(input);
+  memcpy(dest, &input, sizeof(input));
+  dest[0] |= 0xC0;
 }
 
 uint32_t
@@ -103,33 +144,25 @@ MozQuic::EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint3
       return MOZQUIC_ERR_GENERAL;
     }
     used = 1;
-    dest[0] = (uint8_t) input;
+    EncodeVarintAs1(input, dest);
   } else if (input < (1 << 14)) {
     if (avail < 2) {
       return MOZQUIC_ERR_GENERAL;
     }
     used = 2;
-    uint16_t tmp16 = (uint16_t) input;
-    tmp16 = htons(tmp16);
-    memcpy(dest, &tmp16, sizeof(tmp16));
-    dest[0] |= 0x40;
+    EncodeVarintAs2(input, dest);
   } else if (input < (1 << 30)) {
     if (avail < 4) {
       return MOZQUIC_ERR_GENERAL;
     }
     used = 4;
-    uint16_t tmp32 = (uint32_t) input;
-    tmp32 = htonl(tmp32);
-    memcpy(dest, &tmp32, sizeof(tmp32));
-    dest[0] |= 0x80;
+    EncodeVarintAs4(input, dest);
   } else if (input < (1ULL << 62)) {
     if (avail < 8) {
       return MOZQUIC_ERR_GENERAL;
     }
     used = 8;
-    input = PR_htonll(input);
-    memcpy(dest, &input, sizeof(input));
-    dest[0] |= 0xC0;
+    EncodeVarintAs8(input, dest);
   } else {
     // out of range
     return MOZQUIC_ERR_GENERAL;
@@ -207,53 +240,6 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
 
     mValid = MOZQUIC_OK;
     mFrameLen = bytesNeeded;
-    return;
-  } else if ((type & FRAME_MASK_ACK) == FRAME_TYPE_ACK) {
-    mType = FRAME_TYPE_ACK;
-    uint8_t numBlocks = (type & 0x10) ? 1 : 0; // N bit
-    uint32_t ackedLen = (type & 0x0c) >> 2; // LL bits
-    ackedLen = 1 << ackedLen;
-
-    // MM bits are type & 0x03
-    u.mAck.mAckBlockLengthLen = 1 << (type & 0x03);
-
-    uint16_t bytesNeeded = 1 + numBlocks + ackedLen + 2;
-    if (bytesNeeded > pktSize) {
-      if (!fromCleartext) {
-        session->Shutdown(FRAME_FORMAT_ERROR, "ack frame header short");
-      }
-      session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
-      return;
-    }
-
-    if (numBlocks) {
-      u.mAck.mNumBlocks = framePtr[0];
-      framePtr++;
-    } else {
-      u.mAck.mNumBlocks = 0;
-    }
-
-    u.mAck.mLargestAcked = 0;
-    assert(sizeof(u.mAck.mLargestAcked) == 8);
-    assert(ackedLen <= 8);
-    memcpy(((char *)&u.mAck.mLargestAcked) + (8 - ackedLen), framePtr, ackedLen);
-    u.mAck.mLargestAcked = PR_ntohll(u.mAck.mLargestAcked);
-    framePtr += ackedLen;
-
-    memcpy(&u.mAck.mAckDelay, framePtr, 2);
-    framePtr += 2;
-    u.mAck.mAckDelay = ntohs(u.mAck.mAckDelay);
-    bytesNeeded += u.mAck.mAckBlockLengthLen + // required First ACK Block
-                   u.mAck.mNumBlocks * (1 + u.mAck.mAckBlockLengthLen); // additional ACK Blocks
-    if (bytesNeeded > pktSize) {
-      if (!fromCleartext) {
-        session->Shutdown(FRAME_FORMAT_ERROR, "ack frame header short2");
-      }
-      session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
-      return;
-    }
-    mValid = MOZQUIC_OK;
-    mFrameLen = framePtr - pkt;
     return;
   } else {
     switch(type) {
@@ -483,6 +469,39 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       
       mValid = MOZQUIC_OK;
       mFrameLen = FRAME_TYPE_STOP_SENDING_LENGTH;
+      return;
+      
+    case FRAME_TYPE_PONG:
+      // todo -08
+      assert(0);
+      return;
+      
+    case FRAME_TYPE_ACK:
+      mType = FRAME_TYPE_ACK;
+      u.mAck.mLargestAcked = 0;
+      uint32_t used;
+      if (MozQuic::DecodeVarint(framePtr, (pkt + pktSize) - framePtr,
+                                u.mAck.mLargestAcked, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
+        return;
+      }
+      framePtr += used;
+      if (MozQuic::DecodeVarint(framePtr, (pkt + pktSize) - framePtr,
+                                u.mAck.mAckDelay, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
+        return;
+      }
+      framePtr += used;
+      if (MozQuic::DecodeVarint(framePtr, (pkt + pktSize) - framePtr,
+                                u.mAck.mAckBlocks, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
+        return;
+      }
+      framePtr += used;
+      u.mAck.mAckBlocks++;
+
+      mValid = MOZQUIC_OK;
+      mFrameLen = framePtr - pkt;
       return;
 
     default:

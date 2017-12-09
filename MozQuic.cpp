@@ -178,6 +178,7 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
   uint32_t written = 0;
   unsigned char cipherPkt[kMaxMTU];
   memcpy(cipherPkt, header, headerLen);
+  assert(headerLen + dataLen + 16 <= MTU);
   uint32_t rv = mNSSHelper->EncryptBlock(header, headerLen, data, dataLen,
                                          mNextTransmitPacketNumber, cipherPkt + headerLen,
                                          MTU - headerLen, written);

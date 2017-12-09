@@ -201,7 +201,9 @@ private:
   uint32_t ReleaseProtectedPackets();
   bool IntegrityCheck(unsigned char *, uint32_t size, uint64_t pktNum, uint64_t connID,
                       unsigned char *outbuf, uint32_t &outSize);
-  void ProcessAck(class FrameHeaderData *ackMetaInfo, const unsigned char *framePtr, bool fromCleartext);
+  void ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
+                  const unsigned char *endOfPacket, bool fromCleartext,
+                  uint32_t &used);
 
   uint32_t HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
                           const unsigned char *pkt, const unsigned char *endpkt,
@@ -237,7 +239,12 @@ private:
   void AbortPMTUD1();
 
   static uint32_t EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint32_t &used);
-  static uint32_t DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result);
+  static uint32_t DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result, uint32_t &used);
+
+  static void EncodeVarintAs1(uint64_t input, unsigned char *dest);
+  static void EncodeVarintAs2(uint64_t input, unsigned char *dest);
+  static void EncodeVarintAs4(uint64_t input, unsigned char *dest);
+  static void EncodeVarintAs8(uint64_t input, unsigned char *dest);
 
   uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
   uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,

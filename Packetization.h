@@ -62,9 +62,10 @@ enum FrameType {
   FRAME_TYPE_STREAM_ID_BLOCKED  = 0xA,
   FRAME_TYPE_NEW_CONNECTION_ID = 0xB,
   FRAME_TYPE_STOP_SENDING      = 0xC,
-  // ACK                       = 0xa0 - 0xbf
-  FRAME_MASK_ACK               = 0xe0,
-  FRAME_TYPE_ACK               = 0xa0, // 101. ....
+  FRAME_TYPE_PONG              = 0xD,
+  FRAME_TYPE_ACK               = 0xE,
+
+  // todo stream in 08 is 0x10 to 0x17
   // STREAM                    = 0xc0 - 0xff
   FRAME_MASK_STREAM            = 0xc0,
   FRAME_TYPE_STREAM            = 0xc0, // 11.. ....
@@ -76,6 +77,7 @@ class FrameHeaderData
 {
 public:
   FrameHeaderData(const unsigned char *, uint32_t, MozQuic *, bool);
+
   FrameType mType;
   uint32_t  mValid;
   uint32_t  mFrameLen;
@@ -87,10 +89,9 @@ public:
       uint64_t mOffset;
     } mStream;
     struct {
-      uint8_t mAckBlockLengthLen;
-      uint8_t mNumBlocks;
       uint64_t mLargestAcked;
-      uint16_t mAckDelay;
+      uint64_t mAckDelay;
+      uint64_t mAckBlocks; // includes block 0 with implicit gap0
     } mAck;
     struct {
       uint32_t mStreamID;
@@ -125,6 +126,7 @@ public:
       uint64_t mConnectionID;
     } mNewConnectionID;
   } u;
+
 };
 
 enum FrameTypeLengths {
