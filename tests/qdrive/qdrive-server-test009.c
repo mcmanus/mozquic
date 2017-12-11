@@ -51,7 +51,7 @@ int testEvent9(void *closure, uint32_t event, void *param)
     test_assert(state.state >= 2 && state.state <= 4);
     mozquic_stream_t *stream = param;
     state.stream = stream;
-    test_assert(mozquic_get_streamid(stream) == 1);
+    test_assert(mozquic_get_streamid(stream) == 4);
 
     uint32_t amt = 0;
     unsigned char buf;
