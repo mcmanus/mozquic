@@ -59,6 +59,11 @@
             "Name" : "dropsies",
             "ClientArgs": ["-qdrive-test11"],
             "ServerArgs": ["-qdrive-test11"]
+        },
+	{
+            "Name" : "pong",
+            "ClientArgs": ["-qdrive-test12"],
+            "ServerArgs": ["-qdrive-test12"]
         }
     ]
 }

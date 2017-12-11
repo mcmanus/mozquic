@@ -34,7 +34,7 @@ struct mozquic_internal_config_t
   uint16_t maxSizeAllowed;
 };
   
-uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t arg1, uint64_t )
+uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t arg1, const void *arg2)
 {
   assert(sizeof(mozquic_internal_config_t) <= sizeof(c->reservedInternally));
   mozquic_internal_config_t *internal = (mozquic_internal_config_t *) c->reservedInternally + 0;
@@ -68,9 +68,20 @@ uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uin
   return MOZQUIC_OK;
 }
 
-uint32_t mozquic_unstable_api2(mozquic_connection_t *, const char *, uint64_t, uint64_t)
+uint32_t mozquic_unstable_api2(mozquic_connection_t *conn, const char *name, uint64_t arg1, const void *arg2)
 {
-  return MOZQUIC_ERR_GENERAL;
+  mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
+  
+  if (!strcasecmp(name, "pingWithData")) {
+    // arg1 is len, arg2 is data
+    if (!arg1 || arg1 > 255) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    return self->MakePingWithData(arg1, (const unsigned char *)arg2);
+  } else {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  return MOZQUIC_OK;
 }
   
 int mozquic_new_connection(mozquic_connection_t **outConnection,

@@ -401,9 +401,37 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       return;
 
     case FRAME_TYPE_PING:
+      if (pktSize < FRAME_TYPE_PING_LENGTH) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            (char *) "PING frame length expected");
+        return;
+      }
       mType = FRAME_TYPE_PING;
+      u.mPing.mDataLen = framePtr[0];
+      if (pktSize < FRAME_TYPE_PING_LENGTH + u.mPing.mDataLen) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            (char *) "PING frame length expected");
+        return;
+      }
       mValid = MOZQUIC_OK;
       mFrameLen = FRAME_TYPE_PING_LENGTH;
+      return;
+
+    case FRAME_TYPE_PONG:
+      if (pktSize < FRAME_TYPE_PONG_LENGTH) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            (char *) "PONG frame length expected");
+        return;
+      }
+      mType = FRAME_TYPE_PONG;
+      u.mPong.mDataLen = framePtr[0];
+      if (pktSize < FRAME_TYPE_PONG_LENGTH + u.mPong.mDataLen) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            (char *) "PONG frame length expected");
+        return;
+      }
+      mValid = MOZQUIC_OK;
+      mFrameLen = FRAME_TYPE_PONG_LENGTH;
       return;
 
     case FRAME_TYPE_BLOCKED:
@@ -469,11 +497,6 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       
       mValid = MOZQUIC_OK;
       mFrameLen = FRAME_TYPE_STOP_SENDING_LENGTH;
-      return;
-      
-    case FRAME_TYPE_PONG:
-      // todo -08
-      assert(0);
       return;
       
     case FRAME_TYPE_ACK:

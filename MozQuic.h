@@ -51,6 +51,7 @@ static const uint32_t mozquic_library_version = 1;
     MOZQUIC_EVENT_PING_OK                = 11, // nullptr
     MOZQUIC_EVENT_TLS_CLIENT_TPARAMS     = 12, // mozquic_eventdata_tlsinput
     MOZQUIC_EVENT_CLOSE_APPLICATION      = 13, // mozquic_connection_t *
+    MOZQUIC_EVENT_PONG                   = 11, // mozquic_eventdata_raw *
   };
 
   enum {
@@ -74,8 +75,8 @@ static const uint32_t mozquic_library_version = 1;
     unsigned char reservedInternally[512];
   };
 
-  uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t, uint64_t);
-  uint32_t mozquic_unstable_api2(mozquic_connection_t *c, const char *name, uint64_t, uint64_t);
+  uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t, const void *);
+  uint32_t mozquic_unstable_api2(mozquic_connection_t *c, const char *name, uint64_t, const void *);
   
   // this is a hack. it will be come a 'crypto config' and allow server key/cert and
   // some kind of client ca root
@@ -93,7 +94,7 @@ static const uint32_t mozquic_library_version = 1;
   int mozquic_recv(mozquic_stream_t *stream, void *data, uint32_t aval, uint32_t *amount, int *fin);
   int mozquic_set_event_callback(mozquic_connection_t *conn, int (*fx)(void *closure, uint32_t event, void *param));
   int mozquic_set_event_callback_closure(mozquic_connection_t *conn, void *closure);
-  int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMS);
+  int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMS); // generate PING_OK event
   int mozquic_get_streamid(mozquic_stream_t *stream);
   int mozquic_get_allacked(mozquic_connection_t *conn);
 
@@ -131,6 +132,12 @@ static const uint32_t mozquic_library_version = 1;
   struct mozquic_eventdata_tlsinput
   {
     unsigned char *data;
+    uint32_t len;
+  };
+
+  struct mozquic_eventdata_raw
+  {
+    const unsigned char *data;
     uint32_t len;
   };
 

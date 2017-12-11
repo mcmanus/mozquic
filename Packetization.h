@@ -124,6 +124,12 @@ public:
       uint16_t mSequence;
       uint64_t mConnectionID;
     } mNewConnectionID;
+    struct {
+      uint8_t mDataLen;
+    } mPing;
+    struct {
+      uint8_t mDataLen;
+    } mPong;
   } u;
 
 };
@@ -136,7 +142,8 @@ enum FrameTypeLengths {
   FRAME_TYPE_MAX_DATA_LENGTH          = 9,
   FRAME_TYPE_MAX_STREAM_DATA_LENGTH   = 13,
   FRAME_TYPE_MAX_STREAM_ID_LENGTH     = 5,
-  FRAME_TYPE_PING_LENGTH              = 1,
+  FRAME_TYPE_PING_LENGTH              = 2,
+  FRAME_TYPE_PONG_LENGTH              = 2,
   FRAME_TYPE_BLOCKED_LENGTH           = 1,
   FRAME_TYPE_STREAM_BLOCKED_LENGTH    = 5,
   FRAME_TYPE_STREAM_ID_BLOCKED_LENGTH  = 1,

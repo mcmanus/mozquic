@@ -35,8 +35,8 @@ MozQuic::CheckPeer(uint32_t deadline)
 
   CreateShortPacketHeader(plainPkt, mMTU - kTagLen, used);
   uint32_t headerLen = used;
-  plainPkt[used] = FRAME_TYPE_PING;
-  used++;
+  plainPkt[used++] = FRAME_TYPE_PING;
+  plainPkt[used++] = 0; // data len
 
   return ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, 1,
                            mMTU - headerLen - kTagLen, true);
@@ -65,8 +65,8 @@ MozQuic::StartPMTUD1()
 
   CreateShortPacketHeader(plainPkt, mPMTUDTarget - kTagLen, used);
   uint32_t headerLen = used;
-  plainPkt[used] = FRAME_TYPE_PING;
-  used++;
+  plainPkt[used++] = FRAME_TYPE_PING;
+  plainPkt[used++] = 0; // datalen
   uint32_t room = mPMTUDTarget - used - kTagLen;
   memset(plainPkt + used, FRAME_TYPE_PADDING, room);
   used += room;
@@ -83,6 +83,69 @@ MozQuic::StartPMTUD1()
   else {
     mStreamState->TrackPacket(mPMTUD1PacketNumber, bytesOut);
   }
+}
+
+void
+MozQuic::MakePong(uint8_t len, const unsigned char *data)
+{
+  ConnectionLog5("MakePong %d\n", len);
+  assert(len);
+  std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, data, len, 0));
+  tmp->MakePong();
+  mStreamState->ConnectionWrite(tmp);
+}
+
+uint32_t
+MozQuic::MakePingWithData(uint8_t len, const unsigned char *data)
+{
+  ConnectionLog5("MakePingWithData %d\n", len);
+  assert(len);
+  std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, data, len, 0));
+  tmp->MakePing();
+  mStreamState->ConnectionWrite(tmp);
+  return MOZQUIC_OK;
+}
+
+uint32_t
+MozQuic::HandlePingFrame(FrameHeaderData *result, bool fromCleartext,
+                         const unsigned char *pkt, const unsigned char *endpkt,
+                         uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    ConnectionLog1("ping frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  if (result->u.mPing.mDataLen) {
+    assert(pkt + _ptr + result->u.mPing.mDataLen <= endpkt); // runtime checked during frame parse
+    MakePong(result->u.mPing.mDataLen, pkt + _ptr);
+    _ptr += result->u.mPing.mDataLen;
+  }
+  return MOZQUIC_OK;
+}
+  
+
+uint32_t
+MozQuic::HandlePongFrame(FrameHeaderData *result, bool fromCleartext,
+                         const unsigned char *pkt, const unsigned char *endpkt,
+                         uint32_t &_ptr)
+{
+  if (fromCleartext) {
+    ConnectionLog1("pong frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  if (result->u.mPong.mDataLen) {
+    assert(pkt + _ptr + result->u.mPong.mDataLen <= endpkt); // runtime checked during frame parse
+
+    struct mozquic_eventdata_raw raw;
+    raw.data = pkt + _ptr;
+    raw.len = result->u.mPong.mDataLen;
+    mConnEventCB(mClosure, MOZQUIC_EVENT_PONG, &raw);
+
+    _ptr += result->u.mPong.mDataLen;
+  }
+  return MOZQUIC_OK;
 }
 
 void
