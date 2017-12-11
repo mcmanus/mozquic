@@ -38,7 +38,7 @@ MozQuic::CheckPeer(uint32_t deadline)
   plainPkt[used++] = FRAME_TYPE_PING;
   plainPkt[used++] = 0; // data len
 
-  return ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, 1,
+  return ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, FRAME_TYPE_PING_LENGTH,
                            mMTU - headerLen - kTagLen, true);
 }
 
