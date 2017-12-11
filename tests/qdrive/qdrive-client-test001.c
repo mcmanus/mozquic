@@ -40,7 +40,7 @@ static void onConnected(mozquic_connection_t *localConnection)
     testState.test1_iters[i] = (random() % 10) * 1024;
     char buf[1024];
     snprintf(buf, 1024, "GET %d %c\n", testState.test1_iters[i] / 1024, testState.test1_char[i]);
-    mozquic_start_new_stream(testState.test1_stream + i, localConnection, buf, strlen(buf), 0);
+    mozquic_start_new_stream(testState.test1_stream + i, localConnection, 0, buf, strlen(buf), 0);
     
     fprintf(stderr,"QDRIVE CLIENT %p expect %d\n", testState.test1_stream[i],
             testState.test1_iters[i]);

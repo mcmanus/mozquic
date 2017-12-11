@@ -64,6 +64,11 @@
             "Name" : "pong",
             "ClientArgs": ["-qdrive-test12"],
             "ServerArgs": ["-qdrive-test12"]
+        },
+	{
+            "Name" : "unistreams",
+            "ClientArgs": ["-qdrive-test13"],
+            "ServerArgs": ["-qdrive-test13"]
         }
     ]
 }

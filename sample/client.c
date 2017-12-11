@@ -50,7 +50,7 @@ static int connEventCB(void *closure, uint32_t event, void *param)
     for (j=0; j < _argc - 1; j++) {
       if (!strcasecmp(_argv[j], "-get")) {
         mozquic_stream_t *stream;
-        int code = mozquic_start_new_stream(&stream, param, "GET ", 4, 0);
+        int code = mozquic_start_new_stream(&stream, param, 0, "GET ", 4, 0);
         assert(code == MOZQUIC_OK);
         code = mozquic_send(stream, _argv[j+1], strlen(_argv[j+1]), 0);
         assert(code == MOZQUIC_OK);
@@ -129,7 +129,7 @@ void streamtest1(mozquic_connection_t *c)
   memset(msg, 'f', 7999);
   msg[7999] = 0;
   mozquic_stream_t *stream;
-  mozquic_start_new_stream(&stream, c, "PREAMBLE", 8, 0);
+  mozquic_start_new_stream(&stream, c, 0, "PREAMBLE", 8, 0);
   mozquic_send(stream, msg, strlen(msg), 0);
   mozquic_send(stream, "FIN", 3, 0);
   do {
