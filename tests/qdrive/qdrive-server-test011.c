@@ -52,7 +52,7 @@ int testEvent11(void *closure, uint32_t event, void *param)
   if (event == MOZQUIC_EVENT_CONNECTED) {
     test_assert((state.state & 3) == 1);
     test_assert (state.state <= 397);
-    test_assert(mozquic_start_new_stream(&state.stream, param, NULL, 0, (state.state != 397)) == MOZQUIC_OK);
+    test_assert(mozquic_start_new_stream(&state.stream, param, 0, NULL, 0, (state.state != 397)) == MOZQUIC_OK);
     if (state.state == 397) {
       unsigned char buf[1000];
       memset(buf,1000,0x22);
@@ -76,7 +76,7 @@ int testEvent11(void *closure, uint32_t event, void *param)
     test_assert(state.state == 398);
     mozquic_stream_t *stream = param;
     state.stream = stream;
-    test_assert(mozquic_get_streamid(stream) == 2);
+    test_assert(mozquic_get_streamid(stream) == 1);
 
     uint32_t amt = 0;
     unsigned char buf;

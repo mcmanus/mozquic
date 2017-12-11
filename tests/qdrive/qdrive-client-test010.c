@@ -44,7 +44,7 @@ int testEvent10(void *closure, uint32_t event, void *param)
   if (state.state == 1) {
     char buf[3] = { 0x10, 0x11, 0x12 };
 
-    mozquic_start_new_stream(&state.stream, param, buf, 3, 1);
+    mozquic_start_new_stream(&state.stream, param, 0, buf, 3, 1);
     state.state++;
     return MOZQUIC_OK;
   }
@@ -52,7 +52,7 @@ int testEvent10(void *closure, uint32_t event, void *param)
   if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
     test_assert(state.state == 2);
     mozquic_stream_t *stream = param;
-    test_assert(mozquic_get_streamid(stream) == 1);
+    test_assert(mozquic_get_streamid(stream) == 4);
     
     uint32_t amt = 0;
     unsigned char buf[500];

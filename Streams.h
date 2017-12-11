@@ -10,10 +10,18 @@
 namespace mozquic  {
 
 enum  {
-  kMaxStreamIDDefault   = 1024,
-  kMaxStreamDataDefault = 10 * 1024 * 1024,
-  kMaxDataDefault       = 50 * 1024 * 1024,
-  kForgetUnAckedThresh  = 6000,
+  kMaxStreamIDServerDefaultBidi   = 1024 + 1,
+  kMaxStreamIDServerDefaultUni    = 1024 + 3,
+  kMaxStreamIDClientDefaultBidi   = 1024 + 4,
+  kMaxStreamIDClientDefaultUni    = 1024 + 2,
+  kMaxStreamDataDefault           = 10 * 1024 * 1024,
+  kMaxDataDefault                 = 50 * 1024 * 1024,
+  kForgetUnAckedThresh            = 6000,
+};
+
+enum StreamType{
+  BIDI_STREAM = 0,
+  UNI_STREAM = 1
 };
 
 class StreamAck
@@ -106,7 +114,7 @@ public:
   uint32_t ConnectionReadBytes(uint64_t amt) override;
   void     SignalReadyToWrite(StreamOut *out) override;
   
-  uint32_t StartNewStream(StreamPair **outStream, const void *data, uint32_t amount, bool fin);
+  uint32_t StartNewStream(StreamPair **outStream, StreamType streamType, const void *data, uint32_t amount, bool fin);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
   bool     MaybeDeleteStream(uint32_t streamID);
@@ -158,9 +166,17 @@ public:
   uint32_t CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                               ReliableData *chunk);
   uint32_t CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
-                                      ReliableData *chunk);
+                                      ReliableData *chunk, bool &toRemove);
 
-  void InitIDs(uint32_t next, uint32_t nextR) { mNextStreamID = next; mNextRecvStreamIDUsed = nextR; }
+  void InitIDs(uint32_t nextBidi, uint32_t nextUni, uint32_t nextRBidi, uint32_t nextRUni,
+               uint32_t maxStreamIDBidi, uint32_t maxStreamIDUni) {
+    mNextStreamID[0] = nextBidi;
+    mNextStreamID[1] = nextUni;
+    mNextRecvStreamIDUsed[0] = nextRBidi;
+    mNextRecvStreamIDUsed[1] = nextRUni;
+    mLocalMaxStreamID[0] = maxStreamIDBidi;
+    mLocalMaxStreamID[1] = maxStreamIDUni;
+  }
   void MaybeIssueFlowControlCredit();
   bool IsAllAcked();
 
@@ -168,9 +184,17 @@ private:
   uint32_t FlowControlPromotion();
   uint32_t FlowControlPromotionForStreamPair(StreamOut *);
   uint64_t CalculateConnectionCharge(ReliableData *data, StreamOut *out);
+
+  StreamType GetStreamType(uint32_t streamID) { return (streamID & 0x2) ? UNI_STREAM : BIDI_STREAM; }
+  bool IsBidiStream(uint32_t streamID) { return (streamID & 0x2) ? false : true; }
+  bool IsUniStream(uint32_t streamID) { return (streamID & 0x2) ? true : false; }
+  bool IsLocalStream(uint32_t streamID) { return (!(streamID & 1) && mMozQuic->mIsClient) || // even and you're the client
+                                                 ((streamID & 1) && !mMozQuic->mIsClient); } // odd and you're the server
+  bool IsPeerStream(uint32_t streamID) {return (!(streamID & 1) && !mMozQuic->mIsClient) ||  // even and you're the server
+                                               ((streamID & 1) && mMozQuic->mIsClient); }    // odd and you're the client
   
   MozQuic *mMozQuic;
-  uint32_t mNextStreamID;
+  uint32_t mNextStreamID[2]; // [0]->bidirectional [1]->unidirectional
 
 private: // these still need friend mozquic
   uint32_t mPeerMaxStreamData;  // max offset we can send from transport params on new stream
@@ -184,10 +208,10 @@ private: // these still need friend mozquic
   __uint128_t mLocalMaxData; // conn credit announced to peer
   __uint128_t mLocalMaxDataUsed; // conn credit consumed by peer
 
-  uint32_t mPeerMaxStreamID;  // id limit set by peer
-  uint32_t mLocalMaxStreamID; // id limit sent to peer
-  bool     mMaxStreamIDBlocked; // blocked from creating by streamID limits
-  uint32_t mNextRecvStreamIDUsed; //  id consumed by peer
+  uint32_t mPeerMaxStreamID[2];  // id limit set by peer [0]->bidirectional [1]->unidirectional
+  uint32_t mLocalMaxStreamID[2]; // id limit sent to peer [0]->bidirectional [1]->unidirectional
+  bool     mMaxStreamIDBlocked[2]; // blocked from creating by streamID limits [0]->bidirectional [1]->unidirectional
+  uint32_t mNextRecvStreamIDUsed[2]; //  id consumed by peer [0]->bidirectional [1]->unidirectional
 
   std::unique_ptr<StreamPair> mStream0;
 
@@ -238,7 +262,7 @@ public:
   void MakeMaxStreamID(uint32_t maxID) {mType = kMaxStreamID; mMaxStreamID = maxID; }
   void MakeStreamBlocked() { mType = kStreamBlocked; }
   void MakeBlocked() { mType = kBlocked; }
-  void MakeStreamIDBlocked() { mType = kStreamIDBlocked; }
+  void MakeStreamIDBlocked(uint32_t maxID) { mType = kStreamIDBlocked; mMaxStreamID = maxID; }
 
   enum 
   {
@@ -256,7 +280,7 @@ public:
   uint16_t mStopSendingCode;
   uint64_t mStreamCreditValue; // for kMaxStreamData
   uint64_t mConnectionCreditKB; // for kMaxData 
-  uint32_t mMaxStreamID; // for kMaxStreamID
+  uint32_t mMaxStreamID; // for kMaxStreamID and kStreamIDBlocked
   
   // when unacked these are set
   enum keyPhase mTransmitKeyPhase;
@@ -296,6 +320,9 @@ public:
   uint32_t ResetInbound(); // reset as in start over for hrr, not stream reset
   uint32_t HandleResetStream(uint64_t finalOffset);
   uint32_t ScrubUnRead() { mAvailable.clear(); return MOZQUIC_OK; }
+  uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) {
+    return mFlowController->ConnectionWrite(p);
+  }
 
 private:
   MozQuic *mMozQuic;
@@ -326,29 +353,19 @@ public:
   uint32_t Supply(std::unique_ptr<ReliableData> &p);
 
   // todo it would be nice to have a zero copy interface
-  uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin) {
-    return mIn.Read(buffer, avail, amt, fin);
-  }
+  uint32_t Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin);
 
-  bool Empty() {
-    return mIn.Empty();
-  }
+  bool Empty();
 
   uint32_t ResetInbound();
 
-  void NewFlowControlLimit(uint64_t limit) {
-    mOut.NewFlowControlLimit(limit);
-  }
+  uint32_t NewFlowControlLimit(uint64_t limit);
 
   uint32_t Write(const unsigned char *data, uint32_t len, bool fin);
 
-  int EndStream() {
-    return mOut.EndStream();
-  }
+  int EndStream();
 
-  int RstStream(uint16_t code) {
-    return mOut.RstStream(code);
-  }
+  int RstStream(uint16_t code);
 
   int StopSending(uint16_t code);
   
@@ -356,9 +373,16 @@ public:
                // todo(or stream has been reseted)
                // the stream can be removed from the stream list.
 
+  bool IsBidiStream() { return (mStreamID & 0x2) ? false : true; }
+  bool IsUniStream() { return (mStreamID & 0x2) ? true : false; }
+  bool IsLocalStream() { return (!(mStreamID & 1) && mMozQuic->mIsClient) || // even and you're the client
+                                ((mStreamID & 1) && !mMozQuic->mIsClient); } // odd and you're the server
+  bool IsPeerStream() {return (!(mStreamID & 1) && !mMozQuic->mIsClient) ||  // even and you're the server
+                              ((mStreamID & 1) && mMozQuic->mIsClient); }    // odd and you're the client
+
   uint32_t mStreamID;
-  StreamOut mOut;
-  StreamIn  mIn;
+  std::unique_ptr<StreamOut> mOut;
+  std::unique_ptr<StreamIn>  mIn;
   MozQuic *mMozQuic;
 };
 

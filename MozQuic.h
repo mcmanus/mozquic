@@ -85,7 +85,7 @@ static const uint32_t mozquic_library_version = 1;
   int mozquic_destroy_connection(mozquic_connection_t *inSession);
   int mozquic_start_client(mozquic_connection_t *inSession); // client rename todo
   int mozquic_start_server(mozquic_connection_t *inSession);
-  int mozquic_start_new_stream(mozquic_stream_t **outStream, mozquic_connection_t *conn, void *data, uint32_t amount, int fin);
+  int mozquic_start_new_stream(mozquic_stream_t **outStream, mozquic_connection_t *conn, uint8_t uni, void *data, uint32_t amount, int fin);
   int mozquic_send(mozquic_stream_t *stream, void *data, uint32_t amount, int fin);
   int mozquic_end_stream(mozquic_stream_t *stream);
   int mozquic_reset_stream(mozquic_stream_t *stream); // a more final version of end_stream

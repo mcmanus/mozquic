@@ -45,7 +45,7 @@ int testEvent11(void *closure, uint32_t event, void *param)
   if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
     test_assert((state.state & 1) == 1);
     mozquic_stream_t *stream = param;
-    test_assert(mozquic_get_streamid(stream) == 2);
+    test_assert(mozquic_get_streamid(stream) == 1);
 
     if (state.state < 199) {
       state.state++;

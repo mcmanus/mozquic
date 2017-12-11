@@ -61,7 +61,7 @@ int testEvent7(void *closure, uint32_t event, void *param)
 
   if (state.state == 2) {
     unsigned char buf = 1;
-    mozquic_start_new_stream(&state.stream1, param, &buf, 1, 0);
+    mozquic_start_new_stream(&state.stream1, param, 0, &buf, 1, 0);
     state.state++;
     return MOZQUIC_OK;
   }
@@ -100,7 +100,7 @@ int testEvent7(void *closure, uint32_t event, void *param)
     state.ctr = 0;
     state.bpOn = 1;
     mozquic_start_backpressure(parentConnection);
-    mozquic_start_new_stream(&state.stream2, param, &buf, 1, 0);
+    mozquic_start_new_stream(&state.stream2, param, 0, &buf, 1, 0);
     state.state++;
     return MOZQUIC_OK;
   }
