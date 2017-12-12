@@ -114,6 +114,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       
       pkt[0] = FRAME_TYPE_ACK;
       used = 1;
+      avail -= 1;
 
       if (EncodeVarint(iter->mPacketNumber, pkt + used, avail, outputSize) != MOZQUIC_OK) {
         AckLog6("Cannot create new ack frame due to lack of space in packet\n");
