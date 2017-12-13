@@ -62,9 +62,8 @@ StreamState::IsAllAcked()
 }
 
 uint32_t
-StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
+StreamState::MakeSureStreamCreated(uint32_t streamID)
 {
-  assert(IsBidiStream(streamID) || IsPeerStream(streamID));
   StreamType streamType = GetStreamType(streamID);
 
   // is this a stream that should be initiated by the peer?
@@ -111,6 +110,20 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
     }
   }
   
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
+{
+  assert(IsBidiStream(streamID) || IsPeerStream(streamID));
+
+  uint32_t rv = MakeSureStreamCreated(streamID);
+
+  if (rv != MOZQUIC_OK) {
+    return rv;
+  }
+
   auto i = mStreams.find(streamID);
   if (i == mStreams.end()) {
     StreamLog4("Stream %d already closed.\n", streamID);
@@ -212,6 +225,12 @@ StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartex
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received maxdata on a peer's uni-stream.\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received maxdata on a peer's uni-stream.\n");
     return MOZQUIC_ERR_GENERAL;
+  }
+
+  uint32_t rv = MakeSureStreamCreated(streamID);
+
+  if (rv != MOZQUIC_OK) {
+    return rv;
   }
 
   auto i = mStreams.find(streamID);
@@ -355,6 +374,12 @@ StreamState::HandleResetStreamFrame(FrameHeaderData *result, bool fromCleartext,
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "rst_stream frames not allowed on stream 0\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed on stream 0\n");
     return MOZQUIC_ERR_GENERAL;
+  }
+
+  uint32_t rv = MakeSureStreamCreated(result->u.mRstStream.mStreamID);
+
+  if (rv != MOZQUIC_OK) {
+    return rv;
   }
 
   auto i = mStreams.find(result->u.mRstStream.mStreamID);
