@@ -115,6 +115,7 @@ public:
   void     SignalReadyToWrite(StreamOut *out) override;
   
   uint32_t StartNewStream(StreamPair **outStream, StreamType streamType, const void *data, uint32_t amount, bool fin);
+  uint32_t MakeSureStreamCreated(uint32_t streamID);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
   bool     MaybeDeleteStream(uint32_t streamID);
