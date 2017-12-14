@@ -487,25 +487,29 @@ StreamState::Reset0RTTData()
       auto i = mStreams.find(chunk->mStreamID);
       assert (i != mStreams.end());
       std::unique_ptr<ReliableData> x(std::move(chunk));
-      (*i).second->mOut.mStreamUnWritten.push_front(std::move(x));
+      (*i).second->mOut->mStreamUnWritten.push_front(std::move(x));
       mStreamsReadyToWrite.push_front(chunk->mStreamID);
-      (*i).second->mOut.mOffsetChargedToConnFlowControl = 0;
-      (*i).second->mOut.mBlocked = false;
+      (*i).second->mOut->mOffsetChargedToConnFlowControl = 0;
+      (*i).second->mOut->mBlocked = false;
     }
     iter++;
   }
 
-  auto iter2 = mUnAckedData.rbegin();
-  while (iter2 != mUnAckedData.rend()) {
-    auto chunk = (*iter2).get();
-    if (chunk->mType == ReliableData::kStream && chunk->mStreamID) {
-      auto i = mStreams.find(chunk->mStreamID);
-      assert (i != mStreams.end());
-      std::unique_ptr<ReliableData> x(std::move(chunk));
-      (*i).second->mOut.mStreamUnWritten.push_front(std::move(x));
-      mStreamsReadyToWrite.push_front(chunk->mStreamID);
-      (*i).second->mOut.mOffsetChargedToConnFlowControl = 0;
-      (*i).second->mOut.mBlocked = false;
+  auto iter2 = mUnAckedPackets.rbegin();
+  while (iter2 != mUnAckedPackets.rend()) {
+    auto iter3 = (*iter2).get()->mFrameList.rbegin();
+    while (iter3 != (*iter2).get()->mFrameList.rend()) {
+      auto chunk = (*iter3).get();
+      if (chunk->mType == ReliableData::kStream && chunk->mStreamID) {
+        auto i = mStreams.find(chunk->mStreamID);
+        assert (i != mStreams.end());
+        std::unique_ptr<ReliableData> x(std::move(chunk));
+        (*i).second->mOut->mStreamUnWritten.push_front(std::move(x));
+        mStreamsReadyToWrite.push_front(chunk->mStreamID);
+        (*i).second->mOut->mOffsetChargedToConnFlowControl = 0;
+        (*i).second->mOut->mBlocked = false;
+      }
+      iter3++;
     }
     iter2++;
   }
@@ -822,7 +826,7 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
                  mMozQuic->mNextTransmitPacketNumber);
       framePtr += (*iter)->mLen;
     }
-  
+
     if ((mMozQuic->GetConnectionState() == CLIENT_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == SERVER_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT)) {

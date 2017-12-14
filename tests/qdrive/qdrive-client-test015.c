@@ -32,7 +32,7 @@ static void onConnected(mozquic_connection_t *localConnection)
 {
   char buf[] = "GET 8\n";
 
-  mozquic_start_new_stream(&testState.test15_stream[testState.connection - 1], localConnection, buf, strlen(buf), 0);
+  mozquic_start_new_stream(&testState.test15_stream[testState.connection - 1], localConnection, 0, buf, strlen(buf), 0);
 }
 
 int testEvent15(void *closure, uint32_t event, void *param)
