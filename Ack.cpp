@@ -93,7 +93,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
   uint64_t lowAcked = 0;
   bool newFrame = true;
   uint32_t outputSize = 0;
-  unsigned char *ackBlockLocation;
+  unsigned char *ackBlockLocation = NULL;
   uint32_t ackBlockCounter = 0;
   uint32_t offsetRollbackExtra = 0;
   uint32_t offsetCheckpoint = 0;
@@ -220,9 +220,11 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
     iter->mTransmits.push_back(std::pair<uint64_t, uint64_t>(pktNumOfAck, Timestamp()));
   }
 
-  // this does not impact used or avail as we are just filling in a hole that
-  // has already been accounted for
-  EncodeVarintAs2(ackBlockCounter, ackBlockLocation);
+  if (ackBlockLocation) {
+    // this does not impact used or avail as we are just filling in a hole that
+    // has already been accounted for
+    EncodeVarintAs2(ackBlockCounter, ackBlockLocation);
+  }
   return MOZQUIC_OK;
 }
 
