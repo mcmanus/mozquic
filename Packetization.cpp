@@ -22,15 +22,15 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   // need to decide if we want 2 or 4 byte packet numbers. 1 is pretty much
   // always too short as it doesn't allow a useful window
   // if (nextNumber - lowestUnacked) > 16000 then use 4.
-  uint8_t pnSizeType = 2; // 2 bytes
+  uint8_t pnSizeType = 0x1e; // 2 bytes
   if (!mStreamState->mUnAckedPackets.empty() &&
       ((mNextTransmitPacketNumber - mStreamState->mUnAckedPackets.front()->mPacketNumber) > 16000)) {
-    pnSizeType = 3; // 4 bytes
+    pnSizeType = 0x1d; // 4 bytes
   }
 
   // section 5.2 of transport short form header:
   // (0, mPeerOmitCID, k=0) | type [2 or 3]
-  pkt[0] = ((!mPeerOmitCID) ? 0x40 : 0x00) | pnSizeType;
+  pkt[0] = ((mPeerOmitCID) ? 0x40 : 0x00) | pnSizeType;
   used = 1;
 
   if (!mPeerOmitCID) {
@@ -39,12 +39,12 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
     used += 8;
   }
 
-  if (pnSizeType == 2) {
+  if (pnSizeType == 0x1e) { // 2 bytes
     uint16_t tmp16 = htons(mNextTransmitPacketNumber & 0xffff);
     memcpy(pkt + used, &tmp16, 2);
     used += 2;
   } else {
-    assert(pnSizeType == 3);
+    assert(pnSizeType == 0x1d);
     uint32_t tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
     memcpy(pkt + used, &tmp32, 4);
     used += 4;
@@ -588,18 +588,18 @@ ShortHeaderData::ShortHeaderData(unsigned char *pkt, uint32_t pktSize,
   assert(pktSize >= 1);
   assert(!(pkt[0] & 0x80));
   uint32_t pnSize = pkt[0] & 0x1f;
-  if (pnSize == 1) {
+  if (pnSize == 0x1f) {
     pnSize = 1;
-  } else if (pnSize == 2) {
+  } else if (pnSize == 0x1e) {
     pnSize = 2;
-  } else if (pnSize == 3) {
+  } else if (pnSize == 0x1d) {
     pnSize = 4;
   } else {
     return;
   }
 
   uint32_t used;
-  if ((!(pkt[0] & 0x40)) || (pktSize < (9 + pnSize))) {
+  if (((pkt[0] & 0x40)) || (pktSize < (9 + pnSize))) {
     // missing connection id. without the truncate transport option this cannot happen
     used = 1;
     mConnectionID = defaultCID;
