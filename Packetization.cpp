@@ -22,10 +22,10 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   // need to decide if we want 2 or 4 byte packet numbers. 1 is pretty much
   // always too short as it doesn't allow a useful window
   // if (nextNumber - lowestUnacked) > 16000 then use 4.
-  uint8_t pnSizeType = 0x1e; // 2 bytes
+  uint8_t pnSizeType = SHORT_2;
   if (!mStreamState->mUnAckedPackets.empty() &&
       ((mNextTransmitPacketNumber - mStreamState->mUnAckedPackets.front()->mPacketNumber) > 16000)) {
-    pnSizeType = 0x1d; // 4 bytes
+    pnSizeType = SHORT_4; // 4 bytes
   }
 
   // section 5.2 of transport short form header:
@@ -588,11 +588,11 @@ ShortHeaderData::ShortHeaderData(unsigned char *pkt, uint32_t pktSize,
   assert(pktSize >= 1);
   assert(!(pkt[0] & 0x80));
   uint32_t pnSize = pkt[0] & 0x1f;
-  if (pnSize == 0x1f) {
+  if (pnSize == SHORT_1) {
     pnSize = 1;
-  } else if (pnSize == 0x1e) {
+  } else if (pnSize == SHORT_2) {
     pnSize = 2;
-  } else if (pnSize == 0x1d) {
+  } else if (pnSize == SHORT_4) {
     pnSize = 4;
   } else {
     return;

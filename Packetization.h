@@ -23,6 +23,12 @@ enum LongHeaderType {
   PACKET_TYPE_0RTT_PROTECTED         = 0x7C,
 };
 
+enum ShortHeaderType {
+  SHORT_1 = 0x1F,
+  SHORT_2 = 0x1E,
+  SHORT_4 = 0x1D,
+};
+
 class LongHeaderData
 {
 public:
