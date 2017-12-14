@@ -586,8 +586,8 @@ MozQuic::Intake(bool *partialResult)
       tmpSession = FindSession(tmpShortHeader.mConnectionID);
       if (!tmpSession) {
         ConnectionLogCID1(tmpShortHeader.mConnectionID,
-                          "no session found for encoded packet size=%d\n",
-                          pktSize);
+                          "no session found for encoded packet pn=%lX size=%d\n",
+                          tmpShortHeader.mPacketNumber, pktSize);
         StatelessResetSend(tmpShortHeader.mConnectionID, &peer);
         rv = MOZQUIC_ERR_GENERAL;
         continue;
@@ -737,7 +737,10 @@ MozQuic::IO()
   bool partialResult = false;
   do {
     Intake(&partialResult);
-    mStreamState->RetransmitTimer();
+    if ((mConnectionState != CLIENT_STATE_CLOSED) &&
+        (mConnectionState != SERVER_STATE_CLOSED)) {
+      mStreamState->RetransmitTimer();
+    }
     ClearOldInitialConnectIdsTimer();
     mSendState->Tick(Timestamp());
     mStreamState->Flush(false);
@@ -1159,6 +1162,7 @@ MozQuic::HandleConnCloseFrame(FrameHeaderData *, bool fromCleartext,
   }
   ConnectionLog5("RECVD CONN CLOSE\n");
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
+  mStreamState->mUnAckedPackets.clear();
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_CLOSE_CONNECTION, this);
   } else {
