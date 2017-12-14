@@ -17,7 +17,6 @@ enum {
 };
 
 enum LongHeaderType {
-  PACKET_TYPE_VERSION_NEGOTIATION    = 1,
   PACKET_TYPE_INITIAL                = 0x7F,
   PACKET_TYPE_RETRY                  = 0x7E,
   PACKET_TYPE_HANDSHAKE              = 0x7D,

@@ -578,7 +578,7 @@ MozQuic::Intake(bool *partialResult)
     std::shared_ptr<MozQuic> session(mAlive); // default
     MozQuic *tmpSession = nullptr;
       
-    if (!(pkt[0] & 0x80)) { // protected packets
+    if (!(pkt[0] & 0x80)) { // short form protected packets
       ShortHeaderData tmpShortHeader(pkt, pktSize, 0, mLocalOmitCID ? mConnectionID : 0);
       if (pktSize < tmpShortHeader.mHeaderSize) {
         return rv;
@@ -615,30 +615,30 @@ MozQuic::Intake(bool *partialResult)
       ConnectionLogCID5(longHeader.mConnectionID,
                         "LONGFORM PACKET[%d] pkt# %lX type %d version %X\n",
                         pktSize, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
-      if (longHeader.mType < PACKET_TYPE_0RTT_PROTECTED) {
-        *partialResult = true;
-      }
 
-      if (!VersionOK(longHeader.mVersion)) {
+      if (!VersionOK(longHeader.mVersion)) { // version negotiation
         if (!mIsClient) {
-          ConnectionLog1("unacceptable version recvd %lX.\n", longHeader.mVersion);
+          ConnectionLog1("unacceptable version recvd on server %lX.\n", longHeader.mVersion);
           if (pktSize >= kInitialMTU) {
             session->GenerateVersionNegotiation(longHeader, &peer);
           } else {
             ConnectionLog1("packet too small to be CI, ignoring\n");
           }
-          continue;
-        } else if (longHeader.mType != PACKET_TYPE_VERSION_NEGOTIATION || longHeader.mVersion != mVersion) {
-          ConnectionLog1("unacceptable version recvd.\n");
-          ConnectionLog1("Client ignoring as this isn't VN\n");
-          continue;
+        } else if (longHeader.mVersion != 0) {
+          ConnectionLog1("unacceptable version recvd on client. "
+                         "Client ignoring as this isn't VN\n");
+        } else {
+          rv = session->ProcessVersionNegotiation(pkt, pktSize, longHeader);
+          *partialResult = true;
         }
+        continue;
+      }
+
+      if (longHeader.mType < PACKET_TYPE_0RTT_PROTECTED) {
+        *partialResult = true;
       }
 
       switch (longHeader.mType) {
-      case PACKET_TYPE_VERSION_NEGOTIATION:
-        // do not do integrity check (nop)
-        break;
 
       case PACKET_TYPE_INITIAL:
       case PACKET_TYPE_RETRY:
@@ -688,10 +688,6 @@ MozQuic::Intake(bool *partialResult)
       }
 
       switch (longHeader.mType) {
-      case PACKET_TYPE_VERSION_NEGOTIATION: // version negotiation
-        rv = session->ProcessVersionNegotiation(pkt, pktSize, longHeader);
-        // do not ack
-        break;
 
       case PACKET_TYPE_INITIAL:
         rv = session->ProcessClientInitial(pkt, pktSize, &peer, longHeader, &tmpSession, sendAck);
@@ -720,7 +716,6 @@ MozQuic::Intake(bool *partialResult)
         break;
 
       default:
-        assert(false);
         break;
       }
     }

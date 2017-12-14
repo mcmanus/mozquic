@@ -252,9 +252,9 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
 {
   // check packet num and version
   assert(pkt[0] & 0x80);
-  assert((pkt[0] & ~0x80) == PACKET_TYPE_VERSION_NEGOTIATION);
+  assert(header.mVersion == 0);
   assert(pktSize >= 17);
-  unsigned char *framePtr = pkt + 17;
+  unsigned char *framePtr = pkt + 13;
 
   if (!mIsClient) {
     HandshakeLog1("VN should only arrive at client. Ignore.\n");
@@ -271,29 +271,14 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
     return MOZQUIC_OK;
   }
 
-  if ((header.mVersion != mVersion) ||
+  if ((header.mVersion != 0) ||
       (header.mConnectionID != mConnectionID)) {
     // this was supposedly copied from client - so this isn't a match
     return MOZQUIC_ERR_VERSION;
   }
 
-  // essentially this is an ack of client_initial using the packet #
-  // in the header as the ack, so need to find that on the unacked list.
-  // then we can reset the unacked list
-  bool foundReference = false;
-  for (auto i = mStreamState->mUnAckedPackets.begin(); i != mStreamState->mUnAckedPackets.end(); i++) {
-    if ((*i)->mPacketNumber == header.mPacketNumber) {
-      foundReference = true;
-      break;
-    }
-  }
-  if (!foundReference) {
-    // packet num was supposedly copied from client - so no match
-    return MOZQUIC_ERR_VERSION;
-  }
-
-  uint32_t numVersions = ((pktSize) - 17) / 4;
-  if ((numVersions << 2) != (pktSize - 17)) {
+  uint32_t numVersions = ((pktSize) - 13) / 4;
+  if ((numVersions << 2) != (pktSize - 13)) {
     RaiseError(MOZQUIC_ERR_VERSION, (char *)"negotiate version packet format incorrect\n");
     return MOZQUIC_ERR_VERSION;
   }
@@ -469,23 +454,18 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
   uint32_t tmp32;
   uint64_t tmp64;
 
-  HandshakeLog5("sending a version negotiation packet\n");
-  pkt[0] = 0x80 | PACKET_TYPE_VERSION_NEGOTIATION;
+  pkt[0] = 0x80 | (random() & 0xff);
+  HandshakeLog5("sending a version negotiation packet type =%X\n", pkt[0]);
   // client connID echo'd from client
   tmp64 = PR_htonll(clientHeader.mConnectionID);
   memcpy(pkt + 1, &tmp64, 8);
 
-  // 32 version echo'd from client
-  tmp32 = htonl(clientHeader.mVersion);
-  memcpy(pkt + 9, &tmp32, 4);
-
-  // 32 packet number echo'd from client
-  tmp32 = htonl(clientHeader.mPacketNumber);
-  memcpy(pkt + 13, &tmp32, 4);
+  // version is 0 to signal VN
+  memset(pkt + 9, 0, 4);
 
   // list of versions
-  unsigned char *framePtr = pkt + 17;
-  assert (sizeof(VersionNegotiationList) <= mMTU - 17);
+  unsigned char *framePtr = pkt + 13;
+  assert (sizeof(VersionNegotiationList) <= mMTU - 13);
   for (uint32_t i = 0; i < sizeof(VersionNegotiationList) / sizeof(uint32_t); i++) {
     tmp32 = htonl(VersionNegotiationList[i]);
     memcpy (framePtr, &tmp32, sizeof(uint32_t));
@@ -493,7 +473,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
   }
   if (mSabotageVN) {
     // redo the list of version backwards as a test
-    framePtr = pkt + 17;
+    framePtr = pkt + 13;
     HandshakeLog6("Warning generating incorrect version negotation list for testing\n");
     for (int i = (sizeof(VersionNegotiationList) / sizeof(uint32_t)) - 1; i >= 0; i--) {
       tmp32 = htonl(VersionNegotiationList[i]);
