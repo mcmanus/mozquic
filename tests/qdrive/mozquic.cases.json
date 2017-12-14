@@ -72,13 +72,13 @@
         },
 	{
             "Name" : "0RTT",
-            "ClientArgs": ["-qdrive-test12"],
-            "ServerArgs": ["-qdrive-test12"]
+            "ClientArgs": ["-qdrive-test14"],
+            "ServerArgs": ["-qdrive-test14"]
         },
 	{
             "Name" : "0RTTDataReject",
-            "ClientArgs": ["-qdrive-test13"],
-            "ServerArgs": ["-qdrive-test13"]
+            "ClientArgs": ["-qdrive-test15"],
+            "ServerArgs": ["-qdrive-test15"]
         }
     ]
 }
