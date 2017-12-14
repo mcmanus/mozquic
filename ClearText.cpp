@@ -34,11 +34,10 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize,
                         uint64_t pktNum, uint64_t connID,
                         unsigned char *outbuf, uint32_t &outSize)
 {
-  assert (pkt[0] & 0x80);
-  assert (((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) ||
-          ((pkt[0] & 0x7f) == PACKET_TYPE_SERVER_STATELESS_RETRY) ||
-          ((pkt[0] & 0x7f) == PACKET_TYPE_SERVER_CLEARTEXT) ||
-          ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_CLEARTEXT));
+  assert (pkt[0] & 0x80); // long form
+  assert (((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL) ||
+          ((pkt[0] & 0x7f) == PACKET_TYPE_RETRY) ||
+          ((pkt[0] & 0x7f) == PACKET_TYPE_HANDSHAKE));
   assert (pktSize >= 17);
 
   if (!mNSSHelper) {
@@ -57,8 +56,8 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize,
   NSSHelper *nss = tmpNSS.get() ? tmpNSS.get() : mNSSHelper.get();
 
   assert(mOriginalConnectionID ||
-         ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL));
-  if ((pkt[0] & 0x7f) != PACKET_TYPE_CLIENT_INITIAL) {
+         ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL));
+  if ((pkt[0] & 0x7f) != PACKET_TYPE_INITIAL) {
     connID = mOriginalConnectionID;
   }
   
@@ -91,13 +90,13 @@ MozQuic::FlushStream0(bool forceAck)
   // long form header 17 bytes
   pkt[0] = 0x80;
   if (ServerState()) {
-    pkt[0] |= (mConnectionState == SERVER_STATE_SSR) ?
-      PACKET_TYPE_SERVER_STATELESS_RETRY : PACKET_TYPE_SERVER_CLEARTEXT;
+    pkt[0] |=
+      (mConnectionState == SERVER_STATE_SSR) ? PACKET_TYPE_RETRY : PACKET_TYPE_HANDSHAKE;
   } else {
-    pkt[0] |= mReceivedServerClearText ? PACKET_TYPE_CLIENT_CLEARTEXT : PACKET_TYPE_CLIENT_INITIAL;
+    pkt[0] |= mReceivedServerClearText ? PACKET_TYPE_HANDSHAKE : PACKET_TYPE_INITIAL;
   }
 
-  if ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) {
+  if ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL) {
     assert(mStreamState->mStream0->Empty());
     // just in case of server stateless reset pollution
     mStreamState->mStream0->ResetInbound();
@@ -113,13 +112,13 @@ MozQuic::FlushStream0(bool forceAck)
   memcpy(pkt + 1, &connID, 8);
   connID = PR_ntohll(connID);
 
+  tmp32 = htonl(mVersion);
+  memcpy(pkt + 9, &tmp32, 4);
   tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
   if (mConnectionState == SERVER_STATE_SSR) {
     tmp32 = htonl(mClientInitialPacketNumber & 0xffffffff);
   }
   uint32_t usedPacketNumber = ntohl(tmp32);
-  memcpy(pkt + 9, &tmp32, 4);
-  tmp32 = htonl(mVersion);
   memcpy(pkt + 13, &tmp32, 4);
 
   std::unique_ptr<TransmittedPacket> packet(new TransmittedPacket(mNextTransmitPacketNumber));
@@ -131,7 +130,7 @@ MozQuic::FlushStream0(bool forceAck)
   uint32_t paddingNeeded = 0;
   bool bareAck = false;
 
-  if ((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL) {
+  if ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL) {
     if (((framePtr - pkt) + 16) < kMinClientInitial) {
       paddingNeeded = kMinClientInitial - ((framePtr - pkt) + 16);
     }
@@ -201,7 +200,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
 {
   // check packet num and version
   assert(pkt[0] & 0x80);
-  assert((pkt[0] & ~0x80) == PACKET_TYPE_SERVER_STATELESS_RETRY);
+  assert((pkt[0] & ~0x80) == PACKET_TYPE_RETRY);
   assert(pktSize >= 17);
 
   if (!mIsClient) {
@@ -338,7 +337,7 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
 {
   // cleartext is always in long form
   assert(pkt[0] & 0x80);
-  assert((pkt[0] & 0x7f) == PACKET_TYPE_SERVER_CLEARTEXT);
+  assert((pkt[0] & 0x7f) == PACKET_TYPE_HANDSHAKE);
   assert(pktSize >= 17);
 
   if (!mIsClient) {
@@ -385,7 +384,7 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
 {
   // this is always in long header form
   assert(pkt[0] & 0x80);
-  assert((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_INITIAL);
+  assert((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL);
   assert(pktSize >= 17);
   assert(!mIsChild);
 
@@ -445,7 +444,7 @@ MozQuic::ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
 {
   // this is always with a long header
   assert(pkt[0] & 0x80);
-  assert((pkt[0] & 0x7f) == PACKET_TYPE_CLIENT_CLEARTEXT);
+  assert((pkt[0] & 0x7f) == PACKET_TYPE_HANDSHAKE);
   assert(pktSize >= 17);
   assert(mIsChild);
 
@@ -476,12 +475,12 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
   tmp64 = PR_htonll(clientHeader.mConnectionID);
   memcpy(pkt + 1, &tmp64, 8);
 
-  // 32 packet number echo'd from client
-  tmp32 = htonl(clientHeader.mPacketNumber);
-  memcpy(pkt + 9, &tmp32, 4);
-
   // 32 version echo'd from client
   tmp32 = htonl(clientHeader.mVersion);
+  memcpy(pkt + 9, &tmp32, 4);
+
+  // 32 packet number echo'd from client
+  tmp32 = htonl(clientHeader.mPacketNumber);
   memcpy(pkt + 13, &tmp32, 4);
 
   // list of versions

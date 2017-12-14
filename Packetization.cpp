@@ -543,10 +543,10 @@ LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize)
   mType = static_cast<enum LongHeaderType>(pkt[0] & ~0x80);
   memcpy(&mConnectionID, pkt + 1, 8);
   mConnectionID = PR_ntohll(mConnectionID);
-  memcpy(&mPacketNumber, pkt + 9, 4);
-  mPacketNumber = ntohl(mPacketNumber);
-  memcpy(&mVersion, pkt + 13, 4);
+  memcpy(&mVersion, pkt + 9, 4);
   mVersion = ntohl(mVersion);
+  memcpy(&mPacketNumber, pkt + 13, 4);
+  mPacketNumber = ntohl(mPacketNumber);
 }
 
 uint64_t

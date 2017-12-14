@@ -621,7 +621,7 @@ MozQuic::Intake(bool *partialResult)
 
       if (!VersionOK(longHeader.mVersion)) {
         if (!mIsClient) {
-          ConnectionLog1("unacceptable version recvd.\n");
+          ConnectionLog1("unacceptable version recvd %lX.\n", longHeader.mVersion);
           if (pktSize >= kInitialMTU) {
             session->GenerateVersionNegotiation(longHeader, &peer);
           } else {
@@ -640,9 +640,8 @@ MozQuic::Intake(bool *partialResult)
         // do not do integrity check (nop)
         break;
 
-      case PACKET_TYPE_CLIENT_INITIAL:
-      case PACKET_TYPE_SERVER_CLEARTEXT:
-      case PACKET_TYPE_SERVER_STATELESS_RETRY:
+      case PACKET_TYPE_INITIAL:
+      case PACKET_TYPE_RETRY:
         if (!IntegrityCheck(pkt, pktSize, longHeader.mPacketNumber, longHeader.mConnectionID,
                             pktReal2, decodedSize)) {
           rv = MOZQUIC_ERR_GENERAL;
@@ -651,7 +650,7 @@ MozQuic::Intake(bool *partialResult)
         pktSize = decodedSize;
         break;
 
-      case PACKET_TYPE_CLIENT_CLEARTEXT:
+      case PACKET_TYPE_HANDSHAKE:
         if (!IntegrityCheck(pkt, pktSize, longHeader.mPacketNumber, longHeader.mConnectionID,
                             pktReal2, decodedSize)) {
           rv = MOZQUIC_ERR_GENERAL;
@@ -660,13 +659,15 @@ MozQuic::Intake(bool *partialResult)
         pkt = pktReal2;
         pktSize = decodedSize;
 
-        tmpSession = FindSession(longHeader.mConnectionID);
-        if (!tmpSession) {
-          ConnectionLog1("FindSession() could not find id in hash %lX\n",
-                         longHeader.mConnectionID);
-          rv = MOZQUIC_ERR_GENERAL;
-        } else {
-          session = tmpSession->mAlive;
+        if (!mIsClient) {
+          tmpSession = FindSession(longHeader.mConnectionID);
+          if (!tmpSession) {
+            ConnectionLog1("FindSession() could not find id in hash %lX\n",
+                           longHeader.mConnectionID);
+            rv = MOZQUIC_ERR_GENERAL;
+          } else {
+            session = tmpSession->mAlive;
+          }
         }
         break;
 
@@ -692,7 +693,7 @@ MozQuic::Intake(bool *partialResult)
         // do not ack
         break;
 
-      case PACKET_TYPE_CLIENT_INITIAL:
+      case PACKET_TYPE_INITIAL:
         rv = session->ProcessClientInitial(pkt, pktSize, &peer, longHeader, &tmpSession, sendAck);
         // ack after processing - find new session
         if (rv == MOZQUIC_OK) {
@@ -701,20 +702,18 @@ MozQuic::Intake(bool *partialResult)
         }
         break;
 
-      case PACKET_TYPE_SERVER_STATELESS_RETRY:
+      case PACKET_TYPE_RETRY:
         rv = session->ProcessServerStatelessRetry(pkt, pktSize, longHeader);
         // do not ack
         break;
 
-      case PACKET_TYPE_SERVER_CLEARTEXT:
-        rv = session->ProcessServerCleartext(pkt, pktSize, longHeader, sendAck);
-        if (rv == MOZQUIC_OK) {
-          session->Acknowledge(longHeader.mPacketNumber, keyPhaseUnprotected);
+      case PACKET_TYPE_HANDSHAKE:
+        if (mIsClient) {
+          rv = session->ProcessServerCleartext(pkt, pktSize, longHeader, sendAck);
+        } else {
+          rv = session->ProcessClientCleartext(pkt, pktSize, longHeader, sendAck);
         }
-        break;
 
-      case PACKET_TYPE_CLIENT_CLEARTEXT:
-        rv = session->ProcessClientCleartext(pkt, pktSize, longHeader, sendAck);
         if (rv == MOZQUIC_OK) {
           session->Acknowledge(longHeader.mPacketNumber, keyPhaseUnprotected);
         }

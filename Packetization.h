@@ -18,11 +18,10 @@ enum {
 
 enum LongHeaderType {
   PACKET_TYPE_VERSION_NEGOTIATION    = 1,
-  PACKET_TYPE_CLIENT_INITIAL         = 2,
-  PACKET_TYPE_SERVER_STATELESS_RETRY = 3,
-  PACKET_TYPE_SERVER_CLEARTEXT       = 4,
-  PACKET_TYPE_CLIENT_CLEARTEXT       = 5,
-  PACKET_TYPE_0RTT_PROTECTED         = 6,
+  PACKET_TYPE_INITIAL                = 0x7F,
+  PACKET_TYPE_RETRY                  = 0x7E,
+  PACKET_TYPE_HANDSHAKE              = 0x7D,
+  PACKET_TYPE_0RTT_PROTECTED         = 0x7C,
 };
 
 class LongHeaderData
