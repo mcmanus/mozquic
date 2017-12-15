@@ -3,12 +3,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#define AMOUNT 1000000
+
 // -qdrive-test11.. with high drop rate..
-// after conn server opens a stream, upon receipt client closes conn
-// repeat 100 times.
-// then after conn server opens a stream each side sends 250KB and
-// when server recvs 250KB it closes stream.. client will exit when
-// it gets that close
+// after conn open a stream on server. each side sends 1,000,000 bytes.
+// client sends 'A', server sends 'B'
 
 #include "qdrive-common.h"
 #include <stdio.h>
@@ -17,7 +16,8 @@
 static struct closure
 {
   int state;
-  int amt;
+  int amtR, amtW;
+  mozquic_connection_t *conn;
   mozquic_stream_t *stream;
 } state;
 
@@ -37,63 +37,56 @@ int testEvent11(void *closure, uint32_t event, void *param)
   test_assert(closure == &state);
 
   if (event == MOZQUIC_EVENT_CONNECTED) {
-    test_assert((state.state & 1) == 0);
+    test_assert(state.state == 0);
+    state.conn = param;
     state.state++;
     return MOZQUIC_OK;
   }
 
+  unsigned char buf[500];
   if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
-    test_assert((state.state & 1) == 1);
+    if (!state.stream) {
+      test_assert(state.state == 1);
+      state.state++;
+      state.stream = param;
+    }
+
     mozquic_stream_t *stream = param;
     test_assert(mozquic_get_streamid(stream) == 1);
 
-    if (state.state < 199) {
-      state.state++;
-      uint32_t amt = 0;
-      unsigned char buf[500];
-      int fin = 0;
-      uint32_t code = mozquic_recv(stream, buf, sizeof(buf), &amt, &fin);
-      test_assert(code == MOZQUIC_OK);
-      test_assert(fin);
-      test_assert(amt == 0);
-      parentConnection = NULL;
-      return MOZQUIC_OK;
-    }
-
-    if (state.state == 199) {
-      unsigned char buf[1000];
-      memset(buf,1000,0x11);
-      int i = 0;
-      for (i = 0; i < 249; i++)
-        mozquic_send(stream, buf, 1000, 0);
-      mozquic_send(stream, buf, 1000, 1);
-      state.state += 2;
-    }
-  
-    unsigned char buf[600];
+    uint32_t amt = 0;
     int fin = 0;
-    uint32_t amt;
     uint32_t code = mozquic_recv(stream, buf, sizeof(buf), &amt, &fin);
-    state.amt += amt;
     test_assert(code == MOZQUIC_OK);
-    if (fin) {
-      test_assert(state.amt == 250000);
-      state.state += 2;
+    test_assert(!fin);
+    state.amtR += amt;
+    for (unsigned int i=0; i < amt; i++) {
+      test_assert(buf[i] == 'B');
     }
-    return MOZQUIC_OK;
+    test_assert(state.amtR <= AMOUNT);
   }
 
-  if (event == MOZQUIC_EVENT_IO) {
-    if (state.state >= 5000) {
-      fprintf(stderr,"exit ok\n");
+  if (state.state == 2) {
+    if (state.amtW < AMOUNT) {
+      memset(buf, 'A', sizeof(buf));
+      test_assert(mozquic_send(state.stream, buf, sizeof(buf), 0) == MOZQUIC_OK);
+      state.amtW += sizeof(buf);
+      test_assert(state.amtW <= AMOUNT);
+    }
+    if (state.amtR == AMOUNT && state.amtW == AMOUNT &&
+        mozquic_get_allacked(state.conn)) {
+      state.state++;
+    }
+  }
+
+  if (state.state > 2) {
+    state.state++;
+  }
+
+  if (state.state == 20) {
+      fprintf(stderr,"client OK\n");
       exit(0);
-    }
-    if (state.state >= 203) {
-      state.state += 2;
-    }
-    return MOZQUIC_OK;
   }
   
-  test_assert(0);
   return MOZQUIC_OK;
 }

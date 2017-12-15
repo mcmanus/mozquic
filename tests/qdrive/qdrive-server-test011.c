@@ -3,17 +3,22 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// -qdrive-test1
+#define AMOUNT 1000000
+
+// -qdrive-test11.. with high drop rate..
+// after conn open a stream on server. each side sends 1,000,000 bytes.
+// client sends 'A', server sends 'B'
 
 #include "qdrive-common.h"
 #include "string.h"
+#include "stdio.h"
 
 static struct closure
 {
   int state;
-  mozquic_connection_t *child;
+  int amtR, amtW;
+  mozquic_connection_t *conn;
   mozquic_stream_t *stream;
-  uint32_t amt;
 } state;
 
 void *testGetClosure11()
@@ -34,72 +39,64 @@ int testEvent11(void *closure, uint32_t event, void *param)
   test_assert(event != MOZQUIC_EVENT_RESET_STREAM);
 
   if (event == MOZQUIC_EVENT_ACCEPT_NEW_CONNECTION) {
-    if ((state.state & 3) != 0) {
-      test_assert((state.state & 3) == 2); // close conn is not reliable
-      test_assert(state.state < 397);
-      state.state++;
-      state.state++;
-    }
-    test_assert((state.state & 3) == 0);
-    
+    test_assert(state.state == 0);
     state.state++;
-    state.child = (mozquic_connection_t *) param;
-    mozquic_set_event_callback(state.child, testEvent11);
-    mozquic_set_event_callback_closure(state.child, &state);
+    state.conn = param;
+    mozquic_set_event_callback(state.conn, testEvent11);
+    mozquic_set_event_callback_closure(state.conn, &state);
     return MOZQUIC_OK;
   }
 
+  char buf[500];
   if (event == MOZQUIC_EVENT_CONNECTED) {
-    test_assert((state.state & 3) == 1);
-    test_assert (state.state <= 397);
-    test_assert(mozquic_start_new_stream(&state.stream, param, 0, NULL, 0, (state.state != 397)) == MOZQUIC_OK);
-    if (state.state == 397) {
-      unsigned char buf[1000];
-      memset(buf,1000,0x22);
-      int i = 0;
-      for (i = 0; i < 250; i++)
-        mozquic_send(state.stream, buf, 1000, 0);
-    }
+    test_assert (state.state == 1);
+    test_assert (state.conn == param);
     state.state++;
-    return MOZQUIC_OK;
-  }
-
-  if (event == MOZQUIC_EVENT_CLOSE_CONNECTION) {
-    test_assert((state.state & 3) == 2);
-    test_assert(state.state < 397);
-    state.state++;
-    state.state++;
+    memset(buf, 'B', sizeof(buf));
+    test_assert(mozquic_start_new_stream(&state.stream, state.conn, 0, buf, sizeof(buf), 0) == MOZQUIC_OK);
+    state.amtW += sizeof(buf);
     return MOZQUIC_OK;
   }
       
   if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
-    test_assert(state.state == 398);
-    mozquic_stream_t *stream = param;
-    state.stream = stream;
-    test_assert(mozquic_get_streamid(stream) == 1);
+    test_assert(state.stream == param);
+    test_assert(mozquic_get_streamid(state.stream) == 1);
+    test_assert (state.state == 2);
 
     uint32_t amt = 0;
-    unsigned char buf;
     int fin = 0;
-
-    uint32_t code = mozquic_recv(stream, &buf, 1, &amt, &fin);
+    uint32_t code = mozquic_recv(state.stream, buf, sizeof(buf), &amt, &fin);
     test_assert(code == MOZQUIC_OK);
-    state.amt += amt;
-    if (fin) {
-      test_assert(state.amt == 250000);
-      mozquic_send(state.stream, NULL, 0, 1);
+    test_assert(!fin);
+    for (unsigned int i=0; i < amt; i++) {
+      test_assert(buf[i] == 'A');
+    }
+    state.amtR += amt;
+    test_assert( state.amtR <= AMOUNT);
+  }
+
+  if (state.state == 2) {
+    if (state.amtW < AMOUNT) {
+      memset(buf, 'B', sizeof(buf));
+      test_assert(mozquic_send(state.stream, buf, sizeof(buf), 0) == MOZQUIC_OK);
+      state.amtW += sizeof(buf);
+      test_assert(state.amtW <= AMOUNT);
+    }
+    if (state.amtR == AMOUNT && state.amtW == AMOUNT &&
+        mozquic_get_allacked(state.conn)) {
       state.state++;
     }
-    return MOZQUIC_OK;
   }
-  if (state.state == 399) {
-    if (mozquic_get_allacked(state.child)) {
-      exit (0);
-    }
-    return MOZQUIC_OK;
+
+  if (state.state > 2) {
+    state.state++;
   }
-  
-  test_assert(event == MOZQUIC_EVENT_IO);
+
+  if (state.state == 20) {
+      fprintf(stderr,"server OK\n");
+      exit(0);
+  }
+
   return MOZQUIC_OK;
 }
 

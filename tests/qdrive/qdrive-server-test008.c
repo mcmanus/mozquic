@@ -10,6 +10,7 @@
 
 #include "qdrive-common.h"
 #include "string.h"
+#include <stdio.h>
 
 static struct closure
 {
@@ -20,6 +21,7 @@ static struct closure
   mozquic_stream_t *stream3;
   int read1, read2;
   int fin1, fin2;
+  mozquic_connection_t *conn;
 } state;
 
 void *testGetClosure8()
@@ -52,7 +54,9 @@ int testEvent8(void *closure, uint32_t event, void *param)
 
   if (event == MOZQUIC_EVENT_CONNECTED) {
     test_assert(state.state == 1);
-
+    test_assert(state.child == param);
+    state.conn = param;
+    
     mozquic_start_new_stream(&state.stream1, param, 0, gbuf, sizeof(gbuf), 0);
     mozquic_start_new_stream(&state.stream2, param, 0, gbuf, sizeof(gbuf), 0);
     for (int j=1; j<250; j++) {
@@ -101,9 +105,12 @@ int testEvent8(void *closure, uint32_t event, void *param)
     mozquic_start_new_stream(&state.stream3, state.child, 0, gbuf, sizeof(gbuf), 1);
     state.state++;
   }
-
-  if (event == MOZQUIC_EVENT_CLOSE_CONNECTION) {
-    test_assert(state.state == 5);
+  if (state.state >= 5) {
+    state.state++;
+  }
+  if (state.state >= 20 &&
+      mozquic_get_allacked(state.conn)) {
+    fprintf(stderr,"exit ok\n");
     exit (0);
   }
 

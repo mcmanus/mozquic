@@ -19,6 +19,7 @@ static struct closure
   mozquic_stream_t *stream2;
   int read1, read2;
   int fin1, fin2, fin3;
+  mozquic_connection_t *conn;
 } state;
 
 void *testGetClosure8()
@@ -42,6 +43,7 @@ int testEvent8(void *closure, uint32_t event, void *param)
 
   if (event == MOZQUIC_EVENT_CONNECTED) {
     test_assert(state.state == 0);
+    state.conn = param;
     state.state++;
     return MOZQUIC_OK;
   }
@@ -95,10 +97,13 @@ int testEvent8(void *closure, uint32_t event, void *param)
     return MOZQUIC_OK;
   }
   
-  if (state.state == 5) {
+  if (state.state >= 5) {
     test_assert(state.read1 == 250 * 1024 + 1);
     test_assert(state.read2 == 250 * 1024 + 5);
-
+    state.state++;
+  }
+  if (state.state >= 20 &&
+      mozquic_get_allacked(state.conn)) {
     mozquic_destroy_connection(parentConnection);
     fprintf(stderr,"exit ok\n");
     exit(0);
