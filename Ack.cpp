@@ -184,6 +184,7 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
         DecodeVarint(pkt + offsetRollbackExtra, avail, lastExtra, lenExtra);
         uint64_t newExtra = lastExtra + 1 + iter->mExtra;
         lowAcked -= 1 + iter->mExtra;
+        assert (lowAcked == iter->mPacketNumber - iter->mExtra);
         if (EncodeVarint(newExtra, pkt + used, avail, outputSize) != MOZQUIC_OK) {
           used = offsetCheckpoint;
           break;
@@ -209,7 +210,8 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
         used += outputSize;
         avail -= outputSize;
 
-        lowAcked -= iter->mExtra + 2;
+        lowAcked -= iter->mExtra + gap + 2;
+        assert (lowAcked == iter->mPacketNumber - iter->mExtra);
         ackBlockCounter++;
         offsetCheckpoint = used;
       }
