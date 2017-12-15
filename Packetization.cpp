@@ -295,26 +295,27 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       return;
 
     case FRAME_TYPE_CONN_CLOSE:
-      if (pktSize < FRAME_TYPE_CONN_CLOSE_LENGTH) {
-        session->RaiseError(MOZQUIC_ERR_GENERAL,
-                            "CONN_CLOSE frame length expected");
-        return;
-      }
-
       mType = FRAME_TYPE_CONN_CLOSE;
 
+      if ((endOfPkt - framePtr) < 2) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
       memcpy(&u.mConnClose.mErrorCode, framePtr, 2);
       u.mConnClose.mErrorCode = ntohs(u.mConnClose.mErrorCode);
       framePtr += 2;
+
       {
-        uint16_t len;
-        memcpy(&len, framePtr, 2);
-        len = ntohs(len);
-        framePtr += 2;
+        uint32_t len;
+        if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, len, used) != MOZQUIC_OK) {
+          session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+          return;
+        }
+        framePtr += used;
+
         if (len) {
-          if (pktSize < ((uint32_t)FRAME_TYPE_CONN_CLOSE_LENGTH + len)) {
-            session->RaiseError(MOZQUIC_ERR_GENERAL,
-                                (char *) "CONNECTION_CLOSE frame length expected");
+          if ((endOfPkt - framePtr) < len) {
+            session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
             return;
           }
           // Log error!
@@ -326,10 +327,11 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
                         "Close conn code %X reason: %s\n",
                         u.mConnClose.mErrorCode, reason);
           }
+          framePtr += len;
         }
-        mValid = MOZQUIC_OK;
-        mFrameLen = FRAME_TYPE_CONN_CLOSE_LENGTH + len;
       }
+      mValid = MOZQUIC_OK;
+      mFrameLen = framePtr - (pkt + 1);
       return;
 
     case FRAME_TYPE_APPLICATION_CLOSE:

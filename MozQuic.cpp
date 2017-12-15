@@ -256,9 +256,10 @@ MozQuic::Shutdown(uint16_t code, const char *reason)
   if (reasonLen > (mMTU - kTagLen - used - 2)) {
     reasonLen = mMTU - kTagLen - used - 2;
   }
-  tmp16 = htons(reasonLen);
-  memcpy(plainPkt + used, &tmp16, 2);
-  used += 2;
+  uint32_t vUsed = 0;
+  EncodeVarint(reasonLen, plainPkt + used, 8, vUsed);
+  used += vUsed;
+  
   if (reasonLen) {
     memcpy(plainPkt + used, reason, reasonLen);
     used += reasonLen;
