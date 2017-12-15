@@ -203,8 +203,8 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
 
   ConnectionLog5("TRANSMIT[%lX] this=%p len=%d\n",
                  mNextTransmitPacketNumber, this, written + headerLen);
-    mNextTransmitPacketNumber++;
-
+  mNextTransmitPacketNumber++;
+  
   return MOZQUIC_OK;
 }
 
@@ -282,12 +282,17 @@ MozQuic::ReleaseBackPressure()
 void
 MozQuic::SetInitialPacketNumber()
 {
+  mNextTransmitPacketNumber = 0;
   for (int i=0; i < 2; i++) {
     mNextTransmitPacketNumber = mNextTransmitPacketNumber << 16;
-    mNextTransmitPacketNumber = mNextTransmitPacketNumber | (random() & 0xffff);
+    mNextTransmitPacketNumber |= random() & 0xffff;
   }
-  mNextTransmitPacketNumber &= 0x7fffffff; // 31 bits
+  mNextTransmitPacketNumber &= 0xffffffff; // 32 bits
   mOriginalTransmitPacketNumber = mNextTransmitPacketNumber;
+  if (mNextTransmitPacketNumber > (0x100000000ULL - 1025)) {
+    // small range of unacceptable values - redo
+    SetInitialPacketNumber();
+  }
 }
 
 int
