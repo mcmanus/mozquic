@@ -373,19 +373,14 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       return;
 
     case FRAME_TYPE_MAX_STREAM_ID:
-      if (pktSize < FRAME_TYPE_MAX_STREAM_ID_LENGTH) {
-        session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "MAX_STREAM_ID frame length expected");
+      mType = FRAME_TYPE_MAX_STREAM_ID;
+      if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, u.mMaxStreamID.mMaximumStreamID, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
         return;
       }
-
-      mType = FRAME_TYPE_MAX_STREAM_ID;
-
-      memcpy(&u.mMaxStreamID.mMaximumStreamID, framePtr, 4);
-      u.mMaxStreamID.mMaximumStreamID =
-        ntohl(u.mMaxStreamID.mMaximumStreamID);
+      framePtr += used;
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_MAX_STREAM_ID_LENGTH;
+      mFrameLen = framePtr - pkt;
       return;
 
     case FRAME_TYPE_PING:

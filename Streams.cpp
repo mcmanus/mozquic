@@ -1116,14 +1116,13 @@ StreamState::CreateMaxStreamIDFrame(unsigned char *&framePtr, const unsigned cha
   assert(chunk->mMaxStreamID);
   assert(!chunk->mLen);
 
-  uint32_t room = endpkt - framePtr;
-  if (room < 5) {
+  uint32_t used;
+  framePtr[0] = FRAME_TYPE_MAX_STREAM_ID;
+  framePtr++;
+  if (MozQuic::EncodeVarint(chunk->mMaxStreamID, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
     return MOZQUIC_ERR_GENERAL;
   }
-  framePtr[0] = FRAME_TYPE_MAX_STREAM_ID;
-  uint32_t tmp32 = htonl(chunk->mMaxStreamID);
-  memcpy(framePtr + 1, &tmp32, 4);
-  framePtr += 5;
+  framePtr += used;
   return MOZQUIC_OK;
 }
 

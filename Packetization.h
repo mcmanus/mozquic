@@ -139,7 +139,6 @@ public:
 
 enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
-  FRAME_TYPE_MAX_STREAM_ID_LENGTH     = 5,
   FRAME_TYPE_PING_LENGTH              = 2,
   FRAME_TYPE_PONG_LENGTH              = 2,
   FRAME_TYPE_BLOCKED_LENGTH           = 1,
