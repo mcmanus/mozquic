@@ -670,11 +670,12 @@ static uint8_t varSize(uint64_t input)
 }
 
 uint32_t
-StreamState::CreateFrames(unsigned char *&framePtr, const unsigned char *endpkt, bool justZero,
+StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt, bool justZero,
                           TransmittedPacket *transmittedPacket)
 {
   auto iter = mConnUnWritten.begin();
   while (iter != mConnUnWritten.end()) {
+    unsigned char *framePtr = aFramePtr;
     if (justZero && (((*iter)->mType != ReliableData::kStream)|| (*iter)->mStreamID)) {
       iter++;
       continue;
@@ -831,6 +832,7 @@ StreamState::CreateFrames(unsigned char *&framePtr, const unsigned char *endpkt,
     std::unique_ptr<ReliableData> x(std::move(*iter));
     transmittedPacket->mFrameList.push_back(std::move(x));
     iter = mConnUnWritten.erase(iter);
+    aFramePtr = framePtr;
   }
   return MOZQUIC_OK;
 }
@@ -1199,17 +1201,15 @@ StreamState::CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *e
   assert(!chunk->mLen);
   assert(!chunk->mStreamID);
 
-  uint32_t room = endpkt - framePtr;
-  if ((room < 9) ||
-      ((mLocalMaxData >> 10) > chunk->mConnectionCreditKB)) {
+  uint32_t used;
+  framePtr[0] = FRAME_TYPE_MAX_DATA;
+  framePtr++;
+  if (MozQuic::EncodeVarint(chunk->mConnectionCreditKB, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
     StreamLog5("not generating max data val=%ld (KB) last sent val=%ld (KB)\n",
-                chunk->mConnectionCreditKB, (mLocalMaxData >> 10));
+               chunk->mConnectionCreditKB, (mLocalMaxData >> 10));
     return MOZQUIC_ERR_GENERAL;
   }
-  framePtr[0] = FRAME_TYPE_MAX_DATA;
-  uint64_t tmp64 = PR_htonll(chunk->mConnectionCreditKB);
-  memcpy(framePtr + 1, &tmp64, 8);
-  framePtr += 9;
+  framePtr += used;
   return MOZQUIC_OK;
 }
 

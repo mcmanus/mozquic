@@ -341,18 +341,16 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       return;
 
     case FRAME_TYPE_MAX_DATA:
-      if (pktSize < FRAME_TYPE_MAX_DATA_LENGTH) {
-        session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "MAX_DATA frame length expected");
-        return;
-      }
-
       mType = FRAME_TYPE_MAX_DATA;
 
-      memcpy(&u.mMaxData.mMaximumData, framePtr, 8);
-      u.mMaxData.mMaximumData = PR_ntohll(u.mMaxData.mMaximumData);
+      if (MozQuic::DecodeVarint(framePtr, endOfPkt - framePtr, u.mMaxData.mMaximumData, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+        
       mValid = MOZQUIC_OK;
-      mFrameLen =  FRAME_TYPE_MAX_DATA_LENGTH;
+      mFrameLen = framePtr - (pkt + 1);
       return;
 
     case FRAME_TYPE_MAX_STREAM_DATA:
