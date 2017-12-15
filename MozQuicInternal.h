@@ -248,6 +248,7 @@ private:
 
   static uint32_t EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint32_t &used);
   static uint32_t DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result, uint32_t &used);
+  static uint32_t DecodeVarintMax32(const unsigned char *ptr, uint32_t avail, uint32_t &result, uint32_t &used);
 
   static void EncodeVarintAs1(uint64_t input, unsigned char *dest);
   static void EncodeVarintAs2(uint64_t input, unsigned char *dest);

@@ -99,6 +99,21 @@ MozQuic::DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result
   return MOZQUIC_OK;
 }
 
+uint32_t
+MozQuic::DecodeVarintMax32(const unsigned char *ptr, uint32_t avail, uint32_t &result, uint32_t &used)
+{
+  uint64_t tmp64;
+  uint32_t rv = DecodeVarint(ptr, avail, tmp64, used);
+  if (rv != MOZQUIC_OK) {
+    return rv;
+  }
+  if (tmp64 & ~0xffffffffULL) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  result = tmp64;
+  return MOZQUIC_OK;
+}
+  
 void
 MozQuic::EncodeVarintAs1(uint64_t input, unsigned char *dest)
 {
@@ -174,11 +189,13 @@ MozQuic::EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint3
 FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
                                  MozQuic *session, bool fromCleartext)
 {
+  uint32_t used;
   memset(&u, 0, sizeof (u));
   mValid = MOZQUIC_ERR_GENERAL;
 
   unsigned char type = pkt[0];
   const unsigned char *framePtr = pkt + 1;
+  const unsigned char *endOfPkt = pkt + pktSize;
 
   if ((type & FRAME_MASK_STREAM) == FRAME_TYPE_STREAM) {
     mType = FRAME_TYPE_STREAM;
@@ -251,27 +268,30 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       return;
 
     case FRAME_TYPE_RST_STREAM:
-      if (pktSize < FRAME_TYPE_RST_STREAM_LENGTH) {
-        if (!fromCleartext) {
-          session->Shutdown(FRAME_FORMAT_ERROR, "RST_STREAM frame length expected");
-        }
-        session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "RST_STREAM frame length expected");
-        return;
-      }
-
       mType = FRAME_TYPE_RST_STREAM;
 
-      memcpy(&u.mRstStream.mStreamID, framePtr, 4);
-      u.mRstStream.mStreamID = ntohl(u.mRstStream.mStreamID);
-      framePtr += 4;
+      if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, u.mRstStream.mStreamID, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+
+      if ((endOfPkt - framePtr) < 2) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
       memcpy(&u.mRstStream.mErrorCode, framePtr, 2);
       u.mRstStream.mErrorCode = ntohs(u.mRstStream.mErrorCode);
       framePtr += 2;
-      memcpy(&u.mRstStream.mFinalOffset, framePtr, 8);
-      u.mRstStream.mFinalOffset = PR_ntohll(u.mRstStream.mFinalOffset);
+
+      if (MozQuic::DecodeVarint(framePtr, endOfPkt - framePtr, u.mRstStream.mFinalOffset, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_RST_STREAM_LENGTH;
+      mFrameLen = framePtr - (pkt + 1);
       return;
 
     case FRAME_TYPE_CONN_CLOSE:

@@ -1043,18 +1043,23 @@ StreamState::CreateRstStreamFrame(unsigned char *&framePtr, const unsigned char 
   assert(chunk->mStreamID);
   assert(!chunk->mLen);
   assert(IsBidiStream(chunk->mStreamID) || IsLocalStream(chunk->mStreamID) || !chunk->mOffset); // offset on a peer's uni stream must be 0.
-  uint32_t room = endpkt - framePtr;
-  if (room < 15) {
+  uint32_t used;
+  framePtr[0] = FRAME_TYPE_RST_STREAM; // todo varint
+  framePtr++;
+  if (MozQuic::EncodeVarint(chunk->mStreamID, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
     return MOZQUIC_ERR_GENERAL;
   }
-  framePtr[0] = FRAME_TYPE_RST_STREAM;
-  uint32_t tmp32 = htonl(chunk->mStreamID);
-  memcpy(framePtr + 1, &tmp32, 4);
+  framePtr += used;
+  if ((endpkt - framePtr) < 2) {
+    return MOZQUIC_ERR_GENERAL;
+  }
   uint tmp16 = htons(chunk->mRstCode);
-  memcpy(framePtr + 5, &tmp16, 2);
-  uint64_t tmp64 = PR_htonll(chunk->mOffset);
-  memcpy(framePtr + 7, &tmp64, 8);
-  framePtr += 15;
+  memcpy(framePtr, &tmp16, 2);
+  framePtr += 2;
+  if (MozQuic::EncodeVarint(chunk->mOffset, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr += used;
   return MOZQUIC_OK;
 }
 
