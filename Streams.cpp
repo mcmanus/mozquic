@@ -1088,16 +1088,20 @@ StreamState::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned c
     }
   }
 
-  uint32_t room = endpkt - framePtr;
-  if (room < 13) {
+  framePtr[0] = FRAME_TYPE_MAX_STREAM_DATA;
+  framePtr++;
+
+  uint32_t used;
+  if (MozQuic::EncodeVarint(chunk->mStreamID, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
     return MOZQUIC_ERR_GENERAL;
   }
-  framePtr[0] = FRAME_TYPE_MAX_STREAM_DATA;
-  uint32_t tmp32 = htonl(chunk->mStreamID);
-  memcpy(framePtr + 1, &tmp32, 4);
-  uint64_t tmp64 = PR_htonll(chunk->mStreamCreditValue);
-  memcpy(framePtr + 5, &tmp64, 8);
-  framePtr += 13;
+  framePtr += used;
+
+  if (MozQuic::EncodeVarint(chunk->mStreamCreditValue, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr += used;
+
   return MOZQUIC_OK;
 }
 

@@ -292,7 +292,7 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       framePtr += used;
 
       mValid = MOZQUIC_OK;
-      mFrameLen = framePtr - (pkt + 1);
+      mFrameLen = framePtr - pkt;
       return;
 
     case FRAME_TYPE_CONN_CLOSE:
@@ -337,7 +337,7 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
         }
       }
       mValid = MOZQUIC_OK;
-      mFrameLen = framePtr - (pkt + 1);
+      mFrameLen = framePtr - pkt;
       return;
 
     case FRAME_TYPE_MAX_DATA:
@@ -350,26 +350,26 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       framePtr += used;
         
       mValid = MOZQUIC_OK;
-      mFrameLen = framePtr - (pkt + 1);
+      mFrameLen = framePtr - pkt;
       return;
 
     case FRAME_TYPE_MAX_STREAM_DATA:
-      if (pktSize < FRAME_TYPE_MAX_STREAM_DATA_LENGTH) {
-        session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "MAX_STREAM_DATA frame length expected");
-        return;
-      }
-
       mType = FRAME_TYPE_MAX_STREAM_DATA;
 
-      memcpy(&u.mMaxStreamData.mStreamID, framePtr, 4);
-      u.mMaxStreamData.mStreamID = ntohl(u.mMaxStreamData.mStreamID);
-      framePtr += 4;
-      memcpy(&u.mMaxStreamData.mMaximumStreamData, framePtr, 8);
-      u.mMaxStreamData.mMaximumStreamData =
-        PR_ntohll(u.mMaxStreamData.mMaximumStreamData);
+      if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, u.mMaxStreamData.mStreamID, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+
+      if (MozQuic::DecodeVarint(framePtr, endOfPkt - framePtr, u.mMaxStreamData.mMaximumStreamData, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_MAX_STREAM_DATA_LENGTH;
+      mFrameLen = framePtr - pkt;
       return;
 
     case FRAME_TYPE_MAX_STREAM_ID:
