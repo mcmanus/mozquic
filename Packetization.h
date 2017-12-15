@@ -68,7 +68,6 @@ enum FrameType {
   FRAME_TYPE_PONG              = 0xD,
   FRAME_TYPE_ACK               = 0xE,
 
-  // todo stream in 08 is 0x10 to 0x17
   // STREAM                    = 0xc0 - 0xff
   FRAME_MASK_STREAM            = 0xc0,
   FRAME_TYPE_STREAM            = 0xc0, // 11.. ....
