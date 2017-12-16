@@ -338,17 +338,15 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
 
   if (header.mVersion != mVersion) {
     HandshakeLog1("wrong version\n");
+    Shutdown(ERROR_VERSION_NEGOTIATION, "wrong version\n");
     return MOZQUIC_ERR_GENERAL;
-    // this should not abort session as its
-    // not authenticated
   }
 
   if (mConnectionID != header.mConnectionID) {
     if (mReceivedServerClearText) {
       HandshakeLog1("wrong connection id\n");
+      Shutdown(PROTOCOL_VIOLATION, "wrong connection id\n");
       return MOZQUIC_ERR_GENERAL;
-      // this should not abort session as its
-      // not authenticated
     }
 
     HandshakeLog4("server clear text changed connID to %lx\n",
@@ -357,7 +355,11 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
   }
   mReceivedServerClearText = true;
 
-  return ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
+  uint32_t rv = ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
+  if (rv != MOZQUIC_OK) {
+    Shutdown(PROTOCOL_VIOLATION, "handshake decode issue\n");
+  }
+  return rv;
 }
 
 int
@@ -383,6 +385,7 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
 
   if (pktSize < (kMinClientInitial - 16)) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"client initial packet too small\n");
+    // do not send close for this one because of ddos concerns
     return MOZQUIC_ERR_GENERAL;
   }
 
@@ -438,10 +441,15 @@ MozQuic::ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
 
   if (header.mVersion != mVersion) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"version mismatch\n");
+    Shutdown(PROTOCOL_VIOLATION, "handshake decode issue\n");
     return MOZQUIC_ERR_GENERAL;
   }
 
-  return ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
+  uint32_t rv = ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
+  if (rv != MOZQUIC_OK) {
+    Shutdown(PROTOCOL_VIOLATION, "handshake decode issue\n");
+  }
+  return rv;
 }
 
 uint32_t

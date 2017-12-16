@@ -1162,14 +1162,10 @@ MozQuic::HandleConnCloseFrame(FrameHeaderData *, bool fromCleartext,
                               const unsigned char *, const unsigned char *,
                               uint32_t &/*_ptr*/)
 {
-  if (fromCleartext) {
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *) "conn close frames not allowed in cleartext\n");
-    return MOZQUIC_ERR_GENERAL;
-  }
-  ConnectionLog5("RECVD CONN CLOSE\n");
+  ConnectionLog5("RECVD CONN CLOSE handshake=%d\n", fromCleartext);
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
   mStreamState->mUnAckedPackets.clear();
-  if (mConnEventCB) {
+  if (mConnEventCB && !fromCleartext) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_CLOSE_CONNECTION, this);
   } else {
     ConnectionLog9("No Event callback\n");
