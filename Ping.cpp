@@ -144,8 +144,11 @@ MozQuic::HandlePongFrame(FrameHeaderData *result, bool fromCleartext,
     mConnEventCB(mClosure, MOZQUIC_EVENT_PONG, &raw);
 
     _ptr += result->u.mPong.mDataLen;
+    return MOZQUIC_OK;
   }
-  return MOZQUIC_OK;
+  Shutdown(STREAM_ID_ERROR, "unsolicited pong");
+  RaiseError(MOZQUIC_ERR_GENERAL, "unsolicited pong\n");
+  return MOZQUIC_ERR_GENERAL;
 }
 
 void
