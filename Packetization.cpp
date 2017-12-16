@@ -461,22 +461,27 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       return;
 
     case FRAME_TYPE_NEW_CONNECTION_ID:
-      if (pktSize < FRAME_TYPE_NEW_CONNECTION_ID_LENGTH) {
+      mType = FRAME_TYPE_NEW_CONNECTION_ID;
+      if (MozQuic::DecodeVarint(framePtr, endOfPkt - framePtr, u.mNewConnectionID.mSequence, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+
+      if ((endOfPkt - framePtr) < 24) {
         session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "NEW_CONNECTION_ID frame length expected");
+                            (char *) "NEW_CONNECTION_ID frame length expected");
         return;
       }
 
-      mType = FRAME_TYPE_NEW_CONNECTION_ID;
-
-      memcpy(&u.mNewConnectionID.mSequence, framePtr, 2);
-      u.mNewConnectionID.mSequence = ntohs(u.mNewConnectionID.mSequence);
-      framePtr += 2;
       memcpy(&u.mNewConnectionID.mConnectionID, framePtr, 8);
-      u.mNewConnectionID.mConnectionID =
-        PR_ntohll(u.mNewConnectionID.mConnectionID);
+      u.mNewConnectionID.mConnectionID = PR_ntohll(u.mNewConnectionID.mConnectionID);
+      framePtr += 8;
+      memcpy(u.mNewConnectionID.mToken, framePtr, 16);
+      framePtr += 16;
+             
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_NEW_CONNECTION_ID_LENGTH;
+      mFrameLen = framePtr - pkt;
       return;
 
     case FRAME_TYPE_STOP_SENDING:

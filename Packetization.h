@@ -125,9 +125,10 @@ public:
       uint64_t mOffset;
     } mStreamBlocked;
     struct {
-      uint16_t mSequence;
+      uint64_t mSequence;
       uint64_t mConnectionID;
-    } mNewConnectionID;
+      uint8_t  mToken[16];
+     } mNewConnectionID;
     struct {
       uint8_t mDataLen;
     } mPing;
@@ -148,7 +149,6 @@ enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
   FRAME_TYPE_PING_LENGTH              = 2,
   FRAME_TYPE_PONG_LENGTH              = 2,
-  FRAME_TYPE_NEW_CONNECTION_ID_LENGTH = 11,
   FRAME_TYPE_STOP_SENDING_LENGTH      = 7,
 };
 
