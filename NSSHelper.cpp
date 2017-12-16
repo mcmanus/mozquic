@@ -524,8 +524,8 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
 void
 NSSHelper::MakeHandshakeKeys(uint64_t cid)
 {
-  static const char *clientLabel = "QUIC client cleartext Secret";
-  static const char *serverLabel = "QUIC server cleartext Secret";
+  static const char *clientLabel = "QUIC client handshake secret";
+  static const char *serverLabel = "QUIC server handshake secret";
   PK11SlotInfo *slot = nullptr;
   PK11SymKey *cidKey = nullptr;
   PK11SymKey *handshakeSecret = nullptr;
