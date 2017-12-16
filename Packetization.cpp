@@ -485,22 +485,24 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       return;
 
     case FRAME_TYPE_STOP_SENDING:
-      if (pktSize < FRAME_TYPE_STOP_SENDING_LENGTH) {
-        session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "STOP SENDING frame length expected");
+      mType = FRAME_TYPE_STOP_SENDING;
+      if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, u.mStopSending.mStreamID, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+
+      if ((endOfPkt - framePtr) < 2) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse error");
         return;
       }
 
-      mType = FRAME_TYPE_STOP_SENDING;
-
-      memcpy(&u.mStopSending.mStreamID, framePtr, 4);
-      u.mStopSending.mStreamID = ntohl(u.mStopSending.mStreamID);
-      framePtr += 4;
       memcpy(&u.mStopSending.mErrorCode, framePtr, 2);
       u.mStopSending.mErrorCode = ntohs(u.mStopSending.mErrorCode);
+      framePtr += 2;
       
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_STOP_SENDING_LENGTH;
+      mFrameLen = framePtr - pkt;
       return;
       
     case FRAME_TYPE_ACK:

@@ -1182,16 +1182,21 @@ StreamState::CreateStopSendingFrame(unsigned char *&framePtr, const unsigned cha
   assert(!chunk->mLen);
   assert(IsBidiStream(chunk->mStreamID) || IsPeerStream(chunk->mStreamID)); // we should not send stopsending on a local uni stream.
 
-  uint32_t room = endpkt - framePtr;
-  if (room < 7) {
+  uint32_t used;
+  framePtr[0] = FRAME_TYPE_STOP_SENDING;
+  framePtr++;
+
+  if (MozQuic::EncodeVarint(chunk->mStreamID, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
     return MOZQUIC_ERR_GENERAL;
   }
-  framePtr[0] = FRAME_TYPE_STOP_SENDING;
-  uint32_t tmp32 = htonl(chunk->mStreamID);
-  memcpy(framePtr + 1, &tmp32, 4);
+  framePtr += used;
+
+  if ((endpkt - framePtr) < 2) {
+    return MOZQUIC_ERR_GENERAL;
+  }
   uint16_t tmp16 = htons(chunk->mStopSendingCode);
-  memcpy(framePtr + 5, &tmp16, 2);
-  framePtr += 7;
+  memcpy(framePtr, &tmp16, 2);
+  framePtr += 2;
   return MOZQUIC_OK;
 }
 

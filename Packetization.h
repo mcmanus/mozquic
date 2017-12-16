@@ -149,7 +149,7 @@ enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
   FRAME_TYPE_PING_LENGTH              = 2,
   FRAME_TYPE_PONG_LENGTH              = 2,
-  FRAME_TYPE_STOP_SENDING_LENGTH      = 7,
+
 };
 
 }
