@@ -450,8 +450,14 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
 
     case FRAME_TYPE_STREAM_ID_BLOCKED:
       mType = FRAME_TYPE_STREAM_ID_BLOCKED;
+      if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, u.mStreamIDBlocked.mStreamID, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_STREAM_ID_BLOCKED_LENGTH;
+      mFrameLen = framePtr - pkt;
       return;
 
     case FRAME_TYPE_NEW_CONNECTION_ID:

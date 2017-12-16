@@ -1277,14 +1277,15 @@ StreamState::CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned
     return MOZQUIC_ERR_GENERAL;
   }
 
-  uint32_t room = endpkt - framePtr;
-  if (room < 5) {
+  uint32_t used;
+  framePtr[0] = FRAME_TYPE_STREAM_ID_BLOCKED;
+  framePtr++;
+
+  if (MozQuic::EncodeVarint(chunk->mMaxStreamID, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
     return MOZQUIC_ERR_GENERAL;
   }
-  framePtr[0] = FRAME_TYPE_STREAM_ID_BLOCKED;
-  uint32_t tmp32 = htonl(chunk->mMaxStreamID);
-  memcpy(framePtr + 1, &tmp32, 4);
-  framePtr += 5;
+  framePtr += used;
+
   return MOZQUIC_OK;
 }
 
