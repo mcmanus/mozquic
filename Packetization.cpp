@@ -430,18 +430,22 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       return;
 
     case FRAME_TYPE_STREAM_BLOCKED:
-      if (pktSize < FRAME_TYPE_STREAM_BLOCKED_LENGTH) {
-        session->RaiseError(MOZQUIC_ERR_GENERAL,
-                   (char *) "STREAM_BLOCKED frame length expected");
-        return;
-      }
-
       mType = FRAME_TYPE_STREAM_BLOCKED;
 
-      memcpy(&u.mStreamBlocked.mStreamID, framePtr, 4);
-      u.mStreamBlocked.mStreamID = ntohl(u.mStreamBlocked.mStreamID);
+      if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, u.mStreamBlocked.mStreamID, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+
+      if (MozQuic::DecodeVarint(framePtr, endOfPkt - framePtr, u.mStreamBlocked.mOffset, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+      mFrameLen = framePtr - pkt;
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_STREAM_BLOCKED_LENGTH;
+
       return;
 
     case FRAME_TYPE_STREAM_ID_BLOCKED:

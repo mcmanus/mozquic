@@ -557,7 +557,7 @@ StreamState::FlowControlPromotionForStreamPair(StreamOut *out)
           StreamLog2("Stream %d BLOCKED flow control\n", (*iBuffer)->mStreamID);
           out->mBlocked = true;
           std::unique_ptr<ReliableData> tmp(new ReliableData((*iBuffer)->mStreamID, 0, nullptr, 0, 0));
-          tmp->MakeStreamBlocked();
+          tmp->MakeStreamBlocked(out->mFlowControlLimit);
           ConnectionWrite(tmp);
         }
         iBuffer++;
@@ -1230,14 +1230,17 @@ StreamState::CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned c
   assert(!chunk->mLen);
   assert(IsBidiStream(chunk->mStreamID) || IsLocalStream(chunk->mStreamID)); // we should not send streamblocked on a peer's uni stream.
 
-  uint32_t room = endpkt - framePtr;
-  if (room < 5) {
+  uint32_t used;
+  framePtr[0] = FRAME_TYPE_STREAM_BLOCKED;
+  framePtr++;
+  if (MozQuic::EncodeVarint(chunk->mStreamID, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
     return MOZQUIC_ERR_GENERAL;
   }
-  framePtr[0] = FRAME_TYPE_STREAM_BLOCKED;
-  uint32_t tmp32 = htonl(chunk->mStreamID);
-  memcpy(framePtr + 1, &tmp32, 4);
-  framePtr += 5;
+  framePtr += used;
+  if (MozQuic::EncodeVarint(chunk->mOffset, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr += used;
   return MOZQUIC_OK;
 }
 

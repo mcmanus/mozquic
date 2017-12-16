@@ -122,6 +122,7 @@ public:
     } mMaxStreamID;
     struct {
       uint32_t mStreamID;
+      uint64_t mOffset;
     } mStreamBlocked;
     struct {
       uint16_t mSequence;
@@ -144,7 +145,6 @@ enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
   FRAME_TYPE_PING_LENGTH              = 2,
   FRAME_TYPE_PONG_LENGTH              = 2,
-  FRAME_TYPE_STREAM_BLOCKED_LENGTH    = 5,
   FRAME_TYPE_STREAM_ID_BLOCKED_LENGTH  = 1,
   FRAME_TYPE_NEW_CONNECTION_ID_LENGTH = 11,
   FRAME_TYPE_STOP_SENDING_LENGTH      = 7,
