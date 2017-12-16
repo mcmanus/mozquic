@@ -133,6 +133,9 @@ public:
     struct {
       uint8_t mDataLen;
     } mPong;
+    struct {
+      uint64_t mOffset;
+    } mBlocked;
   } u;
 
 };
@@ -141,7 +144,6 @@ enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
   FRAME_TYPE_PING_LENGTH              = 2,
   FRAME_TYPE_PONG_LENGTH              = 2,
-  FRAME_TYPE_BLOCKED_LENGTH           = 1,
   FRAME_TYPE_STREAM_BLOCKED_LENGTH    = 5,
   FRAME_TYPE_STREAM_ID_BLOCKED_LENGTH  = 1,
   FRAME_TYPE_NEW_CONNECTION_ID_LENGTH = 11,

@@ -504,7 +504,7 @@ StreamState::FlowControlPromotionForStreamPair(StreamOut *out)
             mMaxDataBlocked = true;
             StreamLog2("BLOCKED by connection window 1\n");
             std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
-            tmp->MakeBlocked();
+            tmp->MakeBlocked(mPeerMaxData);
             ConnectionWrite(tmp);
           }
           iBuffer++;
@@ -522,7 +522,7 @@ StreamState::FlowControlPromotionForStreamPair(StreamOut *out)
               mMaxDataBlocked = true;
               StreamLog2("BLOCKED by connection window 2\n");
               std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
-              tmp->MakeBlocked();
+              tmp->MakeBlocked(mPeerMaxData);
               ConnectionWrite(tmp);
             }
             iBuffer++;
@@ -676,6 +676,9 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
   auto iter = mConnUnWritten.begin();
   while (iter != mConnUnWritten.end()) {
     unsigned char *framePtr = aFramePtr;
+    if (framePtr == endpkt) {
+      break;
+    }
     if (justZero && (((*iter)->mType != ReliableData::kStream)|| (*iter)->mStreamID)) {
       iter++;
       continue;
@@ -1046,7 +1049,7 @@ StreamState::CreateRstStreamFrame(unsigned char *&framePtr, const unsigned char 
   assert(!chunk->mLen);
   assert(IsBidiStream(chunk->mStreamID) || IsLocalStream(chunk->mStreamID) || !chunk->mOffset); // offset on a peer's uni stream must be 0.
   uint32_t used;
-  framePtr[0] = FRAME_TYPE_RST_STREAM; // todo varint
+  framePtr[0] = FRAME_TYPE_RST_STREAM;
   framePtr++;
   if (MozQuic::EncodeVarint(chunk->mStreamID, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
     return MOZQUIC_ERR_GENERAL;
@@ -1247,12 +1250,13 @@ StreamState::CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *e
   assert(chunk->mType == ReliableData::kBlocked);
   assert(!chunk->mLen);
 
-  uint32_t room = endpkt - framePtr;
-  if (room < 1) {
+  uint32_t used;
+  framePtr[0] = FRAME_TYPE_BLOCKED;
+  framePtr++;
+  if (MozQuic::EncodeVarint(chunk->mOffset, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
     return MOZQUIC_ERR_GENERAL;
   }
-  framePtr[0] = FRAME_TYPE_BLOCKED;
-  framePtr += 1;
+  framePtr += used;
   return MOZQUIC_OK;
 }
 

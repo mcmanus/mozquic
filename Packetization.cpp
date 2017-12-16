@@ -419,8 +419,14 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
 
     case FRAME_TYPE_BLOCKED:
       mType = FRAME_TYPE_BLOCKED;
+      if (MozQuic::DecodeVarint(framePtr, endOfPkt - framePtr, u.mBlocked.mOffset, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+
       mValid = MOZQUIC_OK;
-      mFrameLen = FRAME_TYPE_BLOCKED_LENGTH;
+      mFrameLen = framePtr - pkt;
       return;
 
     case FRAME_TYPE_STREAM_BLOCKED:

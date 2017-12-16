@@ -266,7 +266,7 @@ public:
   void MakeMaxData(uint64_t kb) { mType = kMaxData; mConnectionCreditKB = kb;}
   void MakeMaxStreamID(uint32_t maxID) {mType = kMaxStreamID; mMaxStreamID = maxID; }
   void MakeStreamBlocked() { mType = kStreamBlocked; }
-  void MakeBlocked() { mType = kBlocked; }
+  void MakeBlocked(uint64_t offset) { mType = kBlocked; mOffset = offset;}
   void MakeStreamIDBlocked(uint32_t maxID) { mType = kStreamIDBlocked; mMaxStreamID = maxID; }
   void MakePing() { mType = kPing; }
   void MakePong() { mType = kPong; }
