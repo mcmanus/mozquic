@@ -13,7 +13,9 @@ enum {
   kMozQuicMSS = 16384,
   kTagLen = 16,
 
-  STREAM_FIN_BIT = 0x20,
+  STREAM_FIN_BIT = 0x01,
+  STREAM_LEN_BIT = 0x02,
+  STREAM_OFF_BIT = 0x04,
 };
 
 enum LongHeaderType {
@@ -86,7 +88,7 @@ public:
   union {
     struct {
       bool mFinBit;
-      uint16_t mDataLen;
+      uint32_t mDataLen;
       uint32_t mStreamID;
       uint64_t mOffset;
     } mStream;

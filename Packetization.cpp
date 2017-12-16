@@ -200,64 +200,46 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
 
   if ((type & FRAME_MASK_STREAM) == FRAME_TYPE_STREAM) {
     mType = FRAME_TYPE_STREAM;
-
     u.mStream.mFinBit = (type & STREAM_FIN_BIT);
 
-    uint8_t ssBit = (type & 0x18) >> 3;
-    uint8_t ooBit = (type & 0x06) >> 1;
-    uint8_t dBit = (type & 0x01);
-
-    uint32_t lenLen = dBit ? 2 : 0;
-    uint32_t offsetLen = 0;
-    assert(!(ooBit & 0xFC));
-    if (ooBit == 0) {
-      offsetLen = 0;
-    } else if (ooBit == 1) {
-      offsetLen = 2;
-    } else if (ooBit == 2) {
-      offsetLen = 4;
-    } else if (ooBit == 3) {
-      offsetLen = 8;
-    }
-
-    assert(!(ssBit & 0xFC));
-    uint32_t idLen = ssBit + 1;
-
-    uint32_t bytesNeeded = 1 + lenLen + idLen + offsetLen;
-    if (bytesNeeded > pktSize) {
-      if (!fromCleartext) {
-        session->Shutdown(FRAME_FORMAT_ERROR, "stream frame header short");
-      }
-      session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "stream frame header short");
+    if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, u.mStream.mStreamID, used) != MOZQUIC_OK) {
+      session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
       return;
     }
-
-    memcpy(((char *)&u.mStream.mStreamID) + (4 - idLen), framePtr, idLen);
-    framePtr += idLen;
-    u.mStream.mStreamID = ntohl(u.mStream.mStreamID);
-
-    memcpy(((char *)&u.mStream.mOffset) + (8 - offsetLen), framePtr, offsetLen);
-    framePtr += offsetLen;
-    u.mStream.mOffset = PR_ntohll(u.mStream.mOffset);
-    if (dBit) {
-      memcpy (&u.mStream.mDataLen, framePtr, 2);
-      framePtr += 2;
-      u.mStream.mDataLen = ntohs(u.mStream.mDataLen);
+    framePtr += used;
+    
+    if (type & STREAM_OFF_BIT) {
+      if (MozQuic::DecodeVarint(framePtr, endOfPkt - framePtr, u.mStream.mOffset, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
     } else {
-      u.mStream.mDataLen = pktSize - bytesNeeded;
+      u.mStream.mOffset = 0;
     }
 
-    // todo log frame len
-    if (bytesNeeded + u.mStream.mDataLen > pktSize) {
+    if (type & STREAM_LEN_BIT) {
+      if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, u.mStream.mDataLen, used) != MOZQUIC_OK) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
+        return;
+      }
+      framePtr += used;
+    } else {
+      u.mStream.mDataLen = (framePtr - pkt);
+      Log::sDoLog(Log::CONNECTION, 5, session,
+                  "stream %d implicit len %d\n", u.mStream.mStreamID, u.mStream.mDataLen);
+    }
+
+    if ((framePtr - pkt) + u.mStream.mDataLen > pktSize) {
       if (!fromCleartext) {
-        session->Shutdown(FRAME_FORMAT_ERROR, "stream frame header short2");
+        session->Shutdown(FRAME_FORMAT_ERROR, "stream frame header short");
       }
       session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "stream frame data short");
       return;
     }
 
     mValid = MOZQUIC_OK;
-    mFrameLen = bytesNeeded;
+    mFrameLen = framePtr - pkt;
     return;
   } else {
     switch(type) {

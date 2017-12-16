@@ -221,7 +221,7 @@ StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartex
 
   uint32_t streamID = result->u.mMaxStreamData.mStreamID;
 
-  if (IsUniStream(result->u.mStream.mStreamID) && IsPeerStream(result->u.mStream.mStreamID)) {
+  if (IsUniStream(result->u.mMaxStreamData.mStreamID) && IsPeerStream(result->u.mMaxStreamData.mStreamID)) {
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received maxdata on a peer's uni-stream.\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received maxdata on a peer's uni-stream.\n");
     return MOZQUIC_ERR_GENERAL;
@@ -319,7 +319,7 @@ StreamState::HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartex
 
   uint32_t streamID = result->u.mStreamBlocked.mStreamID;
 
-  if (IsUniStream(result->u.mStream.mStreamID) && IsLocalStream(result->u.mStream.mStreamID)) {
+  if (IsUniStream(result->u.mStreamBlocked.mStreamID) && IsLocalStream(result->u.mStreamBlocked.mStreamID)) {
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received streamblocked on a local uni-stream.\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received streamblocked on a local uni-stream.\n");
     return MOZQUIC_ERR_GENERAL;
@@ -663,12 +663,6 @@ StreamState::MaybeIssueFlowControlCredit()
   }
 }
 
-static uint8_t varSize(uint64_t input)
-{
-  // returns 0->3 depending on magnitude of input
-  return (input < 0x100) ? 0 : (input < 0x10000) ? 1 : (input < 0x100000000UL) ? 2 : 3;
-}
-
 uint32_t
 StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt, bool justZero,
                           TransmittedPacket *transmittedPacket)
@@ -734,62 +728,29 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
     } else {
       assert ((*iter)->mType == ReliableData::kStream);
 
-      uint32_t room = endpkt - framePtr;
-      if (room < 1) {
-        break; // this is only for type, we will do a second check later.
+      uint32_t used = 0;
+      auto typeBytePtr = framePtr; // used to fill in fin bit later
+      framePtr[0] = FRAME_TYPE_STREAM | STREAM_LEN_BIT;
+      if ((*iter)->mOffset) {
+        framePtr[0] |= STREAM_OFF_BIT;
       }
-
-      // 11fssood -> 11000001 -> 0xC1. Fill in fin, offset-len and id-len below dynamically
-      auto typeBytePtr = framePtr;
-      framePtr[0] = 0xc1;
-
-      // Determine streamID size without varSize becuase we use 24 bit value
-      uint32_t tmp32 = (*iter)->mStreamID;
-      tmp32 = htonl(tmp32);
-      uint8_t idLen = 4;
-      for (int i=0; (i < 3) && (((uint8_t*)(&tmp32))[i] == 0); i++) {
-        idLen--;
-      }
-
-      // determine offset size
-      uint64_t offsetValue = PR_htonll((*iter)->mOffset);
-      uint8_t offsetSizeType = varSize((*iter)->mOffset);
-      uint8_t offsetLen;
-      if (offsetSizeType == 0) {
-        // 0, 16, 32, 64 instead of usual 8, 16, 32, 64
-        if ((*iter)->mOffset) {
-          offsetSizeType = 1;
-          offsetLen = 2;
-        } else {
-          offsetLen = 0;
-        }
-      } else {
-        offsetLen = 1 << offsetSizeType;
-      }
-
-      // 1(type) + idLen + offsetLen + 2(len) + 1(data)
-      if (room < (4 + idLen + offsetLen)) {
-        break;
-      }
-
-      // adjust the frame type:
-      framePtr[0] |= (idLen - 1) << 3;
-      assert(!(offsetSizeType & ~0x3));
-      framePtr[0] |= (offsetSizeType << 1);
       framePtr++;
-
-      // Set streamID
-      memcpy(framePtr, ((uint8_t*)(&tmp32)) + (4 - idLen), idLen);
-      framePtr += idLen;
-
-      // Set offset
-      if (offsetLen) {
-        memcpy(framePtr, ((uint8_t*)(&offsetValue)) + (8 - offsetLen), offsetLen);
-        framePtr += offsetLen;
+      if (MozQuic::EncodeVarint((*iter)->mStreamID, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
+        return MOZQUIC_ERR_GENERAL;
+      }
+      framePtr += used;
+      if ((*iter)->mOffset) {
+        if (MozQuic::EncodeVarint((*iter)->mOffset, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
+          return MOZQUIC_ERR_GENERAL;
+        }
+        framePtr += used;
       }
 
-      room -= (3 + idLen + offsetLen); //  1(type) + idLen + offsetLen + 2(len)
-      if (room < (*iter)->mLen) {
+      // calc assumes 2 byte length encoding
+      assert((*iter)->mLen <= (1 << 14));
+      uint32_t room = (endpkt - framePtr) - 2;
+            
+      if (room < ((*iter)->mLen)) {
         // we need to split this chunk. its too big
         // todo iterate on them all instead of doing this n^2
         // as there is a copy involved
@@ -804,14 +765,15 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
         auto iterReg = iter++;
         mConnUnWritten.insert(iter, std::move(tmp));
         iter = iterReg;
-      }
+        }
       assert(room >= (*iter)->mLen);
 
-      // set the len and fin bits after any potential split
-      uint16_t tmp16 = (*iter)->mLen;
-      tmp16 = htons(tmp16);
-      memcpy(framePtr, &tmp16, 2);
-      framePtr += 2;
+      // set the len and fin bit after any potential frame split
+      if (MozQuic::EncodeVarint((*iter)->mLen, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
+        return MOZQUIC_ERR_GENERAL;
+      }
+      assert(used <= 2);
+      framePtr += used;
 
       if ((*iter)->mFin) {
         *typeBytePtr = *typeBytePtr | STREAM_FIN_BIT;
@@ -823,7 +785,7 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
                  mMozQuic->mNextTransmitPacketNumber);
       framePtr += (*iter)->mLen;
     }
-  
+    
     if ((mMozQuic->GetConnectionState() == CLIENT_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == SERVER_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT)) {
