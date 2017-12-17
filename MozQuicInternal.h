@@ -31,10 +31,10 @@ namespace mozquic {
 //
 // sync with versionOK() and GenerateVersionNegotiation()
 static const uint32_t kMozQuicVersion1 = 0xf123f0c5; // 0xf123f0c* reserved for mozquic
-static const uint32_t kMozQuicIetfID7 = 0xff000007;
+static const uint32_t kMozQuicIetfID8 = 0xff000008;
 static const uint32_t kMozQuicVersionGreaseS = 0xea0a6a2a;
 static const uint32_t VersionNegotiationList[] = {
-  kMozQuicVersionGreaseS, kMozQuicIetfID7, kMozQuicVersion1,
+  kMozQuicVersionGreaseS, kMozQuicIetfID8, kMozQuicVersion1,
 };
 
 enum connectionState
