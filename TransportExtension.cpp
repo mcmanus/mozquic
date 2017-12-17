@@ -149,7 +149,6 @@ TransportExtension::Decode16ByteObject(const unsigned char *input,
 
 void
 TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
-                                                    uint32_t negotiatedVersion,
                                                     uint32_t initialVersion,
                                                     uint32_t initialMaxStreamData,
                                                     __uint128_t initialMaxDataBytes,
@@ -179,7 +178,6 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
     omitCIDESize += 4;
   }
       
-  Encode4ByteObject(output, _offset, maxOutput, negotiatedVersion);
   Encode4ByteObject(output, _offset, maxOutput, initialVersion);
   Encode2ByteObject(output, _offset, maxOutput, 38 + maxPacketESize + omitCIDESize +
                     ackDelayExponentESize); // size parameters
@@ -209,7 +207,6 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
 
 uint32_t
 TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16_t inputSize,
-                                                    uint32_t &_negotiatedVersion,
                                                     uint32_t &_initialVersion,
                                                     uint32_t &_initialMaxStreamData,
                                                     uint32_t &_initialMaxDataKB,
@@ -226,10 +223,9 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
   }
   uint16_t offset = 0;
   uint16_t paramSize;
-  Decode4ByteObject(input, offset, inputSize, _negotiatedVersion);
   Decode4ByteObject(input, offset, inputSize, _initialVersion);
   Decode2ByteObject(input, offset, inputSize, paramSize);
-  assert(offset == 10);
+  assert(offset == 6);
   if (paramSize < 30 || (offset + paramSize) > inputSize) {
     return MOZQUIC_ERR_GENERAL;
   }
@@ -328,6 +324,7 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
   
 void
 TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
+                                                    uint32_t negotiatedVersion,
                                                     const uint32_t *versionList, uint16_t versionListSize,
                                                     uint32_t initialMaxStreamData,
                                                     __uint128_t initialMaxDataBytes,
@@ -346,6 +343,7 @@ TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint1
   uint32_t initialMaxDataKB = initialMaxDataBytes >> 10;
   assert(versionListSize > 0);
   assert ((4 * versionListSize) <= 255);
+  Encode4ByteObject(output, _offset, maxOutput, negotiatedVersion);
   Encode1ByteObject(output, _offset, maxOutput, 4 * versionListSize);
   for (int i = 0; i < versionListSize; i++) {
     Encode4ByteObject(output, _offset, maxOutput, versionList[i]);
@@ -387,6 +385,7 @@ TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint1
 
 uint32_t
 TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16_t inputSize,
+                                                    uint32_t &_negotiatedVersion,
                                                     uint32_t *versionList, uint16_t &_versionListSize,
                                                     uint32_t &_initialMaxStreamData,
                                                     uint32_t &_initialMaxDataKB,
@@ -404,6 +403,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
   }
   uint8_t versionBytes;
   uint16_t offset = 0;
+  Decode4ByteObject(input, offset, inputSize, _negotiatedVersion);
   Decode1ByteObject(input, offset, inputSize, versionBytes); // number of bytes in versionList
   if ((versionBytes < 4) || (versionBytes & 0x3)) { // invalid number of bytes
     return MOZQUIC_ERR_GENERAL;

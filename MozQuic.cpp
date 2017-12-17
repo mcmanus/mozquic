@@ -434,7 +434,7 @@ MozQuic::EnsureSetupClientTransportParameters()
   uint16_t teLength = 0;
   TransportExtension::
     EncodeClientTransportParameters(te, teLength, 2048,
-                                    mVersion, mClientOriginalOfferedVersion,
+                                    mClientOriginalOfferedVersion,
                                     mStreamState->mLocalMaxStreamData,
                                     mStreamState->mLocalMaxData,
                                     mStreamState->mLocalMaxStreamID[BIDI_STREAM],
@@ -514,6 +514,7 @@ MozQuic::Server1RTT()
     uint16_t teLength = 0;
     TransportExtension::
       EncodeServerTransportParameters(te, teLength, 2048,
+                                      mVersion,
                                       VersionNegotiationList, sizeof(VersionNegotiationList) / sizeof (uint32_t),
                                       mStreamState->mLocalMaxStreamData,
                                       mStreamState->mLocalMaxData,
@@ -922,9 +923,11 @@ MozQuic::ClientConnected()
   } else {
     assert(sizeof(mStatelessResetToken) == 16);
     uint32_t peerMaxDataKB;
+    uint32_t peerNegotiatedVersion;
     decodeResult =
       TransportExtension::
       DecodeServerTransportParameters(extensionInfo, extensionInfoLen,
+                                      peerNegotiatedVersion,
                                       peerVersionList, versionSize,
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
@@ -945,7 +948,15 @@ MozQuic::ClientConnected()
     extensionInfo = nullptr;
     extensionInfoLen = 0;
     mStreamState->mStream0->NewFlowControlLimit(mStreamState->mPeerMaxStreamData);
-                                                            
+
+    if (decodeResult == MOZQUIC_OK) {
+      decodeResult = (mVersion == peerNegotiatedVersion) ? MOZQUIC_OK : MOZQUIC_ERR_CRYPTO;
+      if (decodeResult != MOZQUIC_OK) {
+        errorCode = ERROR_VERSION_NEGOTIATION;
+        ConnectionLog1("Verify Server Transport Parameters: negotiated_version\n");
+      }
+    }
+
     // need to confirm version negotiation wasn't messed with
     if (decodeResult == MOZQUIC_OK) {
       // is mVersion in the peerVersionList?
@@ -980,8 +991,8 @@ MozQuic::ClientConnected()
       } else {
         ConnectionLog5("Verify Server Transport Parameters: negotiation ok passed\n");
       }
-
     }
+    
   }
 
   mConnectionState = CLIENT_STATE_CONNECTED;
@@ -1008,7 +1019,7 @@ MozQuic::ServerConnected()
   mSendState->Connected();
   unsigned char *extensionInfo = nullptr;
   uint16_t extensionInfoLen = 0;
-  uint32_t peerNegotiatedVersion, peerInitialVersion;
+  uint32_t  peerInitialVersion;
   mNSSHelper->GetRemoteTransportExtensionInfo(extensionInfo, extensionInfoLen);
   uint32_t decodeResult;
   uint32_t errorCode = ERROR_NO_ERROR;
@@ -1020,7 +1031,7 @@ MozQuic::ServerConnected()
     decodeResult =
       TransportExtension::
       DecodeClientTransportParameters(extensionInfo, extensionInfoLen,
-                                      peerNegotiatedVersion, peerInitialVersion,
+                                      peerInitialVersion,
                                       mStreamState->mPeerMaxStreamData,
                                       peerMaxDataKB,
                                       mStreamState->mPeerMaxStreamID[BIDI_STREAM],
@@ -1050,27 +1061,7 @@ MozQuic::ServerConnected()
     
     if (decodeResult != MOZQUIC_OK) {
       errorCode = ERROR_TRANSPORT_PARAMETER;
-    } else {
-      // need to confirm version negotiation wasn't messed with
-      decodeResult = (mVersion == peerNegotiatedVersion) ? MOZQUIC_OK : MOZQUIC_ERR_CRYPTO;
-
-      Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,
-                  "Verify Client Transport Parameters: version used %s\n",
-                  decodeResult == MOZQUIC_OK ? "passed" : "failed");
-      if (decodeResult != MOZQUIC_OK) {
-        errorCode = ERROR_VERSION_NEGOTIATION;
-      } else {
-        if ((peerInitialVersion != peerNegotiatedVersion) && VersionOK(peerInitialVersion)) {
-          decodeResult = MOZQUIC_ERR_CRYPTO;
-        }
-        Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,
-                    "Verify Client Transport Parameters: negotiation used %s\n",
-                    decodeResult == MOZQUIC_OK ? "passed" : "failed");
-        if (decodeResult != MOZQUIC_OK) {
-          errorCode = ERROR_VERSION_NEGOTIATION;
-        }
-      }
-    }
+    } 
   }
   
   mConnectionState = SERVER_STATE_CONNECTED;
