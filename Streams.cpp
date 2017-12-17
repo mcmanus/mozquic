@@ -747,7 +747,6 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
       }
 
       // calc assumes 2 byte length encoding
-      assert((*iter)->mLen <= (1 << 14));
       uint32_t room = (endpkt - framePtr) - 2;
             
       if (room < ((*iter)->mLen)) {
@@ -765,8 +764,9 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
         auto iterReg = iter++;
         mConnUnWritten.insert(iter, std::move(tmp));
         iter = iterReg;
-        }
+      }
       assert(room >= (*iter)->mLen);
+      assert((*iter)->mLen <= (1 << 14)); // check 2 byte assumption
 
       // set the len and fin bit after any potential frame split
       if (MozQuic::EncodeVarint((*iter)->mLen, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
