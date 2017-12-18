@@ -319,7 +319,7 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
       }
   }
 
-  return (maxStreamData && maxData && maxStreamIDBidi && maxStreamIDUni && idleTimeout) ? MOZQUIC_OK : MOZQUIC_ERR_GENERAL;
+  return (maxStreamData && maxData && idleTimeout) ? MOZQUIC_OK : MOZQUIC_ERR_GENERAL;
 }
   
 void
@@ -520,12 +520,9 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
         offset += len;
         break;
       }
-    if (maxStreamData && maxData && maxStreamIDBidi && maxStreamIDUni && idleTimeout && statelessReset) {
-      return MOZQUIC_OK;
-    }
-  } while (1);
+  } while (offset < inputSize);
   
-  return MOZQUIC_ERR_GENERAL;
+  return (maxStreamData && maxData && idleTimeout && statelessReset) ? MOZQUIC_OK : MOZQUIC_ERR_GENERAL;
 }
 
 #undef TP_ENSURE_PARAM
