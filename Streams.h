@@ -120,6 +120,7 @@ public:
   uint32_t MakeSureStreamCreated(uint32_t streamID);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
+  void     DeleteDoneStreams();
   bool     MaybeDeleteStream(uint32_t streamID);
   uint32_t RstStream(uint32_t streamID, uint16_t code);
 

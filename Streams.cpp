@@ -152,9 +152,27 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
   return MOZQUIC_OK;
 }
 
+void
+StreamState::DeleteDoneStreams()
+{
+  auto i = mStreams.begin();
+  while (i != mStreams.end()) {
+    if ((*i).second->Done()) {
+      StreamLog5("Delete stream %lu\n", (*i).second->mStreamID);
+      i = mStreams.erase(i);
+    } else {
+      i++;
+    }
+  }
+}
+
 bool
 StreamState::MaybeDeleteStream(uint32_t streamID)
 {
+  if (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT) {
+    // Do not delete streams during 0RTT, maybe we need to restart them.
+    return false;
+  }
   auto i = mStreams.find(streamID);
   if (i == mStreams.end()) {
     return false;

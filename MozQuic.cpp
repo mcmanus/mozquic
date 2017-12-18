@@ -1117,16 +1117,18 @@ MozQuic::ClientConnected()
     }
   }
 
+  mConnectionState = CLIENT_STATE_CONNECTED;
+
   if (mEarlyDataState == EARLY_DATA_SENT) {
     if (mNSSHelper->IsEarlyDataAcceptedClient()) {
       mEarlyDataState = EARLY_DATA_ACCEPTED;
+      mStreamState->DeleteDoneStreams();
     } else {
       mEarlyDataState = EARLY_DATA_IGNORED;
       mStreamState->Reset0RTTData();
     }
   }
 
-  mConnectionState = CLIENT_STATE_CONNECTED;
   if (decodeResult != MOZQUIC_OK) {
     assert (errorCode != ERROR_NO_ERROR);
     MaybeSendAck();
