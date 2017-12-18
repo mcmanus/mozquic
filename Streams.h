@@ -208,13 +208,12 @@ private: // these still need friend mozquic
   uint32_t mPeerMaxStreamData;  // max offset we can send from transport params on new stream
   uint32_t mLocalMaxStreamData; // max offset peer can send on new stream
 
-  // I'm sorry if you cannot compile __uint128_t - a c++ class can surely fix it
-  __uint128_t mPeerMaxData; // conn limit set by other side
-  __uint128_t mMaxDataSent; // sending bytes charged againts mPeerMaxData
+  uint64_t mPeerMaxData; // conn limit set by other
+  uint64_t mMaxDataSent; // sending bytes charged againts mPeerMaxData
   bool        mMaxDataBlocked; // blocked from sending by connectionFlowControl
 
-  __uint128_t mLocalMaxData; // conn credit announced to peer
-  __uint128_t mLocalMaxDataUsed; // conn credit consumed by peer
+  uint64_t mLocalMaxData; // conn credit announced to peer
+  uint64_t mLocalMaxDataUsed; // conn credit consumed by peer
 
   uint32_t mPeerMaxStreamID[2];  // id limit set by peer [0]->bidirectional [1]->unidirectional
   uint32_t mLocalMaxStreamID[2]; // id limit sent to peer [0]->bidirectional [1]->unidirectional
@@ -266,7 +265,7 @@ public:
   void MakeRstStream(uint16_t code) { mType = kRstStream; mRstCode = code;}
   void MakeStopSending(uint16_t code) { mType = kStopSending; mStopSendingCode = code;}
   void MakeMaxStreamData(uint64_t offset) { mType = kMaxStreamData; mStreamCreditValue = offset;}
-  void MakeMaxData(uint64_t kb) { mType = kMaxData; mConnectionCreditKB = kb;}
+  void MakeMaxData(uint64_t bytes) { mType = kMaxData; mConnectionCredit = bytes;}
   void MakeMaxStreamID(uint32_t maxID) {mType = kMaxStreamID; mMaxStreamID = maxID; }
   void MakeStreamBlocked(uint64_t offset) { mType = kStreamBlocked; mOffset = offset;}
   void MakeBlocked(uint64_t offset) { mType = kBlocked; mOffset = offset;}
@@ -289,7 +288,7 @@ public:
   uint16_t mRstCode; // for kRstStream
   uint16_t mStopSendingCode;
   uint64_t mStreamCreditValue; // for kMaxStreamData
-  uint64_t mConnectionCreditKB; // for kMaxData 
+  uint64_t mConnectionCredit; // for kMaxData 
   uint32_t mMaxStreamID; // for kMaxStreamID and kStreamIDBlocked
   
   // when unacked these are set

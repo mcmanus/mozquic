@@ -151,7 +151,7 @@ void
 TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint16_t &_offset, uint16_t maxOutput,
                                                     uint32_t initialVersion,
                                                     uint32_t initialMaxStreamData,
-                                                    __uint128_t initialMaxDataBytes,
+                                                    uint32_t initialMaxDataBytes,
                                                     uint32_t initialMaxStreamIDBidi,
                                                     uint32_t initialMaxStreamIDUni,
                                                     uint16_t idleTimeout,
@@ -159,11 +159,8 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
                                                     uint16_t maxPacket,
                                                     uint8_t ackDelayExponent)
 {
-  assert(!(initialMaxDataBytes & 0x3ff));
-  assert((initialMaxDataBytes >> 10) <= 0xffffffff);
   assert((initialMaxStreamIDBidi & 0x3) == 1);
   assert((initialMaxStreamIDUni & 0x3) == 3);
-  uint32_t initialMaxDataKB = initialMaxDataBytes >> 10;
 
   uint16_t maxPacketESize = 0;
   if (maxPacket > 1200 && maxPacket != kDefaultMaxPacketConfig) {
@@ -182,7 +179,7 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
   Encode2ByteObject(output, _offset, maxOutput, 38 + maxPacketESize + omitCIDESize +
                     ackDelayExponentESize); // size parameters
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamData, initialMaxStreamData);
-  Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxData, initialMaxDataKB);
+  Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxData, initialMaxDataBytes);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamIDBidi, initialMaxStreamIDBidi);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamIDUni, initialMaxStreamIDUni);
   Encode2xLenx2Record(output, _offset, maxOutput, kIdleTimeout, idleTimeout);
@@ -209,7 +206,7 @@ uint32_t
 TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16_t inputSize,
                                                     uint32_t &_initialVersion,
                                                     uint32_t &_initialMaxStreamData,
-                                                    uint32_t &_initialMaxDataKB,
+                                                    uint32_t &_initialMaxDataBytes,
                                                     uint32_t &_initialMaxStreamIDBidi,
                                                     uint32_t &_initialMaxStreamIDUni,
                                                     uint16_t &_idleTimeout,
@@ -254,7 +251,7 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
         break;
       case kInitialMaxData:
         if (len != 4) { return MOZQUIC_ERR_GENERAL; }
-        Decode4ByteObject(input, offset, inputSize, _initialMaxDataKB);
+        Decode4ByteObject(input, offset, inputSize, _initialMaxDataBytes);
         TP_ENSURE_PARAM(maxData);
         break;
       case kInitialMaxStreamIDBidi:
@@ -327,7 +324,7 @@ TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint1
                                                     uint32_t negotiatedVersion,
                                                     const uint32_t *versionList, uint16_t versionListSize,
                                                     uint32_t initialMaxStreamData,
-                                                    __uint128_t initialMaxDataBytes,
+                                                    uint32_t initialMaxDataBytes,
                                                     uint32_t initialMaxStreamIDBidi,
                                                     uint32_t initialMaxStreamIDUni,
                                                     uint16_t idleTimeout,
@@ -336,11 +333,8 @@ TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint1
                                                     uint8_t ackDelayExponent,
                                                     unsigned char *statelessResetToken /* 16 bytes */)
 {
-  assert(!(initialMaxDataBytes & 0x3ff));
-  assert((initialMaxDataBytes >> 10) <= 0xffffffff);
   assert((initialMaxStreamIDBidi & 0x3) == 0);
   assert((initialMaxStreamIDUni & 0x3) == 2);
-  uint32_t initialMaxDataKB = initialMaxDataBytes >> 10;
   assert(versionListSize > 0);
   assert ((4 * versionListSize) <= 255);
   Encode4ByteObject(output, _offset, maxOutput, negotiatedVersion);
@@ -364,7 +358,7 @@ TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint1
   Encode2ByteObject(output, _offset, maxOutput, 58 + maxPacketESize + omitCIDESize +
                     ackDelayExponentESize ); // size of parameters
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamData, initialMaxStreamData);
-  Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxData, initialMaxDataKB);
+  Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxData, initialMaxDataBytes);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamIDBidi, initialMaxStreamIDBidi);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamIDUni, initialMaxStreamIDUni);
   Encode2xLenx2Record(output, _offset, maxOutput, kIdleTimeout, idleTimeout);
@@ -388,7 +382,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
                                                     uint32_t &_negotiatedVersion,
                                                     uint32_t *versionList, uint16_t &_versionListSize,
                                                     uint32_t &_initialMaxStreamData,
-                                                    uint32_t &_initialMaxDataKB,
+                                                    uint32_t &_initialMaxDataBytes,
                                                     uint32_t &_initialMaxStreamIDBidi,
                                                     uint32_t &_initialMaxStreamIDUni,
                                                     uint16_t &_idleTimeout,
@@ -457,7 +451,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
         break;
       case kInitialMaxData:
         if (len != 4) { return MOZQUIC_ERR_GENERAL; }
-        Decode4ByteObject(input, offset, inputSize, _initialMaxDataKB);
+        Decode4ByteObject(input, offset, inputSize, _initialMaxDataBytes);
         TP_ENSURE_PARAM(maxData);
         break;
       case kInitialMaxStreamIDBidi:

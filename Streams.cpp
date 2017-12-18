@@ -295,11 +295,10 @@ StreamState::HandleMaxDataFrame(FrameHeaderData *result, bool fromCleartext,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  uint64_t curLimitKB = mPeerMaxData >> 10;
-  StreamLog5("recvd max data current %ldKB new %ldKB\n",
-             curLimitKB, result->u.mMaxData.mMaximumData);
-  if (result->u.mMaxData.mMaximumData > curLimitKB) {
-    mPeerMaxData = ((__uint128_t) result->u.mMaxData.mMaximumData) << 10;
+  StreamLog5("recvd max data current %ld new %ld\n",
+             mPeerMaxData, result->u.mMaxData.mMaximumData);
+  if (result->u.mMaxData.mMaximumData > mPeerMaxData) {
+    mPeerMaxData = result->u.mMaxData.mMaximumData;
     if (mMaxDataBlocked) {
       StreamLog5("conn was blocked by the flow control. Check if there were "
                  "streams that wants to write new data.\n");
@@ -609,7 +608,8 @@ StreamState::FlowControlPromotionForStreamPair(StreamOut *out)
         if (mMaxDataSent >= mPeerMaxData) {
           if (!mMaxDataBlocked) {
             mMaxDataBlocked = true;
-            StreamLog2("BLOCKED by connection window 1\n");
+            StreamLog2("BLOCKED by connection window id=%lX (sent %d peer limit %d)\n",
+                       (*iBuffer)->mStreamID, mMaxDataSent, mPeerMaxData);
             std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
             tmp->MakeBlocked(mPeerMaxData);
             ConnectionWrite(tmp);
@@ -1052,13 +1052,11 @@ StreamState::ConnectionReadBytes(uint64_t amt)
   }
 
   mLocalMaxData += 8 * 1024 * 1024;
-  mLocalMaxData -= mLocalMaxData & 0x3ff;
   uint64_t lmd = mLocalMaxData;
   StreamLog5("Issue a connection credit newmax %ld\n", lmd);
 
   std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
-  assert(!(mLocalMaxData & 0x3ff));
-  tmp->MakeMaxData(mLocalMaxData >> 10);
+  tmp->MakeMaxData(mLocalMaxData);
   return ConnectionWrite(tmp);
 }
 
@@ -1283,20 +1281,20 @@ uint32_t
 StreamState::CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk)
 {
-  StreamLog5("generating max data val=%ld (KB) into pkt=%lx\n",
-             chunk->mConnectionCreditKB,
+  StreamLog5("generating max data val=%ld into pkt=%lx\n",
+             chunk->mConnectionCredit,
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxData);
-  assert(chunk->mConnectionCreditKB);
+  assert(chunk->mConnectionCredit);
   assert(!chunk->mLen);
   assert(!chunk->mStreamID);
 
   uint32_t used;
   framePtr[0] = FRAME_TYPE_MAX_DATA;
   framePtr++;
-  if (MozQuic::EncodeVarint(chunk->mConnectionCreditKB, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
-    StreamLog5("not generating max data val=%ld (KB) last sent val=%ld (KB)\n",
-               chunk->mConnectionCreditKB, (mLocalMaxData >> 10));
+  if (MozQuic::EncodeVarint(chunk->mConnectionCredit, framePtr, (endpkt - framePtr), used) != MOZQUIC_OK) {
+    StreamLog5("not generating max data val=%ld last sent val=%ld\n",
+               chunk->mConnectionCredit, mLocalMaxData);
     return MOZQUIC_ERR_GENERAL;
   }
   framePtr += used;
@@ -1374,14 +1372,14 @@ StreamState::CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned
 }
 
 StreamState::StreamState(MozQuic *q, uint64_t initialStreamWindow,
-                         uint64_t initialConnectionWindowKB)
+                         uint64_t initialConnectionWindow)
   : mMozQuic(q)
   , mPeerMaxStreamData(kMaxStreamDataDefault)
   , mLocalMaxStreamData(initialStreamWindow)
   , mPeerMaxData(kMaxDataDefault)
   , mMaxDataSent(0)
   , mMaxDataBlocked(false)
-  , mLocalMaxData(((__uint128_t)initialConnectionWindowKB) << 10)
+  , mLocalMaxData(initialConnectionWindow)
   , mLocalMaxDataUsed(0)
 {
   mNextStreamID[0] = 1;
@@ -1867,7 +1865,7 @@ ReliableData::ReliableData(uint32_t id, uint64_t offset,
   , mFin(fin)
   , mRstCode(0)
   , mStreamCreditValue(0)
-  , mConnectionCreditKB(0)
+  , mConnectionCredit(0)
   , mTransmitKeyPhase(keyPhaseUnknown)
 {
   if ((0xfffffffffffffffe - offset) < len) {
@@ -1886,7 +1884,7 @@ ReliableData::ReliableData(ReliableData &orig)
   , mFin(orig.mFin)
   , mRstCode(orig.mRstCode)
   , mStreamCreditValue(orig.mStreamCreditValue)
-  , mConnectionCreditKB(orig.mConnectionCreditKB)
+  , mConnectionCredit(orig.mConnectionCredit)
   , mTransmitKeyPhase(keyPhaseUnknown)
 {
   mData = std::move(orig.mData);

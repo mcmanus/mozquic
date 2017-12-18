@@ -245,7 +245,7 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       }
       framePtr += used;
     } else {
-      u.mStream.mDataLen = (framePtr - pkt);
+      u.mStream.mDataLen = (endOfPkt - framePtr);
       Log::sDoLog(Log::CONNECTION, 5, session,
                   "stream %d implicit len %d\n", u.mStream.mStreamID, u.mStream.mDataLen);
     }
