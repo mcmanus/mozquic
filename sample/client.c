@@ -45,7 +45,11 @@ static FILE *fd[256];
 
 static int connEventCB(void *closure, uint32_t event, void *param)
 {
-  if (event == MOZQUIC_EVENT_CONNECTED) {
+  if ((event == MOZQUIC_EVENT_CONNECTED) ||
+      (event == MOZQUIC_EVENT_0RTT_POSSIBLE)) {
+    if (event == MOZQUIC_EVENT_0RTT_POSSIBLE) {
+      fprintf(stderr,"We will send data during 0RTT.\n");
+    }
     int j;
     for (j=0; j < _argc - 1; j++) {
       if (!strcasecmp(_argv[j], "-get")) {
@@ -204,8 +208,14 @@ int main(int argc, char **argv)
   assert(mozquic_unstable_api1(&config, "tolerateNoTransportParams", 1, 0) == MOZQUIC_OK);
   assert(mozquic_unstable_api1(&config, "maxSizeAllowed", 1470, 0) == MOZQUIC_OK);
 
+  int test0rtt = has_arg(argc, argv, "-0rtt", &argVal);
+  if (test0rtt) {
+    assert(mozquic_unstable_api1(&config, "enable0RTT", 1, 0) == MOZQUIC_OK);
+  }
+
   int repeat = 1;
-  if (has_arg(argc, argv, "-connectionresume", &argVal)) {
+  if (has_arg(argc, argv, "-connectionresume", &argVal) ||
+      test0rtt) {
     repeat = 2;
   }
 
