@@ -62,6 +62,8 @@ QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test010.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test011.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test012.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test013.o
+QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test014.o
+QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test015.o
 
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-common.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test000.o
@@ -78,6 +80,8 @@ QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test010.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test011.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test012.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test013.o
+QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test014.o
+QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test015.o
 
 sample/server-files.o: sample/server.jpg sample/index.html sample/main.js
 ifeq ($(UNAME_S),Darwin)

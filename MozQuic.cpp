@@ -45,6 +45,8 @@ MozQuic::MozQuic(bool handleIO)
   , mIsLoopback(false)
   , mProcessedVN(false)
   , mBackPressure(false)
+  , mEnabled0RTT(false)
+  , mReject0RTTData(false)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mClientPort(-1)
@@ -78,6 +80,9 @@ MozQuic::MozQuic(bool handleIO)
   , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
   , mLocalMaxSizeAllowed(0)
   , mRemoteTransportExtensionInfoLen(0)
+  , mCheck0RTTPossible(false)
+  , mEarlyDataState(EARLY_DATA_NOT_NEGOTIATED)
+  , mEarlyDataLastPacketNumber(0)
 {
   Log::sParseSubscriptions(getenv("MOZQUIC_LOG"));
   
@@ -149,8 +154,8 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                            unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
                            bool addAcks, uint32_t MTU, uint32_t *bytesOut)
 {
-  assert(headerLen >= 3);
-  assert(headerLen <= 13);
+  assert(((headerLen >= 3) && (headerLen <= 13) && mConnectionState != CLIENT_STATE_0RTT) ||
+         ((headerLen == 17) && (mConnectionState == CLIENT_STATE_0RTT)));
   bool bareAck = dataLen == 0;
   if (bytesOut) {
     *bytesOut = 0;
@@ -181,9 +186,16 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
   unsigned char cipherPkt[kMaxMTU];
   memcpy(cipherPkt, header, headerLen);
   assert(headerLen + dataLen + 16 <= MTU);
-  uint32_t rv = mNSSHelper->EncryptBlock(header, headerLen, data, dataLen,
-                                         mNextTransmitPacketNumber, cipherPkt + headerLen,
-                                         MTU - headerLen, written);
+  uint32_t rv = 0;
+  if (mConnectionState == CLIENT_STATE_0RTT) {
+    rv = mNSSHelper->EncryptBlock0RTT(header, headerLen, data, dataLen,
+                                      mNextTransmitPacketNumber, cipherPkt + headerLen,
+                                      MTU - headerLen, written);
+  } else {
+    rv = mNSSHelper->EncryptBlock(header, headerLen, data, dataLen,
+                                  mNextTransmitPacketNumber, cipherPkt + headerLen,
+                                  MTU - headerLen, written);
+  }
 
   ConnectionLog6("encrypt[%lX] rv=%d inputlen=%d (+%d of aead) outputlen=%d\n",
                  mNextTransmitPacketNumber, rv, dataLen, headerLen, written);
@@ -397,13 +409,21 @@ MozQuic::Bind(int portno)
 }
 
 MozQuic *
-MozQuic::FindSession(uint64_t cid)
+MozQuic::FindSession(uint64_t cid, bool isClientOriginal)
 {
   assert (!mIsChild);
   if (mIsClient) {
     return mConnectionID == cid ? this : nullptr;
   }
 
+  if (isClientOriginal) {
+    auto i = mConnectionHashOriginalNew.find(cid);
+    if (i != mConnectionHashOriginalNew.end()) {
+      cid = (*i).second.mServerConnectionID;
+    } else {
+      return nullptr;
+    }
+  }
   auto i = mConnectionHash.find(cid);
   if (i == mConnectionHash.end()) {
     return nullptr;
@@ -484,11 +504,61 @@ MozQuic::Client1RTT()
       RaiseError(code, (char *) "client 1rtt handshake failed");
       return code;
     }
+    if (!mCheck0RTTPossible) {
+      mCheck0RTTPossible = true;
+      if (mNSSHelper->IsEarlyDataPossible()) {
+        mEarlyDataState = EARLY_DATA_SENT;
+        mConnectionState = CLIENT_STATE_0RTT;
+        // Set mPeerMaxStreamID to default. TODO: set this to proper transport parameter.
+        mStreamState->mPeerMaxStreamID[BIDI_STREAM] = (mIsClient)
+                                                      ? kMaxStreamIDClientDefaultBidi
+                                                      : kMaxStreamIDServerDefaultBidi;
+        mStreamState->mPeerMaxStreamID[UNI_STREAM] = (mIsClient)
+                                                     ? kMaxStreamIDClientDefaultUni
+                                                     : kMaxStreamIDServerDefaultUni;
+
+        if (mConnEventCB) {
+          mConnEventCB(mClosure, MOZQUIC_EVENT_0RTT_POSSIBLE, this);
+        }
+      }
+    }
+
     if (mNSSHelper->IsHandshakeComplete()) {
       return ClientConnected();
     }
   }
 
+  return MOZQUIC_OK;
+}
+
+int
+MozQuic::ClientReadPostHandshakeTLSMessages()
+{
+  if (mAppHandlesSendRecv) {
+    if (mStreamState->mStream0->Empty()) {
+      return MOZQUIC_OK;
+    }
+    unsigned char buf[kMozQuicMSS];
+    uint32_t amt = 0;
+    bool fin = false;
+    uint32_t code = mStreamState->mStream0->Read(buf, kMozQuicMSS, amt, fin);
+    if (code != MOZQUIC_OK) {
+      return code;
+    }
+    if (amt > 0) {
+      // called to let the app know that the server side TLS data is ready
+      struct mozquic_eventdata_tlsinput data;
+      data.data = buf;
+      data.len = amt;
+      mConnEventCB(mClosure, MOZQUIC_EVENT_TLSINPUT, &data);
+    }
+  } else {
+    uint32_t code = mNSSHelper->ReadTLSData();
+    if (code != MOZQUIC_OK) {
+      RaiseError(code, (char *) "post handshake message decoding failed");
+      return code;
+    }
+  }
   return MOZQUIC_OK;
 }
 
@@ -541,6 +611,16 @@ MozQuic::Server1RTT()
       mParent->mConnectionHashOriginalNew.erase(mOriginalConnectionID);
       mConnectionState = SERVER_STATE_SSR;
       return MOZQUIC_OK;
+    } else {
+      if (!mCheck0RTTPossible) {
+        mCheck0RTTPossible = true;
+        if (mNSSHelper->IsEarlyDataAcceptedServer()) {
+          mEarlyDataState = EARLY_DATA_ACCEPTED;
+          mConnectionState = SERVER_STATE_0RTT;
+        } else {
+          mEarlyDataState = EARLY_DATA_IGNORED;
+        }
+      }
     }
 
     if (mNSSHelper->IsHandshakeComplete()) {
@@ -561,9 +641,11 @@ MozQuic::Intake(bool *partialResult)
   // check state
   assert (mConnectionState == SERVER_STATE_LISTEN ||
           mConnectionState == SERVER_STATE_1RTT ||
+          mConnectionState == SERVER_STATE_0RTT ||
           mConnectionState == SERVER_STATE_CLOSED ||
           mConnectionState == CLIENT_STATE_CONNECTED ||
           mConnectionState == CLIENT_STATE_1RTT ||
+          mConnectionState == CLIENT_STATE_0RTT ||
           mConnectionState == CLIENT_STATE_CLOSED);
   uint32_t rv = MOZQUIC_OK;
 
@@ -679,8 +761,24 @@ MozQuic::Intake(bool *partialResult)
         break;
 
       case PACKET_TYPE_0RTT_PROTECTED:
-        ConnectionLog1("0RTT input not handled\n"); // todo
-        rv = MOZQUIC_ERR_GENERAL;
+        ConnectionLog1("0RTT protected packet\n");
+        if (mIsClient) {
+          ConnectionLog1("0RTT protected packet - received by a client!\n");
+          rv = MOZQUIC_ERR_GENERAL;
+          break;
+        }
+
+        tmpSession = FindSession(longHeader.mConnectionID, true);
+
+        if (!tmpSession) {
+          ConnectionLogCID1(longHeader.mConnectionID,
+                            "no session found for encoded packet size=%d\n",
+                            pktSize);
+          // This can happened if we have reordering in the network. We are
+          // going to ignore this packet.
+          continue;
+        }
+        session = tmpSession->mAlive;
         break;
 
       default:
@@ -715,6 +813,9 @@ MozQuic::Intake(bool *partialResult)
           rv = session->ProcessServerCleartext(pkt, pktSize, longHeader, sendAck);
         } else {
           rv = session->ProcessClientCleartext(pkt, pktSize, longHeader, sendAck);
+          if (!session->mEarlyDataLastPacketNumber) {
+            session->mEarlyDataLastPacketNumber = longHeader.mPacketNumber;
+          }
         }
 
         if (rv == MOZQUIC_OK) {
@@ -722,10 +823,19 @@ MozQuic::Intake(bool *partialResult)
         }
         break;
 
+      case PACKET_TYPE_0RTT_PROTECTED:
+        rv = session->Process0RTTProtectedPacket(pkt, pktSize, 17,
+                                                 longHeader.mPacketNumber, sendAck);
+        if (rv == MOZQUIC_OK) {
+          session->Acknowledge(longHeader.mPacketNumber, keyPhase1Rtt);
+        }
+        break;
+
       default:
         break;
       }
     }
+
     if ((rv == MOZQUIC_OK) && sendAck) {
       rv = session->MaybeSendAck();
     }
@@ -755,12 +865,21 @@ MozQuic::IO()
     if (mIsClient) {
       switch (mConnectionState) {
       case CLIENT_STATE_1RTT:
+      case CLIENT_STATE_0RTT:
         code = Client1RTT();
         if (code != MOZQUIC_OK) {
           return code;
         }
         break;
       case CLIENT_STATE_CONNECTED:
+        if (!mStreamState->mStream0->Empty()) {
+          ConnectionLog10("MozQuic::IO ClientReadPostHandshakeTLSMessages %p\n", this);
+          code = ClientReadPostHandshakeTLSMessages();
+          if (code != MOZQUIC_OK) {
+            return code;
+          }
+        }
+        break;
       case CLIENT_STATE_CLOSED:
       case SERVER_STATE_CLOSED:
         break;
@@ -769,7 +888,8 @@ MozQuic::IO()
         // todo
       }
     } else {
-      if (mConnectionState == SERVER_STATE_1RTT) {
+      if ((mConnectionState == SERVER_STATE_1RTT) ||
+          (mConnectionState == SERVER_STATE_0RTT)) {
         code = Server1RTT();
         if (code != MOZQUIC_OK) {
           return code;
@@ -785,7 +905,8 @@ MozQuic::IO()
     }
   } while (partialResult);
 
-  if ((mConnectionState == SERVER_STATE_1RTT) &&
+  if (((mConnectionState == SERVER_STATE_1RTT) ||
+       (mConnectionState == SERVER_STATE_0RTT)) &&
       (mNextTransmitPacketNumber - mOriginalTransmitPacketNumber) > 20) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"TimedOut Client In Handshake");
     return MOZQUIC_ERR_GENERAL;
@@ -880,7 +1001,8 @@ MozQuic::HandshakeComplete(uint32_t code,
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"not using handshaker api");
     return MOZQUIC_ERR_GENERAL;
   }
-  if (mConnectionState != CLIENT_STATE_1RTT) {
+  if ((mConnectionState != CLIENT_STATE_1RTT) &&
+      (mConnectionState != CLIENT_STATE_0RTT)) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"Handshake complete in wrong state");
     return MOZQUIC_ERR_GENERAL;
   }
@@ -901,7 +1023,8 @@ uint32_t
 MozQuic::ClientConnected()
 {
   ConnectionLog4("CLIENT_STATE_CONNECTED\n");
-  assert(mConnectionState == CLIENT_STATE_1RTT);
+  assert((mConnectionState == CLIENT_STATE_1RTT) ||
+         (mConnectionState == CLIENT_STATE_0RTT));
   mSendState->Connected();
   unsigned char *extensionInfo = nullptr;
   uint16_t extensionInfoLen = 0;
@@ -992,10 +1115,20 @@ MozQuic::ClientConnected()
         ConnectionLog5("Verify Server Transport Parameters: negotiation ok passed\n");
       }
     }
-    
   }
 
   mConnectionState = CLIENT_STATE_CONNECTED;
+
+  if (mEarlyDataState == EARLY_DATA_SENT) {
+    if (mNSSHelper->IsEarlyDataAcceptedClient()) {
+      mEarlyDataState = EARLY_DATA_ACCEPTED;
+      mStreamState->DeleteDoneStreams();
+    } else {
+      mEarlyDataState = EARLY_DATA_IGNORED;
+      mStreamState->Reset0RTTData();
+    }
+  }
+
   if (decodeResult != MOZQUIC_OK) {
     assert (errorCode != ERROR_NO_ERROR);
     MaybeSendAck();
@@ -1015,7 +1148,8 @@ MozQuic::ServerConnected()
 {
   assert (mIsChild && !mIsClient);
   ConnectionLog4("SERVER_STATE_CONNECTED\n");
-  assert(mConnectionState == SERVER_STATE_1RTT);
+  assert((mConnectionState == SERVER_STATE_1RTT) ||
+         (mConnectionState == SERVER_STATE_0RTT));
   mSendState->Connected();
   unsigned char *extensionInfo = nullptr;
   uint16_t extensionInfoLen = 0;
@@ -1104,6 +1238,29 @@ MozQuic::ReleaseProtectedPackets()
 }
 
 uint32_t
+MozQuic::Process0RTTProtectedPacket(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
+                                    uint64_t packetNum, bool &sendAck)
+{
+  if ((mConnectionState == SERVER_STATE_SSR) ||
+      (mConnectionState == SERVER_STATE_CLOSED) ||
+      (mEarlyDataState == EARLY_DATA_IGNORED)) {
+    ConnectionLog1("0RTT protected packet - ignore 0RTT packet\n");
+    return MOZQUIC_OK;
+  } else if (mEarlyDataState == EARLY_DATA_NOT_NEGOTIATED) {
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"A 0RTT encrypted packet, but 0RTT not negotiated.\n");
+    return MOZQUIC_ERR_GENERAL;
+  } else if (mConnectionState == SERVER_STATE_CONNECTED) {
+    assert (mEarlyDataState == EARLY_DATA_ACCEPTED);
+    if (packetNum > mEarlyDataLastPacketNumber) {
+      ConnectionLog1("0RTT protected packet - 0RTT packet with a high packet number\n");
+      RaiseError(MOZQUIC_ERR_GENERAL, (char *)"A 0RTT encrypted packet after handshake.\n");
+      return MOZQUIC_ERR_GENERAL;
+    }
+  }
+  return ProcessGeneral(pkt, pktSize, 17, packetNum, sendAck);
+}
+
+uint32_t
 MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
                         uint64_t packetNum, bool &sendAck)
 {
@@ -1117,17 +1274,30 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
     return MOZQUIC_ERR_GENERAL;
   }
 
-  if (mConnectionState == CLIENT_STATE_1RTT ||
-      mConnectionState == SERVER_STATE_1RTT) {
+  if (!(pkt[0] & 0x80) &&
+      (mConnectionState == CLIENT_STATE_1RTT ||
+       mConnectionState == CLIENT_STATE_0RTT ||
+       mConnectionState == SERVER_STATE_1RTT ||
+       mConnectionState == SERVER_STATE_0RTT)) {
     ConnectionLog4("processgeneral buffering for later reassembly %lX\n", packetNum);
     sendAck = false;
     return BufferForLater(pkt, pktSize, headerSize, packetNum);
   }
 
   uint32_t written;
-  uint32_t rv = mNSSHelper->DecryptBlock(pkt, headerSize, pkt + headerSize,
-                                         pktSize - headerSize, packetNum, out,
-                                         kMozQuicMSS, written);
+  uint32_t rv;
+
+  if (pkt[0] & 0x80) {
+    assert (pkt[0] == (0x80 | PACKET_TYPE_0RTT_PROTECTED));
+    rv = mNSSHelper->DecryptBlock0RTT(pkt, headerSize, pkt + headerSize,
+                                      pktSize - headerSize, packetNum, out,
+                                      kMozQuicMSS, written);
+  } else {
+    rv = mNSSHelper->DecryptBlock(pkt, headerSize, pkt + headerSize,
+                                  pktSize - headerSize, packetNum, out,
+                                  kMozQuicMSS, written);
+  }
+
   ConnectionLog6("decrypt (pktnum=%lX) rv=%d sz=%d\n", packetNum, rv, written);
   if (rv != MOZQUIC_OK) {
     ConnectionLog1("decrypt failed\n");
