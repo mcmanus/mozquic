@@ -702,7 +702,7 @@ MozQuic::Intake(bool *partialResult)
       LongHeaderData longHeader(pkt, pktSize);
 
       ConnectionLogCID5(longHeader.mConnectionID,
-                        "LONGFORM PACKET[%d] pkt# %lX type %d version %X\n",
+                        "LONGFORM PACKET[%d] pkt# %lX type %X version %X\n",
                         pktSize, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
 
       if (!VersionOK(longHeader.mVersion)) { // version negotiation
