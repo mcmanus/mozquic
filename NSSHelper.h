@@ -20,7 +20,9 @@ enum operationType {
 //  kEncrypt1,
 //  kDecrypt1,
   kEncryptHandshake,
-  kDecryptHandshake
+  kDecryptHandshake,
+  kEncrypt0RTT,
+  kDecrypt0RTT,
 };
 
 class NSSHelper final
@@ -30,6 +32,7 @@ public:
   NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey);
   NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey, bool clientindicator); // todo, subclass
   ~NSSHelper();
+  uint32_t ReadTLSData();
   uint32_t DriveHandshake();
   bool IsHandshakeComplete() { return mHandshakeComplete; }
   uint32_t HandshakeSecret(unsigned int ciphersuite, unsigned char *sendSecret, unsigned char *recvSecret);
@@ -57,6 +60,16 @@ public:
                             unsigned char *out, uint32_t outAvail,
                             uint32_t &written);
 
+  uint32_t EncryptBlock0RTT(const unsigned char *aeadData, uint32_t aeadLen,
+                            const unsigned char *plaintext, uint32_t plaintextLen,
+                            uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
+                            uint32_t &written);
+
+  uint32_t DecryptBlock0RTT(const unsigned char *aeadData, uint32_t aeadLen,
+                            const unsigned char *ciphertext, uint32_t ciphertextLen,
+                            uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
+                            uint32_t &written);
+
   bool SetLocalTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // local data to send
   bool SetRemoteTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // remote data recvd
   void GetRemoteTransportExtensionInfo(unsigned char * &_output, uint16_t &actual) {
@@ -67,6 +80,10 @@ public:
   static const uint32_t kTransportParametersID = 26;
 
   bool DoHRR() {return mDoHRR;}
+
+  bool IsEarlyDataPossible();
+  bool IsEarlyDataAcceptedServer();
+  bool IsEarlyDataAcceptedClient();
 
 private:
   static PRStatus NSPRGetPeerName(PRFileDesc *aFD, PRNetAddr*addr);
@@ -95,7 +112,7 @@ private:
                           const unsigned char *plaintext, uint32_t plaintextLen,
                           uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                           uint32_t &written);
-  uint32_t MakeKeyFromNSS(PRFileDesc *fd, const char *label,
+  uint32_t MakeKeyFromNSS(PRFileDesc *fd, bool earlyKey, const char *label,
                           unsigned int secretSize, unsigned int keySize, SSLHashType hashType,
                           CK_MECHANISM_TYPE importMechanism1, CK_MECHANISM_TYPE importMechanism2,
                           unsigned char *outIV, PK11SymKey **outKey);
@@ -136,6 +153,10 @@ private:
   unsigned char       mPacketProtectionSenderIV0[12];
   PK11SymKey         *mPacketProtectionReceiverKey0;
   unsigned char       mPacketProtectionReceiverIV0[12];
+
+  CK_MECHANISM_TYPE   mPacketProtectionMech0RTT;
+  PK11SymKey         *mPacketProtectionKey0RTT;
+  unsigned char       mPacketProtectionIV0RTT[12];
 
   uint64_t            mPacketProtectionHandshakeCID;
   PK11SymKey         *mPacketProtectionHandshakeSenderKey;

@@ -27,6 +27,8 @@ struct mozquic_internal_config_t
   unsigned int tolerateNoTransportParams; // flag
   unsigned int sabotageVN; // flag
   unsigned int forceAddressValidation; // flag
+  unsigned int enable0RTT; // flag
+  unsigned int reject0RTTData; // flag
   uint64_t streamWindow;
   uint64_t connWindowKB;
   uint64_t dropRate;
@@ -51,6 +53,10 @@ uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uin
     internal->sabotageVN = arg1;
   } else if (!strcasecmp(name, "forceAddressValidation")) {
     internal->forceAddressValidation = arg1;
+  } else if (!strcasecmp(name, "enable0RTT")) {
+    internal->enable0RTT = arg1;
+  } else if (!strcasecmp(name, "reject0RTTData")) {
+    internal->reject0RTTData = arg1;
   } else if (!strcasecmp(name, "streamWindow")) {
     internal->streamWindow = arg1;
   } else if (!strcasecmp(name, "connWindowKB")) {
@@ -127,6 +133,12 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   }
   if (internal->forceAddressValidation) {
     q->SetForceAddressValidation();
+  }
+  if (internal->enable0RTT) {
+    q->SetEnable0RTT();
+  }
+  if (internal->reject0RTTData) {
+    q->SetReject0RTTData();
   }
   if (inConfig->appHandlesSendRecv) {
     q->SetAppHandlesSendRecv();

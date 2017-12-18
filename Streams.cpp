@@ -13,6 +13,8 @@
 #include "stdlib.h"
 #include "unistd.h"
 
+#include <algorithm>
+
 namespace mozquic  {
 
 #define StreamLog1(...) Log::sDoLog(Log::STREAM, 1, mMozQuic, __VA_ARGS__);
@@ -30,8 +32,14 @@ uint32_t
 StreamState::StartNewStream(StreamPair **outStream, StreamType streamType,
                             const void *data, uint32_t amount, bool fin)
 {
+  if ((mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED) &&
+      (mMozQuic->GetConnectionState() != CLIENT_STATE_0RTT) &&
+      (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED)) {
+    return MOZQUIC_ERR_IO;
+  }
+
   if (mNextStreamID[streamType] > mPeerMaxStreamID[streamType]) {
-    if (mMaxStreamIDBlocked[streamType]) {
+    if (!mMaxStreamIDBlocked[streamType]) {
       mMaxStreamIDBlocked[streamType] = true;
       StreamLog3("new stream BLOCKED on stream id flow control %d\n",
                  mPeerMaxStreamID[streamType]);
@@ -144,9 +152,27 @@ StreamState::FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d)
   return MOZQUIC_OK;
 }
 
+void
+StreamState::DeleteDoneStreams()
+{
+  auto i = mStreams.begin();
+  while (i != mStreams.end()) {
+    if ((*i).second->Done()) {
+      StreamLog5("Delete stream %lu\n", (*i).second->mStreamID);
+      i = mStreams.erase(i);
+    } else {
+      i++;
+    }
+  }
+}
+
 bool
 StreamState::MaybeDeleteStream(uint32_t streamID)
 {
+  if (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT) {
+    // Do not delete streams during 0RTT, maybe we need to restart them.
+    return false;
+  }
   auto i = mStreams.find(streamID);
   if (i == mStreams.end()) {
     return false;
@@ -475,6 +501,87 @@ StreamState::ScrubUnWritten(uint32_t streamID)
   return MOZQUIC_OK;
 }
 
+void
+StreamState::Reset0RTTData()
+{
+  auto streamsReadyToWritePos = mStreamsReadyToWrite.begin(); // Alway push in front of the current queue.
+  // We will go through the mUnAckedPackets data first then through the
+  // mConnUnWritten data.
+  // We also start with the oldest sent(easier to delete data without
+  // a revert-iterator to iterator conversion). The oldest sent streamID should
+  // be at the beginning of mStreamsReadyToWrite, therefore we always add
+  // streamID right in the front of the first element of mStreamsReadyToWrite
+  // at the time we enter this function.
+
+  auto iter1 = mUnAckedPackets.begin();
+  while (iter1 != mUnAckedPackets.end()) {
+    auto iter2 = (*iter1).get()->mFrameList.begin();
+    while (iter2 != (*iter1).get()->mFrameList.end()) {
+      if ((*iter2)->mType == ReliableData::kStream && (*iter2)->mStreamID) {
+        auto i = mStreams.find((*iter2)->mStreamID);
+        assert (i != mStreams.end());
+
+        std::unique_ptr<ReliableData> x(std::move((*iter2)));
+        iter2 = (*iter1).get()->mFrameList.erase(iter2);
+
+        if ((*i).second->mOut->mStreamUnWritten.empty()) {
+          (*i).second->mOut->mStreamUnWritten.push_front(std::move(x));
+        } else {
+          auto data = (*i).second->mOut->mStreamUnWritten.rbegin();
+          while ((data != (*i).second->mOut->mStreamUnWritten.rend()) &&
+                 (*data)->mOffset > x->mOffset) {
+            data++;
+          }
+          // A bit of a strange conversion from reverse-iterator to normal one.
+          (*i).second->mOut->mStreamUnWritten.insert(data.base(), std::move(x));
+        }
+
+        mStreamsReadyToWrite.insert(streamsReadyToWritePos, (*i).second->mStreamID);
+        (*i).second->mOut->mOffsetChargedToConnFlowControl = 0;
+        (*i).second->mOut->mBlocked = false;
+      } else {
+        iter2++;
+      }
+    }
+    if ((*iter1).get()->mFrameList.empty()) {
+      iter1 = mUnAckedPackets.erase(iter1);
+    } else {
+      iter1++;
+    }
+  }
+
+  auto iter3 = mConnUnWritten.begin();
+  while (iter3 != mConnUnWritten.end()) {
+    if ((*iter3)->mType == ReliableData::kStream && (*iter3)->mStreamID) {
+      auto i = mStreams.find((*iter3)->mStreamID);
+      assert (i != mStreams.end());
+
+      std::unique_ptr<ReliableData> x(std::move(*iter3));
+      iter3 = mConnUnWritten.erase(iter3);
+
+      if ((*i).second->mOut->mStreamUnWritten.empty()) {
+        (*i).second->mOut->mStreamUnWritten.push_front(std::move(x));
+      } else {
+        auto data = (*i).second->mOut->mStreamUnWritten.rbegin();
+        while ((data != (*i).second->mOut->mStreamUnWritten.rend()) &&
+               (*data)->mOffset > x->mOffset) {
+          data++;
+        }
+        // A bit of a strange conversion from reverse-iterator to normal one.
+        (*i).second->mOut->mStreamUnWritten.insert(data.base(), std::move(x));
+      }
+
+      mStreamsReadyToWrite.insert(streamsReadyToWritePos, (*i).second->mStreamID);
+      (*i).second->mOut->mOffsetChargedToConnFlowControl = 0;
+      (*i).second->mOut->mBlocked = false;
+    } else {
+      iter3++;
+    }
+  }
+
+  mStreamsReadyToWrite.unique();
+}
+
 uint64_t
 StreamState::CalculateConnectionCharge(ReliableData *data, StreamOut *out)
 {
@@ -785,7 +892,7 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
                  mMozQuic->mNextTransmitPacketNumber);
       framePtr += (*iter)->mLen;
     }
-    
+
     if ((mMozQuic->GetConnectionState() == CLIENT_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == SERVER_STATE_CONNECTED) ||
         (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT)) {
@@ -805,7 +912,7 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
 uint32_t
 StreamState::Flush(bool forceAck)
 {
-  if (!mMozQuic->DecodedOK()) {
+  if (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) {
     mMozQuic->FlushStream0(forceAck);
   }
 
@@ -818,7 +925,15 @@ StreamState::Flush(bool forceAck)
   uint32_t mtu = mMozQuic->mMTU;
   assert(mtu <= kMaxMTU);
 
-  mMozQuic->CreateShortPacketHeader(plainPkt, mtu - kTagLen, headerLen);
+  if (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT) {
+    mMozQuic->CreateLongPacketHeader(plainPkt, mtu - kTagLen, headerLen);
+  } else if ((mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) &&
+             (mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED)) {
+    // if 0RTT data gets rejected, wait for the connected state to send data.
+    return MOZQUIC_OK;
+  } else {
+    mMozQuic->CreateShortPacketHeader(plainPkt, mtu - kTagLen, headerLen);
+  }
 
   unsigned char *framePtr = plainPkt + headerLen;
   const unsigned char *endpkt = plainPkt + mtu - kTagLen; // reserve 16 for aead tag
@@ -879,7 +994,9 @@ StreamState::SignalReadyToWrite(StreamOut *out)
       !out->mStreamUnWritten.empty()) {
     // This stream still has data to write but it is blocked by the connection
     // flow control.
-    mStreamsReadyToWrite.push_back(out->mStreamID);
+    if (std::find(mStreamsReadyToWrite.begin(), mStreamsReadyToWrite.end(), out->mStreamID) == mStreamsReadyToWrite.end()) {
+      mStreamsReadyToWrite.push_back(out->mStreamID);
+    }
   }
 }
 

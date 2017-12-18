@@ -60,6 +60,7 @@ public:
   // the caller owns the unique_ptr if it returns 0
   virtual uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) = 0;
   virtual uint32_t ScrubUnWritten(uint32_t id) = 0;
+  virtual void Reset0RTTData() = 0;
   virtual uint32_t GetIncrement() = 0;
   virtual uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) = 0;
   virtual uint32_t ConnectionReadBytes(uint64_t amt) = 0;
@@ -109,6 +110,7 @@ public:
   // FlowController Methods
   uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) override;
   uint32_t ScrubUnWritten(uint32_t id) override;
+  void Reset0RTTData() override;
   uint32_t GetIncrement() override;
   uint32_t IssueStreamCredit(uint32_t streamID, uint64_t newMax) override;
   uint32_t ConnectionReadBytes(uint64_t amt) override;
@@ -118,6 +120,7 @@ public:
   uint32_t MakeSureStreamCreated(uint32_t streamID);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
+  void     DeleteDoneStreams();
   bool     MaybeDeleteStream(uint32_t streamID);
   uint32_t RstStream(uint32_t streamID, uint16_t code);
 

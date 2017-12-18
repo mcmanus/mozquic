@@ -239,6 +239,8 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
                                               kMaxStreamDataDefault,
                                               mStreamState->mLocalMaxStreamData));
   mSetupTransportExtension = false;
+  mConnectionState = CLIENT_STATE_1RTT;
+  mStreamState->Reset0RTTData();
   mStreamState->mUnAckedPackets.clear();
   mStreamState->mConnUnWritten.clear();
   SetInitialPacketNumber();
@@ -307,8 +309,10 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
                                                 kMaxStreamDataDefault,
                                                 mStreamState->mLocalMaxStreamData));
     mSetupTransportExtension  = false;
+    mConnectionState = CLIENT_STATE_1RTT;
+    mStreamState->Reset0RTTData();
     mStreamState->mUnAckedPackets.clear();
-    
+
     return MOZQUIC_OK;
   }
 

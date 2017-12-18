@@ -101,7 +101,8 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
   for (auto iter = mStreamState->mAckList.begin(); iter != mStreamState->mAckList.end(); iter++) {
     // list ordered as 7/2, 2/1.. (ack 7,6,5.. 2,1 but not 4,3 or 0) i.e. highest num first
     if ((kp <= keyPhaseUnprotected) && iter->mPhase >= keyPhase0Rtt) {
-      AckLog6("skip ack generation of %lX wrong kp need %d\n", iter->mPacketNumber, kp);
+      AckLog6("skip ack generation of %lX wrong kp need %d the phase is %d\n",
+              iter->mPacketNumber, iter->mPhase, kp);
       continue;
     }
 
