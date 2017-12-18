@@ -67,6 +67,11 @@ static int connEventCB(void *closure, uint32_t event, void *param)
   
   if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
     mozquic_stream_t *stream = param;
+    if (mozquic_get_streamid(stream) & 0x3) {
+      fprintf(stderr,"ignore non client bidi streams\n");
+      return MOZQUIC_OK;
+    }
+
     char buf[1000];
     uint32_t amt = 0;
     int fin = 0;
