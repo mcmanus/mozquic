@@ -276,7 +276,7 @@ int main(int argc, char **argv)
   assert(mozquic_unstable_api1(&config, "sabotageVN", 0, 0) == MOZQUIC_OK);
   assert(mozquic_unstable_api1(&config, "forceAddressValidation", 0, 0) == MOZQUIC_OK);
   assert(mozquic_unstable_api1(&config, "streamWindow", 4906, 0) == MOZQUIC_OK);
-  assert(mozquic_unstable_api1(&config, "connWindowKB", 8, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "connWindow", 8192, 0) == MOZQUIC_OK);
   // assert(mozquic_unstable_api1(&config, "dropRate", 5, 0) == MOZQUIC_OK);
 
   mozquic_new_connection(&c, &config);

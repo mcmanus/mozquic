@@ -37,7 +37,7 @@ void *testGetClosure7()
 void testConfig7(struct mozquic_config_t *_c)
 {
   test_assert(mozquic_unstable_api1(_c, "streamWindow", 3750, 0) == MOZQUIC_OK);
-  test_assert(mozquic_unstable_api1(_c, "connWindowKB", 8, 0) == MOZQUIC_OK);
+  test_assert(mozquic_unstable_api1(_c, "connWindow", 8192, 0) == MOZQUIC_OK);
   memset(&state, 0, sizeof(state));
 }
 

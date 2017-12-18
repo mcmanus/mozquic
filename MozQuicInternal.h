@@ -171,7 +171,7 @@ public:
     return mParent ? mParent->mReject0RTTData : mReject0RTTData;
   }
   void SetStreamWindow(uint64_t w) { mAdvertiseStreamWindow = w; }
-  void SetConnWindowKB(uint64_t kb) { mAdvertiseConnectionWindowKB = kb; }
+  void SetConnWindowBytes(uint64_t bytes) { mAdvertiseConnectionWindow = bytes; }
   void SetDropRate(uint64_t dr);
   void SetMaxSizeAllowed(uint16_t ms) { mLocalMaxSizeAllowed = ms; }
   void SetClientPort(int clientPort) { mClientPort = clientPort; }
@@ -379,7 +379,7 @@ private:
   uint8_t  mLocalAckDelayExponent;
 
   uint64_t mAdvertiseStreamWindow;
-  uint64_t mAdvertiseConnectionWindowKB;
+  uint64_t mAdvertiseConnectionWindow;
   uint16_t mLocalMaxSizeAllowed;
 
   std::unique_ptr<unsigned char []> mRemoteTransportExtensionInfo;

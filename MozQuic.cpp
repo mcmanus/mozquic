@@ -77,7 +77,7 @@ MozQuic::MozQuic(bool handleIO)
   , mPeerAckDelayExponent(kDefaultAckDelayExponent)
   , mLocalAckDelayExponent(10)
   , mAdvertiseStreamWindow(kMaxStreamDataDefault)
-  , mAdvertiseConnectionWindowKB(kMaxDataDefault >> 10)
+  , mAdvertiseConnectionWindow(kMaxDataDefault)
   , mLocalMaxSizeAllowed(0)
   , mRemoteTransportExtensionInfoLen(0)
   , mCheck0RTTPossible(false)
@@ -323,7 +323,7 @@ MozQuic::StartClient()
   mOriginalConnectionID = mConnectionID;
   SetInitialPacketNumber();
 
-  mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
+  mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindow));
   mStreamState->InitIDs(4, 2, 1, 3, kMaxStreamIDServerDefaultBidi, kMaxStreamIDServerDefaultUni);
   mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
   mStreamState->mStream0.reset(new StreamPair(0, this, mStreamState.get(),
@@ -379,7 +379,7 @@ MozQuic::StartServer()
 {
   assert(!mHandleIO); // todo
   mIsClient = false;
-  mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
+  mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindow));
   mStreamState->InitIDs(1, 3, 4, 2, kMaxStreamIDClientDefaultBidi, kMaxStreamIDClientDefaultUni);
 
   StatelessResetEnsureKey();
@@ -1045,21 +1045,21 @@ MozQuic::ClientConnected()
     decodeResult = MOZQUIC_OK;
   } else {
     assert(sizeof(mStatelessResetToken) == 16);
-    uint32_t peerMaxDataKB;
     uint32_t peerNegotiatedVersion;
+    uint32_t peerMaxData;
     decodeResult =
       TransportExtension::
       DecodeServerTransportParameters(extensionInfo, extensionInfoLen,
                                       peerNegotiatedVersion,
                                       peerVersionList, versionSize,
                                       mStreamState->mPeerMaxStreamData,
-                                      peerMaxDataKB,
+                                      peerMaxData,
                                       mStreamState->mPeerMaxStreamID[BIDI_STREAM],
                                       mStreamState->mPeerMaxStreamID[UNI_STREAM],
                                       mPeerIdleTimeout,
                                       mPeerOmitCID, mMaxPacketConfig, mPeerAckDelayExponent,
                                       mStatelessResetToken, this);
-    mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
+    mStreamState->mPeerMaxData = peerMaxData;
     if (decodeResult != MOZQUIC_OK) {
       ConnectionLog1("Decoding Server Transport Parameters: failed\n");
       errorCode = ERROR_TRANSPORT_PARAMETER;
@@ -1161,33 +1161,33 @@ MozQuic::ServerConnected()
     ConnectionLog6("Decoding Client Transport Parameters: tolerated empty by config\n");
     decodeResult = MOZQUIC_OK;
   } else {
-    uint32_t peerMaxDataKB;
+    uint32_t peerMaxData;
     decodeResult =
       TransportExtension::
       DecodeClientTransportParameters(extensionInfo, extensionInfoLen,
                                       peerInitialVersion,
                                       mStreamState->mPeerMaxStreamData,
-                                      peerMaxDataKB,
+                                      peerMaxData,
                                       mStreamState->mPeerMaxStreamID[BIDI_STREAM],
                                       mStreamState->mPeerMaxStreamID[UNI_STREAM],
                                       mPeerIdleTimeout,
                                       mPeerOmitCID, mMaxPacketConfig, mPeerAckDelayExponent, this);
+    mStreamState->mPeerMaxData = peerMaxData;
     ConnectionLog6(
             "decode client parameters: "
             "maxstreamdata %u "
-            "maxdatakb %u "
+            "maxdatabytes %u "
             "maxstreamidbidi %u "
             "maxstreamiduni %u "
             "idle %u "
             "omitCID %d "
             "maxpacket %u\n",
             mStreamState->mPeerMaxStreamData,
-            peerMaxDataKB,
+            mStreamState->mPeerMaxData,
             mStreamState->mPeerMaxStreamID[BIDI_STREAM],
             mStreamState->mPeerMaxStreamID[UNI_STREAM],
             mPeerIdleTimeout, mPeerOmitCID, mMaxPacketConfig);
             
-    mStreamState->mPeerMaxData = peerMaxDataKB * (__uint128_t) 1024;
     Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,
                 "Decoding Client Transport Parameters: %s\n",
                 decodeResult == MOZQUIC_OK ? "passed" : "failed");
@@ -1531,7 +1531,7 @@ MozQuic *
 MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t aCIPacketNumber)
 {
   MozQuic *child = new MozQuic(mHandleIO);
-  child->mStreamState.reset(new StreamState(child, mAdvertiseStreamWindow, mAdvertiseConnectionWindowKB));
+  child->mStreamState.reset(new StreamState(child, mAdvertiseStreamWindow, mAdvertiseConnectionWindow));
   child->mStreamState->InitIDs(1, 3, 4, 2, kMaxStreamIDClientDefaultBidi, kMaxStreamIDClientDefaultUni);
   child->mIsChild = true;
   child->mIsClient = false;

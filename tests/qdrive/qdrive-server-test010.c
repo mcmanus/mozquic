@@ -25,7 +25,7 @@ void *testGetClosure10()
 void testConfig10(struct mozquic_config_t *_c)
 {
   memset(&state, 0, sizeof(state));
-  test_assert(mozquic_unstable_api1(_c, "connWindowKB", 0x400000, 0) == MOZQUIC_OK);
+  test_assert(mozquic_unstable_api1(_c, "connWindow", 0xffffffff, 0) == MOZQUIC_OK);
 }
 
 int testEvent10(void *closure, uint32_t event, void *param)

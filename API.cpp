@@ -30,7 +30,7 @@ struct mozquic_internal_config_t
   unsigned int enable0RTT; // flag
   unsigned int reject0RTTData; // flag
   uint64_t streamWindow;
-  uint64_t connWindowKB;
+  uint64_t connWindowBytes;
   uint64_t dropRate;
   int clientPort;
   uint16_t maxSizeAllowed;
@@ -59,8 +59,8 @@ uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uin
     internal->reject0RTTData = arg1;
   } else if (!strcasecmp(name, "streamWindow")) {
     internal->streamWindow = arg1;
-  } else if (!strcasecmp(name, "connWindowKB")) {
-    internal->connWindowKB = arg1;
+  } else if (!strcasecmp(name, "connWindow")) {
+    internal->connWindowBytes = arg1;
   } else if (!strcasecmp(name, "dropRate")) {
     internal->dropRate = arg1;
   } else if (!strcasecmp(name, "clientPort")) {
@@ -152,8 +152,8 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   if (internal->streamWindow) {
     q->SetStreamWindow(internal->streamWindow);
   }
-  if (internal->connWindowKB) {
-    q->SetConnWindowKB(internal->connWindowKB);
+  if (internal->connWindowBytes) {
+    q->SetConnWindowBytes(internal->connWindowBytes);
   }
   if (internal->dropRate) {
     q->SetDropRate(internal->dropRate);
