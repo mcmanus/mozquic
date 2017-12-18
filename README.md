@@ -2,11 +2,12 @@ This is really to test the spec process, its a long way from usable
 code and the interface is the least thought out bit (MozQuic.h). It
 will set your machine afire if you have the nerve to run it there.
 
-Right now it is capable of both ff000005 and 0xf123f0c5 and some greasing.
+Right now it is capable of both ff000008 and 0xf123f0c5 and some
+greasing. (hq-08 alpn)
 
-See https://github.com/quicwg/base-drafts/wiki/First-Implementation-Draft
+See https://github.com/quicwg/base-drafts/wiki/Third-Implementation-Draft
 
-based on tls -21
+based on tls -22
 
 == Build Notes
 
@@ -23,7 +24,7 @@ setenv MOZQUIC_NSS_CONFIG $MOZQUIC_BUILD/mozquic/sample/nss-config/
 # These are used to build mozquic standalone
 ```
 git clone git@github.com:mcmanus/mozquic.git
-git clone -b NSS_TLS13_DRAFT19_BRANCH git@github.com:nss-dev/nss.git
+git clone git@github.com:nss-dev/nss.git
 hg clone https://hg.mozilla.org/projects/nspr
 nss/build.sh
 cd mozquic

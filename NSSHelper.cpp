@@ -18,18 +18,11 @@
 #include "assert.h"
 #include "sechash.h"
 
-#if NSS_VMAJOR < 3 || (NSS_VMINOR < 32 && NSS_VMAJOR == 3)
+#if NSS_VMAJOR < 3 || (NSS_VMINOR < 35 && NSS_VMAJOR == 3)
 fail complie;
 #endif
 
-// the above version is not sufficient - the -21 branch hasn't been
-// given a new vminor
-/*
-    nss -21 branch
-    https://github.com/nss-dev/nss/tree/NSS_TLS13_DRAFT19_BRANCH
-
-    known cset 5e6ccfb82ff48e83ae1555fe3c16a27cdee0892a
-*/
+// relies on tls1.3 draft 22 known cset cbaa176ba
 
 #define sTlsLog1(...) Log::sDoLog(Log::TLS, 1, self->mMozQuic, __VA_ARGS__);
 #define sTlsLog2(...) Log::sDoLog(Log::TLS, 2, self->mMozQuic, __VA_ARGS__);
