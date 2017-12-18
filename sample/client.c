@@ -117,6 +117,16 @@ static int connEventCB(void *closure, uint32_t event, void *param)
   return MOZQUIC_OK;
 }
 
+static int connEventCBDoOnlyConnect(void *closure, uint32_t event, void *param)
+{
+  if (event == MOZQUIC_EVENT_CLOSE_CONNECTION ||
+      event == MOZQUIC_EVENT_ERROR) {
+    mozquic_destroy_connection(param);
+    exit(event == MOZQUIC_EVENT_ERROR ? 2 : 0);
+  }
+  return MOZQUIC_OK;
+}
+
 int
 has_arg(int argc, char **argv, char *test, char **value)
 {
@@ -160,6 +170,24 @@ void streamtest1(mozquic_connection_t *c)
     }
   } while (++i < 2000);
   fprintf(stderr,"streamtest1 complete\n");
+}
+
+void connectWaitForSessionTicketAndCloseConnection(struct mozquic_config_t *config)
+{
+  mozquic_connection_t *c;
+  mozquic_new_connection(&c, config);
+  mozquic_set_event_callback(c, connEventCBDoOnlyConnect);
+  mozquic_start_client(c);
+  uint32_t i=0;
+  do {
+    usleep (1000); // this is for handleio todo
+    uint32_t code = mozquic_IO(c);
+    if (code != MOZQUIC_OK) {
+      fprintf(stderr,"IO reported failure\n");
+      break;
+    }
+  } while (++i < 2000);
+  mozquic_destroy_connection(c);
 }
 
 int main(int argc, char **argv)
@@ -213,37 +241,34 @@ int main(int argc, char **argv)
     assert(mozquic_unstable_api1(&config, "enable0RTT", 1, 0) == MOZQUIC_OK);
   }
 
-  int repeat = 1;
   if (has_arg(argc, argv, "-connectionresume", &argVal) ||
       test0rtt) {
-    repeat = 2;
+    connectWaitForSessionTicketAndCloseConnection(&config);
   }
 
-  for (int i =0; i < repeat; i++) {
-    mozquic_new_connection(&c, &config);
-    mozquic_set_event_callback(c, connEventCB);
-    mozquic_start_client(c);
+  mozquic_new_connection(&c, &config);
+  mozquic_set_event_callback(c, connEventCB);
+  mozquic_start_client(c);
 
-    uint32_t i=0;
-    do {
-      usleep (1000); // this is for handleio todo
-      uint32_t code = mozquic_IO(c);
-      if (code != MOZQUIC_OK) {
-        fprintf(stderr,"IO reported failure\n");
-        break;
-      }
-      if (_getCount == -1) {
-        break;
-      }
-    } while (++i < 2000 || _getCount);
-
-    if (has_arg(argc, argv, "-streamtest1", &argVal)) {
-      streamtest1(c);
+  uint32_t i=0;
+  do {
+    usleep (1000); // this is for handleio todo
+    uint32_t code = mozquic_IO(c);
+    if (code != MOZQUIC_OK) {
+      fprintf(stderr,"IO reported failure\n");
+      break;
     }
-
-    if (has_arg(argc, argv, "-send-close", &argVal)) {
-      mozquic_destroy_connection(c);
+    if (_getCount == -1) {
+      break;
     }
+  } while (++i < 2000 || _getCount);
+
+  if (has_arg(argc, argv, "-streamtest1", &argVal)) {
+    streamtest1(c);
+  }
+
+  if (has_arg(argc, argv, "-send-close", &argVal)) {
+    mozquic_destroy_connection(c);
   }
 
   return 0;
