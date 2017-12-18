@@ -204,29 +204,36 @@ int main(int argc, char **argv)
   assert(mozquic_unstable_api1(&config, "tolerateNoTransportParams", 1, 0) == MOZQUIC_OK);
   assert(mozquic_unstable_api1(&config, "maxSizeAllowed", 1470, 0) == MOZQUIC_OK);
 
-  mozquic_new_connection(&c, &config);
-  mozquic_set_event_callback(c, connEventCB);
-  mozquic_start_client(c);
-
-  uint32_t i=0;
-  do {
-    usleep (1000); // this is for handleio todo
-    uint32_t code = mozquic_IO(c);
-    if (code != MOZQUIC_OK) {
-      fprintf(stderr,"IO reported failure\n");
-      break;
-    }
-    if (_getCount == -1) {
-      break;
-    }
-  } while (++i < 2000 || _getCount);
-
-  if (has_arg(argc, argv, "-streamtest1", &argVal)) {
-    streamtest1(c);
+  int repeat = 1;
+  if (has_arg(argc, argv, "-connectionresume", &argVal)) {
+    repeat = 2;
   }
 
-  if (has_arg(argc, argv, "-send-close", &argVal)) {
-    mozquic_destroy_connection(c);
+  for (int i =0; i < repeat; i++) {
+    mozquic_new_connection(&c, &config);
+    mozquic_set_event_callback(c, connEventCB);
+    mozquic_start_client(c);
+
+    uint32_t i=0;
+    do {
+      usleep (1000); // this is for handleio todo
+      uint32_t code = mozquic_IO(c);
+      if (code != MOZQUIC_OK) {
+        fprintf(stderr,"IO reported failure\n");
+        break;
+      }
+      if (_getCount == -1) {
+        break;
+      }
+    } while (++i < 2000 || _getCount);
+
+    if (has_arg(argc, argv, "-streamtest1", &argVal)) {
+      streamtest1(c);
+    }
+
+    if (has_arg(argc, argv, "-send-close", &argVal)) {
+      mozquic_destroy_connection(c);
+    }
   }
 
   return 0;
