@@ -32,8 +32,14 @@ uint32_t
 StreamState::StartNewStream(StreamPair **outStream, StreamType streamType,
                             const void *data, uint32_t amount, bool fin)
 {
+  if ((mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED) &&
+      (mMozQuic->GetConnectionState() != CLIENT_STATE_0RTT) &&
+      (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED)) {
+    return MOZQUIC_ERR_IO;
+  }
+
   if (mNextStreamID[streamType] > mPeerMaxStreamID[streamType]) {
-    if (mMaxStreamIDBlocked[streamType]) {
+    if (!mMaxStreamIDBlocked[streamType]) {
       mMaxStreamIDBlocked[streamType] = true;
       StreamLog3("new stream BLOCKED on stream id flow control %d\n",
                  mPeerMaxStreamID[streamType]);
@@ -480,39 +486,81 @@ StreamState::ScrubUnWritten(uint32_t streamID)
 void
 StreamState::Reset0RTTData()
 {
-  auto iter = mConnUnWritten.rbegin();
-  while (iter != mConnUnWritten.rend()) {
-    auto chunk = (*iter).get();
-    if (chunk->mType == ReliableData::kStream && chunk->mStreamID) {
-      auto i = mStreams.find(chunk->mStreamID);
-      assert (i != mStreams.end());
-      std::unique_ptr<ReliableData> x(std::move(chunk));
-      (*i).second->mOut->mStreamUnWritten.push_front(std::move(x));
-      mStreamsReadyToWrite.push_front(chunk->mStreamID);
-      (*i).second->mOut->mOffsetChargedToConnFlowControl = 0;
-      (*i).second->mOut->mBlocked = false;
-    }
-    iter++;
-  }
+  auto streamsReadyToWritePos = mStreamsReadyToWrite.begin(); // Alway push in front of the current queue.
+  // We will go through the mUnAckedPackets data first then through the
+  // mConnUnWritten data.
+  // We also start with the oldest sent(easier to delete data without
+  // a revert-iterator to iterator conversion). The oldest sent streamID should
+  // be at the beginning of mStreamsReadyToWrite, therefore we always add
+  // streamID right in the front of the first element of mStreamsReadyToWrite
+  // at the time we enter this function.
 
-  auto iter2 = mUnAckedPackets.rbegin();
-  while (iter2 != mUnAckedPackets.rend()) {
-    auto iter3 = (*iter2).get()->mFrameList.rbegin();
-    while (iter3 != (*iter2).get()->mFrameList.rend()) {
-      auto chunk = (*iter3).get();
-      if (chunk->mType == ReliableData::kStream && chunk->mStreamID) {
-        auto i = mStreams.find(chunk->mStreamID);
+  auto iter1 = mUnAckedPackets.begin();
+  while (iter1 != mUnAckedPackets.end()) {
+    auto iter2 = (*iter1).get()->mFrameList.begin();
+    while (iter2 != (*iter1).get()->mFrameList.end()) {
+      if ((*iter2)->mType == ReliableData::kStream && (*iter2)->mStreamID) {
+        auto i = mStreams.find((*iter2)->mStreamID);
         assert (i != mStreams.end());
-        std::unique_ptr<ReliableData> x(std::move(chunk));
-        (*i).second->mOut->mStreamUnWritten.push_front(std::move(x));
-        mStreamsReadyToWrite.push_front(chunk->mStreamID);
+
+        std::unique_ptr<ReliableData> x(std::move((*iter2)));
+        iter2 = (*iter1).get()->mFrameList.erase(iter2);
+
+        if ((*i).second->mOut->mStreamUnWritten.empty()) {
+          (*i).second->mOut->mStreamUnWritten.push_front(std::move(x));
+        } else {
+          auto data = (*i).second->mOut->mStreamUnWritten.rbegin();
+          while ((data != (*i).second->mOut->mStreamUnWritten.rend()) &&
+                 (*data)->mOffset > x->mOffset) {
+            data++;
+          }
+          // A bit of a strange conversion from reverse-iterator to normal one.
+          (*i).second->mOut->mStreamUnWritten.insert(data.base(), std::move(x));
+        }
+
+        mStreamsReadyToWrite.insert(streamsReadyToWritePos, (*i).second->mStreamID);
         (*i).second->mOut->mOffsetChargedToConnFlowControl = 0;
         (*i).second->mOut->mBlocked = false;
+      } else {
+        iter2++;
       }
+    }
+    if ((*iter1).get()->mFrameList.empty()) {
+      iter1 = mUnAckedPackets.erase(iter1);
+    } else {
+      iter1++;
+    }
+  }
+
+  auto iter3 = mConnUnWritten.begin();
+  while (iter3 != mConnUnWritten.end()) {
+    if ((*iter3)->mType == ReliableData::kStream && (*iter3)->mStreamID) {
+      auto i = mStreams.find((*iter3)->mStreamID);
+      assert (i != mStreams.end());
+
+      std::unique_ptr<ReliableData> x(std::move(*iter3));
+      iter3 = mConnUnWritten.erase(iter3);
+
+      if ((*i).second->mOut->mStreamUnWritten.empty()) {
+        (*i).second->mOut->mStreamUnWritten.push_front(std::move(x));
+      } else {
+        auto data = (*i).second->mOut->mStreamUnWritten.rbegin();
+        while ((data != (*i).second->mOut->mStreamUnWritten.rend()) &&
+               (*data)->mOffset > x->mOffset) {
+          data++;
+        }
+        // A bit of a strange conversion from reverse-iterator to normal one.
+        (*i).second->mOut->mStreamUnWritten.insert(data.base(), std::move(x));
+      }
+
+      mStreamsReadyToWrite.insert(streamsReadyToWritePos, (*i).second->mStreamID);
+      (*i).second->mOut->mOffsetChargedToConnFlowControl = 0;
+      (*i).second->mOut->mBlocked = false;
+    } else {
       iter3++;
     }
-    iter2++;
   }
+
   mStreamsReadyToWrite.unique();
 }
 

@@ -8,19 +8,26 @@
 #include "qdrive-common.h"
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
 
 static struct closure
 {
   int test_state;
   mozquic_stream_t *test15_stream[2];
+  uint32_t shouldRead[2];
   int test15_fin[2];
   int connection;
 } testState;
 
+static unsigned char gbuf[4048];
+
 void testConfig15(struct mozquic_config_t *_c)
 {
-  testState.test_state = 0;
+  memset(&testState, 0, sizeof(testState));
+  testState.shouldRead[0] = 3 * 4048;
+  testState.shouldRead[1] = 3 * 4048;
   test_assert(mozquic_unstable_api1(_c, "enable0RTT", 1, 0) == MOZQUIC_OK);
+  memset(gbuf, 0x15, sizeof(gbuf));
 }
 
 void *testGetClosure15()
@@ -30,9 +37,9 @@ void *testGetClosure15()
 
 static void onConnected(mozquic_connection_t *localConnection)
 {
-  char buf[] = "GET 8\n";
-
-  mozquic_start_new_stream(&testState.test15_stream[testState.connection - 1], localConnection, 0, buf, strlen(buf), 0);
+  mozquic_start_new_stream(&testState.test15_stream[testState.connection - 1], localConnection, 0, gbuf, sizeof(gbuf), 0);
+  mozquic_send(testState.test15_stream[testState.connection - 1], gbuf, sizeof(gbuf), 0);
+  mozquic_send(testState.test15_stream[testState.connection - 1], gbuf, sizeof(gbuf), 0);
 }
 
 int testEvent15(void *closure, uint32_t event, void *param)
@@ -75,17 +82,17 @@ int testEvent15(void *closure, uint32_t event, void *param)
     test_assert(!testState.test15_fin[testState.connection - 1]);
     test_assert(stream == testState.test15_stream[testState.connection - 1]);
 
-    char buf[50];
+    char buf[1024];
     uint32_t read = 0;
     int fin = 0;
-    uint32_t shouldRead = 8;
+
     do {
-      uint32_t code = mozquic_recv(stream, buf, 50, &read, &fin);
+      uint32_t code = mozquic_recv(stream, buf, 1024, &read, &fin);
       test_assert(code == MOZQUIC_OK);
-      test_assert(shouldRead >= read);
-      shouldRead -= read;
+      test_assert(testState.shouldRead[testState.connection - 1] >= read);
+      testState.shouldRead[testState.connection - 1] -= read;
       if (fin) {
-        test_assert(shouldRead == 0);
+        test_assert(testState.shouldRead[testState.connection - 1] == 0);
         mozquic_end_stream(stream);
         
         testState.test15_fin[testState.connection - 1] = 1;
@@ -93,14 +100,10 @@ int testEvent15(void *closure, uint32_t event, void *param)
       }
     } while (!fin && read > 0);
     return MOZQUIC_OK;
-  }
-
-  if (testState.test_state == 2) {
+  } else if (testState.test_state == 2) {
     parentConnection = NULL;
     testState.test_state = 3;
-  }
-
-  if (testState.test_state == 5) {
+  } else if (testState.test_state == 5) {
     mozquic_destroy_connection (parentConnection);
     testState.test_state++;
     fprintf(stderr,"exit ok\n");

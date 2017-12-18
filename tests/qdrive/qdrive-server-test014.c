@@ -12,10 +12,9 @@
 static struct closure
 {
   int test_state;
-  mozquic_stream_t *test14_stream;
-  int stream_state[2];
-  int test14_iters[2];
-  mozquic_connection_t *child;
+  mozquic_stream_t *test14_stream[2];
+  int shouldRead[2];
+  mozquic_connection_t *child[2];
   int connection;
 } testState;
 
@@ -24,10 +23,17 @@ void *testGetClosure14()
   return &testState;
 }
 
+static unsigned char gbuf[4048];
+
 void testConfig14(struct mozquic_config_t *_c)
 {
-  testState.test_state = 0;
+  memset(&testState, 0, sizeof(testState));
+  testState.shouldRead[0] = 3 * 4048;
+  testState.shouldRead[1] = 3 * 4048;
+
   test_assert(mozquic_unstable_api1(_c, "enable0RTT", 1, 0) == MOZQUIC_OK);
+
+  memset(gbuf, 0x30, sizeof(gbuf));
 }
 
 int testEvent14(void *closure, uint32_t event, void *param)
@@ -46,9 +52,9 @@ int testEvent14(void *closure, uint32_t event, void *param)
       test_assert(0);
     }
     testState.test_state++;
-    testState.child = (mozquic_connection_t *) param;
-    mozquic_set_event_callback(testState.child, testEvent14);
-    mozquic_set_event_callback_closure(testState.child, &testState);
+    testState.child[testState.connection - 1] = (mozquic_connection_t *) param;
+    mozquic_set_event_callback(testState.child[testState.connection - 1], testEvent14);
+    mozquic_set_event_callback_closure(testState.child[testState.connection - 1], &testState);
 
     return MOZQUIC_OK;
   }
@@ -58,15 +64,15 @@ int testEvent14(void *closure, uint32_t event, void *param)
     test_assert(testState.test_state >= 1);
     test_assert(testState.test_state <= 5);
     test_assert(testState.test_state != 3);
-    char buf[50];
+    char buf[1024];
     uint32_t read = 0;
     int fin = 0;
     
     if ((testState.test_state == 2) ||
         (testState.test_state == 5)) {
       testState.test_state++;
-      test_assert(testState.stream_state[testState.connection - 1] == 6);
-      uint32_t code = mozquic_recv(stream, buf, 1, &read, &fin);
+
+      uint32_t code = mozquic_recv(stream, buf, 1024, &read, &fin);
       test_assert(code == MOZQUIC_OK);
       test_assert(read == 0);
       test_assert(fin);
@@ -74,39 +80,15 @@ int testEvent14(void *closure, uint32_t event, void *param)
     }
 
     do {
-      uint32_t code = mozquic_recv(stream, buf, 1, &read, &fin);
+      uint32_t code = mozquic_recv(stream, buf, 1024, &read, &fin);
       test_assert(code == MOZQUIC_OK);
       test_assert(!fin);
-      switch(testState.stream_state[testState.connection - 1]) {
-      case 0:
-        test_assert(buf[0] == 'G');
-        testState.stream_state[testState.connection - 1]++;
-        break;
-      case 1:
-        test_assert(buf[0] == 'E');
-        testState.stream_state[testState.connection - 1]++;
-        break;
-      case 2:
-        test_assert(buf[0] == 'T');
-        testState.stream_state[testState.connection - 1]++;
-        break;
-      case 3:
-        test_assert(buf[0] == ' ');
-        testState.stream_state[testState.connection - 1]++;
-        break;
-      case 4:
-        test_assert(buf[0] >= '0');
-        test_assert(buf[0] <= '9');
-        testState.stream_state[testState.connection - 1]++;
-        testState.test14_iters[testState.connection - 1] = buf[0] - '0';
-        break;
-      case 5:
-        test_assert(buf[0] == '\n');
-        testState.stream_state[testState.connection - 1]++;
-        char buf[10];
-        memset(buf, 'A', 10);
-        fprintf(stderr,"QDRIVE SERVER %p expect %d\n", stream, testState.test14_iters[testState.connection - 1]);
-        mozquic_send(stream, buf, testState.test14_iters[testState.connection - 1], 1);
+      testState.shouldRead[testState.connection -1] -= read;
+
+      if (testState.shouldRead[testState.connection -1] == 0) {
+        mozquic_send(stream, gbuf, 4048, 0);
+        mozquic_send(stream, gbuf, 4048, 0);
+        mozquic_send(stream, gbuf, 4048, 1);
         testState.test_state++;
         break;
       }
@@ -115,10 +97,10 @@ int testEvent14(void *closure, uint32_t event, void *param)
   }
 
   if (event == MOZQUIC_EVENT_CLOSE_CONNECTION) {
-    if (testState.test_state == 3) {
-      mozquic_destroy_connection(testState.child);
-    } else {
-      test_assert(testState.test_state == 6);
+    test_assert(testState.test_state == 3 ||
+                testState.test_state == 6);
+    mozquic_destroy_connection(testState.child[testState.connection -1]);
+    if (testState.test_state == 6) {
       exit (0);
     }
     return MOZQUIC_OK;

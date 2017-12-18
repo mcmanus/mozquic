@@ -509,6 +509,14 @@ MozQuic::Client1RTT()
       if (mNSSHelper->IsEarlyDataPossible()) {
         mEarlyDataState = EARLY_DATA_SENT;
         mConnectionState = CLIENT_STATE_0RTT;
+        // Set mPeerMaxStreamID to default. TODO: set this to proper transport parameter.
+        mStreamState->mPeerMaxStreamID[BIDI_STREAM] = (mIsClient)
+                                                      ? kMaxStreamIDClientDefaultBidi
+                                                      : kMaxStreamIDServerDefaultBidi;
+        mStreamState->mPeerMaxStreamID[UNI_STREAM] = (mIsClient)
+                                                     ? kMaxStreamIDClientDefaultUni
+                                                     : kMaxStreamIDServerDefaultUni;
+
         if (mConnEventCB) {
           mConnEventCB(mClosure, MOZQUIC_EVENT_0RTT_POSSIBLE, this);
         }
