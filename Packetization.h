@@ -54,25 +54,25 @@ public:
 };
 
 enum FrameType {
-  FRAME_TYPE_PADDING           = 0x0,
-  FRAME_TYPE_RST_STREAM        = 0x1,
-  FRAME_TYPE_CONN_CLOSE        = 0x2,
-  FRAME_TYPE_APPLICATION_CLOSE = 0x3,
-  FRAME_TYPE_MAX_DATA          = 0x4,
-  FRAME_TYPE_MAX_STREAM_DATA   = 0x5,
-  FRAME_TYPE_MAX_STREAM_ID     = 0x6,
-  FRAME_TYPE_PING              = 0x7,
-  FRAME_TYPE_BLOCKED           = 0x8,
-  FRAME_TYPE_STREAM_BLOCKED    = 0x9,
-  FRAME_TYPE_STREAM_ID_BLOCKED  = 0xA,
-  FRAME_TYPE_NEW_CONNECTION_ID = 0xB,
-  FRAME_TYPE_STOP_SENDING      = 0xC,
-  FRAME_TYPE_PONG              = 0xD,
-  FRAME_TYPE_ACK               = 0xE,
+  FRAME_TYPE_PADDING           = 0x00,
+  FRAME_TYPE_RST_STREAM        = 0x01,
+  FRAME_TYPE_CONN_CLOSE        = 0x02,
+  FRAME_TYPE_APPLICATION_CLOSE = 0x03,
+  FRAME_TYPE_MAX_DATA          = 0x04,
+  FRAME_TYPE_MAX_STREAM_DATA   = 0x05,
+  FRAME_TYPE_MAX_STREAM_ID     = 0x06,
+  FRAME_TYPE_PING              = 0x07,
+  FRAME_TYPE_BLOCKED           = 0x08,
+  FRAME_TYPE_STREAM_BLOCKED    = 0x09,
+  FRAME_TYPE_STREAM_ID_BLOCKED  = 0x0A,
+  FRAME_TYPE_NEW_CONNECTION_ID = 0x0B,
+  FRAME_TYPE_STOP_SENDING      = 0x0C,
+  FRAME_TYPE_PONG              = 0x0D,
+  FRAME_TYPE_ACK               = 0x0E,
 
-  // STREAM                    = 0xc0 - 0xff
-  FRAME_MASK_STREAM            = 0xc0,
-  FRAME_TYPE_STREAM            = 0xc0, // 11.. ....
+  // STREAM                    = 0x10 to 0x17
+  FRAME_MASK_STREAM            = 0xf8,
+  FRAME_TYPE_STREAM            = 0x10, // 0001 0...
 };
 
 class MozQuic;
