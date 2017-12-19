@@ -62,16 +62,17 @@ class Sender final
 {
 public:
   Sender(MozQuic *session);
-  uint32_t Transmit(uint64_t packetNumber, bool bareAck,
+  uint32_t Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT,
                     const unsigned char *, uint32_t len, struct sockaddr_in *peer);
   void RTTSample(uint64_t xmit, uint64_t delay);
   void Ack(uint64_t packetNumber, uint32_t packetLength);
   void ReportLoss(uint64_t packetNumber, uint32_t packetLength);
+  void Dismissed0RTTPackets(uint32_t bytes);
   void SetDropRate(uint64_t dr) { mDropRate = dr; }
   uint16_t DropRate() { return mDropRate; }
   uint32_t Tick(const uint64_t now);
   void Connected();
-  bool CanSendNow(uint64_t amt);
+  bool CanSendNow(uint64_t amt, bool zeroRtt);
   uint16_t SmoothedRTT() { return mSmoothedRTT; }
   
   bool EmptyQueue() 

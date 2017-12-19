@@ -85,6 +85,8 @@ public:
     return mWriter->ConnectionWrite(p);
   }
 
+  void ChangeStreamID(uint32_t newStreamID);
+
 private:
   uint32_t StreamWrite(std::unique_ptr<ReliableData> &p);
   
@@ -116,7 +118,7 @@ public:
   uint32_t ConnectionReadBytes(uint64_t amt) override;
   void     SignalReadyToWrite(StreamOut *out) override;
   
-  uint32_t StartNewStream(StreamPair **outStream, StreamType streamType, const void *data, uint32_t amount, bool fin);
+  uint32_t StartNewStream(StreamPair **outStream, StreamType streamType, bool no_replay, const void *data, uint32_t amount, bool fin);
   uint32_t MakeSureStreamCreated(uint32_t streamID);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
   uint32_t RetransmitTimer();
@@ -333,6 +335,8 @@ public:
     return mFlowController->ConnectionWrite(p);
   }
 
+  void ChangeStreamID(uint32_t newStreamID) { mStreamID = newStreamID; }
+
 private:
   MozQuic *mMozQuic;
   uint32_t mStreamID;
@@ -355,7 +359,7 @@ class StreamPair
 {
 public:
   StreamPair(uint32_t id, MozQuic *, FlowController *,
-                    uint64_t peerMSD, uint64_t localMSD);
+             uint64_t peerMSD, uint64_t localMSD, bool no_replay);
   ~StreamPair() {};
 
   // Supply places data on the input (i.e. read()) queue
@@ -377,6 +381,8 @@ public:
   int RstStream(uint16_t code);
 
   int StopSending(uint16_t code);
+
+  void ChangeStreamID(uint32_t newStreamID);
   
   bool Done(); // All data and fin bit given to an application and all data are transmitted and acked.
                // todo(or stream has been reseted)
@@ -390,6 +396,7 @@ public:
                               ((mStreamID & 1) && mMozQuic->mIsClient); }    // odd and you're the client
 
   uint32_t mStreamID;
+  bool mNoReplay;
   std::unique_ptr<StreamOut> mOut;
   std::unique_ptr<StreamIn>  mIn;
   MozQuic *mMozQuic;

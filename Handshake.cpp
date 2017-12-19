@@ -172,7 +172,7 @@ MozQuic::FlushStream0(bool forceAck)
       return rv;
     }
     assert (cipherLen == (framePtr - (pkt + 17)) + 16);
-    uint32_t code = mSendState->Transmit(mNextTransmitPacketNumber, bareAck, cipherPkt, cipherLen + 17, nullptr);
+    uint32_t code = mSendState->Transmit(mNextTransmitPacketNumber, bareAck, false, cipherPkt, cipherLen + 17, nullptr);
     if (code != MOZQUIC_OK) {
       HandshakeLog1("TRANSMIT0[%lX] this=%p Transmit Fail %x\n",
                     usedPacketNumber, this, rv);
@@ -237,7 +237,8 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
 
   mStreamState->mStream0.reset(new StreamPair(0, this, mStreamState.get(),
                                               kMaxStreamDataDefault,
-                                              mStreamState->mLocalMaxStreamData));
+                                              mStreamState->mLocalMaxStreamData,
+                                              false));
   mSetupTransportExtension = false;
   mConnectionState = CLIENT_STATE_1RTT;
   mStreamState->Reset0RTTData();
@@ -307,7 +308,8 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
     mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
     mStreamState->mStream0.reset(new StreamPair(0, this, mStreamState.get(),
                                                 kMaxStreamDataDefault,
-                                                mStreamState->mLocalMaxStreamData));
+                                                mStreamState->mLocalMaxStreamData,
+                                                false));
     mSetupTransportExtension  = false;
     mConnectionState = CLIENT_STATE_1RTT;
     mStreamState->Reset0RTTData();
@@ -494,7 +496,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
     }
   }
 
-  return mSendState->Transmit(clientHeader.mPacketNumber, true, pkt, framePtr - pkt, peer);
+  return mSendState->Transmit(clientHeader.mPacketNumber, true, false, pkt, framePtr - pkt, peer);
 }
 
 }

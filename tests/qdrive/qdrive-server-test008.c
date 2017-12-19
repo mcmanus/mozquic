@@ -57,8 +57,8 @@ int testEvent8(void *closure, uint32_t event, void *param)
     test_assert(state.child == param);
     state.conn = param;
     
-    mozquic_start_new_stream(&state.stream1, param, 0, gbuf, sizeof(gbuf), 0);
-    mozquic_start_new_stream(&state.stream2, param, 0, gbuf, sizeof(gbuf), 0);
+    mozquic_start_new_stream(&state.stream1, param, 0, 0, gbuf, sizeof(gbuf), 0);
+    mozquic_start_new_stream(&state.stream2, param, 0, 0, gbuf, sizeof(gbuf), 0);
     for (int j=1; j<250; j++) {
       mozquic_send(state.stream1, gbuf, sizeof(gbuf), 0);
       mozquic_send(state.stream2, gbuf, sizeof(gbuf), 0);
@@ -102,7 +102,7 @@ int testEvent8(void *closure, uint32_t event, void *param)
   }
 
   if (state.state == 4) {
-    mozquic_start_new_stream(&state.stream3, state.child, 0, gbuf, sizeof(gbuf), 1);
+    mozquic_start_new_stream(&state.stream3, state.child, 0, 0, gbuf, sizeof(gbuf), 1);
     state.state++;
   }
   if (state.state >= 5) {

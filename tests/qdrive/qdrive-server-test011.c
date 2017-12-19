@@ -53,7 +53,7 @@ int testEvent11(void *closure, uint32_t event, void *param)
     test_assert (state.conn == param);
     state.state++;
     memset(buf, 'B', sizeof(buf));
-    test_assert(mozquic_start_new_stream(&state.stream, state.conn, 0, buf, sizeof(buf), 0) == MOZQUIC_OK);
+    test_assert(mozquic_start_new_stream(&state.stream, state.conn, 0, 0, buf, sizeof(buf), 0) == MOZQUIC_OK);
     state.amtW += sizeof(buf);
     return MOZQUIC_OK;
   }

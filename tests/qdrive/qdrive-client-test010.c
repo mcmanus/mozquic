@@ -44,7 +44,7 @@ int testEvent10(void *closure, uint32_t event, void *param)
   if (state.state == 1) {
     char buf[3] = { 0x10, 0x11, 0x12 };
 
-    mozquic_start_new_stream(&state.stream, param, 0, buf, 3, 1);
+    mozquic_start_new_stream(&state.stream, param, 0, 0, buf, 3, 1);
     state.state++;
     return MOZQUIC_OK;
   }

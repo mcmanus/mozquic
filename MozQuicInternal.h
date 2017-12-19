@@ -134,7 +134,7 @@ public:
   int StartClient();
   int StartServer();
   void SetInitialPacketNumber();
-  uint32_t StartNewStream(StreamPair **outStream, bool uni, const void *data, uint32_t amount, bool fin);
+  uint32_t StartNewStream(StreamPair **outStream, bool uni, bool no_replay, const void *data, uint32_t amount, bool fin);
   void MaybeDeleteStream(StreamPair *sp);
   int IO();
   void HandshakeOutput(const unsigned char *, uint32_t amt);

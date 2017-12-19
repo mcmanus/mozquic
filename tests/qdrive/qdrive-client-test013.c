@@ -54,11 +54,11 @@ int testEvent13(void *closure, uint32_t event, void *param)
   }
 
   if (state.state == 1) {
-    mozquic_start_new_stream(&state.streamBidi1, param, 0, gbuf, sizeof(gbuf), 0);
-    mozquic_start_new_stream(&state.streamBidi2, param, 0, gbuf, sizeof(gbuf), 0);
+    mozquic_start_new_stream(&state.streamBidi1, param, 0, 0, gbuf, sizeof(gbuf), 0);
+    mozquic_start_new_stream(&state.streamBidi2, param, 0, 0, gbuf, sizeof(gbuf), 0);
 
-    mozquic_start_new_stream(&state.streamUni1, param, 1, gbuf, sizeof(gbuf), 0);
-    mozquic_start_new_stream(&state.streamUni2, param, 1, gbuf, sizeof(gbuf), 0);
+    mozquic_start_new_stream(&state.streamUni1, param, 1, 0, gbuf, sizeof(gbuf), 0);
+    mozquic_start_new_stream(&state.streamUni2, param, 1, 0, gbuf, sizeof(gbuf), 0);
 
     mozquic_send(state.streamBidi1, gbuf, mozquic_get_streamid(state.streamBidi1), 1);
     mozquic_send(state.streamBidi2, gbuf, mozquic_get_streamid(state.streamBidi2), 1);
