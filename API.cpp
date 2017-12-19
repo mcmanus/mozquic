@@ -208,12 +208,13 @@ int mozquic_release_backpressure(mozquic_connection_t *conn)
 }
   
 int mozquic_start_new_stream(mozquic_stream_t **outStream,
-                             mozquic_connection_t *conn, uint8_t uni,
+                             mozquic_connection_t *conn,
+                             uint8_t uni, uint8_t no_replay,
                              void *data, uint32_t amount, int fin)
 {
   mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
   mozquic::StreamPair *stream;
-  int rv = self->StartNewStream(&stream, uni, data, amount, fin);
+  int rv = self->StartNewStream(&stream, uni, no_replay, data, amount, fin);
   if (!rv) {
     *outStream = (void *)stream;
   }

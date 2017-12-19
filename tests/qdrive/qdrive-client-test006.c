@@ -48,7 +48,7 @@ int testEvent6(void *closure, uint32_t event, void *param)
 
   if (testState.test_state == 1) {
     unsigned char buf = 0;
-    mozquic_start_new_stream(&testState.stream, param, 0, &buf, 1, 0);
+    mozquic_start_new_stream(&testState.stream, param, 0, 0, &buf, 1, 0);
     testState.test_state = 2;
     return MOZQUIC_OK;
   }

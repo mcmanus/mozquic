@@ -45,7 +45,7 @@ Sender::Connected()
 }
   
 bool
-Sender::CanSendNow(uint64_t amt)
+Sender::CanSendNow(uint64_t amt, bool zeroRtt)
 {
   // 4.6. Pacing Rate
   
@@ -59,7 +59,14 @@ Sender::CanSendNow(uint64_t amt)
 
   mPacingTicker = 0;
   if (mCCState == false) {
-    return true;
+    if (!zeroRtt) {
+      return true;
+    }
+    if ((mWindowUsed + amt) < mWindow) {
+      return true;
+    } else {
+      return false;
+    }
   }
   if (mWindowUsed < mWindow) {
     // window ok. check pacing.
@@ -99,7 +106,7 @@ Sender::Tick(const uint64_t now)
     return MOZQUIC_OK;
   }
   
-  if ((now < mPacingTicker) || !CanSendNow(mQueue.front()->mLen)) {
+  if ((now < mPacingTicker) || !CanSendNow(mQueue.front()->mLen, false)) {
     return MOZQUIC_OK;
   }
 
@@ -117,12 +124,12 @@ Sender::Tick(const uint64_t now)
                            mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr);
     mQueue.pop_front();
     
-  } while (!mQueue.empty() && CanSendNow(mQueue.front()->mLen));
+  } while (!mQueue.empty() && CanSendNow(mQueue.front()->mLen, false));
   return MOZQUIC_OK;
 }
 
 uint32_t
-Sender::Transmit(uint64_t packetNumber, bool bareAck,
+Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT,
                  const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer)
 {
   // in order to queue we need to copy the packet, as its probably on the stack of
@@ -135,7 +142,7 @@ Sender::Transmit(uint64_t packetNumber, bool bareAck,
   }
 
   SenderLog8("Sender::Transmit %ld %d\n", len, bareAck);
-  bool canSendNow = CanSendNow(len) || bareAck;
+  bool canSendNow = zeroRTT || CanSendNow(len, zeroRTT) || bareAck; // Do not queue zeroRTT packets.
   if (mQueue.empty() && canSendNow) {
     mLastSend = MozQuic::Timestamp();
     mWindowUsed += bareAck ? 0 : len;
@@ -165,7 +172,7 @@ Sender::Transmit(uint64_t packetNumber, bool bareAck,
                            mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr);
     mQueue.pop_front();
     
-  } while (!mQueue.empty() && (CanSendNow(mQueue.front()->mLen) || mQueue.front()->mBareAck));
+  } while (!mQueue.empty() && (CanSendNow(mQueue.front()->mLen, false) || mQueue.front()->mBareAck));
   
   return MOZQUIC_OK;
 }
@@ -226,6 +233,16 @@ Sender::ReportLoss(uint64_t packetNumber, uint32_t bytes)
     mSSThresh = mWindow;
     SenderLog6("Report Loss (now %lu/%lu) ssthresh=%lu\n",
                mWindowUsed, mWindow, mSSThresh);
+  }
+}
+
+void
+Sender::Dismissed0RTTPackets(uint32_t bytes)
+{
+  if (mWindowUsed >= bytes) {
+    mWindowUsed -= bytes;
+  } else {
+    mWindowUsed = 0;
   }
 }
 

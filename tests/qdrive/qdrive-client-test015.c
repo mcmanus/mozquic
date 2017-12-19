@@ -37,9 +37,9 @@ void *testGetClosure15()
 
 static void onConnected(mozquic_connection_t *localConnection)
 {
-  mozquic_start_new_stream(&testState.test15_stream[testState.connection - 1], localConnection, 0, gbuf, sizeof(gbuf), 0);
+  mozquic_start_new_stream(&testState.test15_stream[testState.connection - 1], localConnection, 0, 0, gbuf, sizeof(gbuf), 0);
   mozquic_send(testState.test15_stream[testState.connection - 1], gbuf, sizeof(gbuf), 0);
-  mozquic_send(testState.test15_stream[testState.connection - 1], gbuf, sizeof(gbuf), 0);
+  mozquic_send(testState.test15_stream[testState.connection - 1], gbuf, sizeof(gbuf), 1);
 }
 
 int testEvent15(void *closure, uint32_t event, void *param)
@@ -93,16 +93,15 @@ int testEvent15(void *closure, uint32_t event, void *param)
       testState.shouldRead[testState.connection - 1] -= read;
       if (fin) {
         test_assert(testState.shouldRead[testState.connection - 1] == 0);
-        mozquic_end_stream(stream);
-        
         testState.test15_fin[testState.connection - 1] = 1;
         testState.test_state++;
       }
     } while (!fin && read > 0);
-    return MOZQUIC_OK;
-  } else if (testState.test_state == 2) {
+  }
+
+  if (testState.test_state == 2) {
     parentConnection = NULL;
-    testState.test_state = 3;
+    testState.test_state++;
   } else if (testState.test_state == 5) {
     mozquic_destroy_connection (parentConnection);
     testState.test_state++;

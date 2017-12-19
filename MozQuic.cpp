@@ -205,7 +205,9 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     return rv;
   }
 
-  rv = mSendState->Transmit(mNextTransmitPacketNumber, bareAck, cipherPkt, written + headerLen, nullptr);
+  rv = mSendState->Transmit(mNextTransmitPacketNumber, bareAck,
+                            mConnectionState == CLIENT_STATE_0RTT, cipherPkt,
+                            written + headerLen, nullptr);
   if (rv != MOZQUIC_OK) {
     return rv;
   }
@@ -328,7 +330,8 @@ MozQuic::StartClient()
   mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
   mStreamState->mStream0.reset(new StreamPair(0, this, mStreamState.get(),
                                               kMaxStreamDataDefault,
-                                              mStreamState->mLocalMaxStreamData));
+                                              mStreamState->mLocalMaxStreamData,
+                                              false));
 
   assert(!mClientOriginalOfferedVersion);
   mClientOriginalOfferedVersion = mVersion;
@@ -1543,7 +1546,8 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
 
   child->mStreamState->mStream0.reset(new StreamPair(0, child, child->mStreamState.get(),
                                                      kMaxStreamDataDefault,
-                                                     child->mStreamState->mLocalMaxStreamData));
+                                                     child->mStreamState->mLocalMaxStreamData,
+                                                     false));
   
   do {
     for (int i=0; i < 4; i++) {
@@ -1580,11 +1584,11 @@ MozQuic::VersionOK(uint32_t proposed)
 }
 
 uint32_t
-MozQuic::StartNewStream(StreamPair **outStream, bool uni, const void *data,
-                        uint32_t amount, bool fin)
+MozQuic::StartNewStream(StreamPair **outStream, bool uni, bool no_replay,
+                        const void *data, uint32_t amount, bool fin)
 {
   if (mStreamState) {
-    return mStreamState->StartNewStream(outStream, (uni) ? UNI_STREAM : BIDI_STREAM, data, amount, fin);
+    return mStreamState->StartNewStream(outStream, (uni) ? UNI_STREAM : BIDI_STREAM, no_replay, data, amount, fin);
   }
   return MOZQUIC_ERR_GENERAL;
 }

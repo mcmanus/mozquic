@@ -37,7 +37,7 @@ int testEvent2(void *closure, uint32_t event, void *param)
   
   if (testState.test_state == 1) {
     testState.test_state = 2;
-    test_assert(mozquic_start_new_stream(&testState.stream, parentConnection, 0, NULL, 0, 0) == MOZQUIC_OK);
+    test_assert(mozquic_start_new_stream(&testState.stream, parentConnection, 0, 0, NULL, 0, 0) == MOZQUIC_OK);
     return MOZQUIC_OK;
   }
 

@@ -30,7 +30,8 @@ namespace mozquic  {
 
 uint32_t
 StreamState::StartNewStream(StreamPair **outStream, StreamType streamType,
-                            const void *data, uint32_t amount, bool fin)
+                            bool no_replay, const void *data, uint32_t amount,
+                            bool fin)
 {
   if ((mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED) &&
       (mMozQuic->GetConnectionState() != CLIENT_STATE_0RTT) &&
@@ -51,7 +52,7 @@ StreamState::StartNewStream(StreamPair **outStream, StreamType streamType,
   }
 
   std::shared_ptr<StreamPair> tmp(new StreamPair(mNextStreamID[streamType], mMozQuic, this,
-                                                 mPeerMaxStreamData, mLocalMaxStreamData));
+                                                 mPeerMaxStreamData, mLocalMaxStreamData, no_replay));
   mStreams.insert( { mNextStreamID[streamType], tmp } );
   *outStream = tmp.get();
 
@@ -94,7 +95,8 @@ StreamState::MakeSureStreamCreated(uint32_t streamID)
       addedStream = true;
       std::shared_ptr<StreamPair> tmp(new StreamPair(mNextRecvStreamIDUsed[streamType],
                                                      mMozQuic, this,
-                                                     mPeerMaxStreamData, mLocalMaxStreamData));
+                                                     mPeerMaxStreamData, mLocalMaxStreamData,
+                                                     false));
       mStreams.insert( { mNextRecvStreamIDUsed[streamType], tmp } );
       mNextRecvStreamIDUsed[streamType] += 4;
     }
@@ -503,14 +505,10 @@ StreamState::ScrubUnWritten(uint32_t streamID)
 void
 StreamState::Reset0RTTData()
 {
-  auto streamsReadyToWritePos = mStreamsReadyToWrite.begin(); // Alway push in front of the current queue.
   // We will go through the mUnAckedPackets data first then through the
   // mConnUnWritten data.
   // We also start with the oldest sent(easier to delete data without
-  // a revert-iterator to iterator conversion). The oldest sent streamID should
-  // be at the beginning of mStreamsReadyToWrite, therefore we always add
-  // streamID right in the front of the first element of mStreamsReadyToWrite
-  // at the time we enter this function.
+  // a revert-iterator to iterator conversion).
 
   auto iter1 = mUnAckedPackets.begin();
   while (iter1 != mUnAckedPackets.end()) {
@@ -520,6 +518,7 @@ StreamState::Reset0RTTData()
         auto i = mStreams.find((*iter2)->mStreamID);
         assert (i != mStreams.end());
 
+        mMozQuic->mSendState->Dismissed0RTTPackets((*iter2)->mLen);
         std::unique_ptr<ReliableData> x(std::move((*iter2)));
         iter2 = (*iter1).get()->mFrameList.erase(iter2);
 
@@ -535,7 +534,6 @@ StreamState::Reset0RTTData()
           (*i).second->mOut->mStreamUnWritten.insert(data.base(), std::move(x));
         }
 
-        mStreamsReadyToWrite.insert(streamsReadyToWritePos, (*i).second->mStreamID);
         (*i).second->mOut->mOffsetChargedToConnFlowControl = 0;
         (*i).second->mOut->mBlocked = false;
       } else {
@@ -570,7 +568,6 @@ StreamState::Reset0RTTData()
         (*i).second->mOut->mStreamUnWritten.insert(data.base(), std::move(x));
       }
 
-      mStreamsReadyToWrite.insert(streamsReadyToWritePos, (*i).second->mStreamID);
       (*i).second->mOut->mOffsetChargedToConnFlowControl = 0;
       (*i).second->mOut->mBlocked = false;
     } else {
@@ -578,7 +575,32 @@ StreamState::Reset0RTTData()
     }
   }
 
-  mStreamsReadyToWrite.unique();
+  mStreamsReadyToWrite.clear();
+
+  // Delete "no_replay" streams and renumber the rest.
+  for (int type = 0; type < 2; type++) {
+    uint32_t nextStreamID = !type ? 4 : 2;
+    for (uint32_t streamID = nextStreamID; streamID < mNextStreamID[type]; streamID += 4) {
+      auto streamPair = mStreams[streamID];
+      assert(streamPair->mStreamID == streamID);
+      if (streamPair->mNoReplay) {
+        // raise error.
+        if (mMozQuic->mClosure) {
+          mMozQuic->mConnEventCB(mMozQuic->mClosure, MOZQUIC_EVENT_STREAM_NO_REPLAY_ERROR, streamPair.get());
+        }
+        mStreams.erase(streamID);
+      } else {
+        if (nextStreamID != streamID) {
+          streamPair->ChangeStreamID(nextStreamID);
+          mStreams.insert( { nextStreamID, streamPair } );
+          mStreams.erase(streamID);
+        }
+        mStreamsReadyToWrite.push_back(nextStreamID);
+        nextStreamID += 4;
+      }
+    }
+    mNextStreamID[type] = nextStreamID;
+  }
 }
 
 uint64_t
@@ -939,7 +961,8 @@ StreamState::Flush(bool forceAck)
   const unsigned char *endpkt = plainPkt + mtu - kTagLen; // reserve 16 for aead tag
   std::unique_ptr<TransmittedPacket> packet(new TransmittedPacket(mMozQuic->mNextTransmitPacketNumber));
 
-  if (mMozQuic->mSendState->EmptyQueue() && mMozQuic->mSendState->CanSendNow(kInitialMTU)) {
+  if (mMozQuic->mSendState->EmptyQueue() &&
+      mMozQuic->mSendState->CanSendNow(kInitialMTU, mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT)) {
     CreateFrames(framePtr, endpkt, false, packet.get());
   } else if (!forceAck) {
     return MOZQUIC_OK;
@@ -1396,8 +1419,10 @@ StreamState::StreamState(MozQuic *q, uint64_t initialStreamWindow,
 
 StreamPair::StreamPair(uint32_t id, MozQuic *m,
                        FlowController *flowController,
-                       uint64_t peerMaxStreamData, uint64_t localMaxStreamData)
+                       uint64_t peerMaxStreamData, uint64_t localMaxStreamData,
+                       bool no_replay)
   : mStreamID(id)
+  , mNoReplay(no_replay)
   , mMozQuic(m)
 {
   if (IsBidiStream() || IsLocalStream()) {
@@ -1501,6 +1526,17 @@ StreamPair::NewFlowControlLimit(uint64_t limit) {
   }
   mOut->NewFlowControlLimit(limit);
   return MOZQUIC_OK;
+}
+
+void
+StreamPair::ChangeStreamID(uint32_t newStreamID)
+{
+  assert (mOut); // must be a local stream. This is only called on the client after 0rtt data is rejected.
+  mStreamID = newStreamID;
+  mOut->ChangeStreamID(newStreamID);
+  if (mIn) {
+    mIn->ChangeStreamID(newStreamID);
+  }
 }
 
 StreamIn::StreamIn(MozQuic *m, uint32_t id,
@@ -1852,6 +1888,15 @@ StreamOut::RstStream(uint16_t code)
   std::unique_ptr<ReliableData> tmp(new ReliableData(mStreamID, mOffset, nullptr, 0, 0));
   tmp->MakeRstStream(code);
   return mWriter->ConnectionWrite(tmp);
+}
+
+void
+StreamOut::ChangeStreamID(uint32_t newStreamID)
+{
+  mStreamID = newStreamID;
+  for(auto i = mStreamUnWritten.begin(); i != mStreamUnWritten.end(); i++) {
+    (*i)->mStreamID = newStreamID;
+  }
 }
 
 ReliableData::ReliableData(uint32_t id, uint64_t offset,
