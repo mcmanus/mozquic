@@ -223,7 +223,7 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
   Decode4ByteObject(input, offset, inputSize, _initialVersion);
   Decode2ByteObject(input, offset, inputSize, paramSize);
   assert(offset == 6);
-  if (paramSize < 30 || (offset + paramSize) > inputSize) {
+  if (paramSize < 22 || (offset + paramSize) > inputSize) {
     return MOZQUIC_ERR_GENERAL;
   }
   input = input + offset;
