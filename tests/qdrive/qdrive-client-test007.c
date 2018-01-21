@@ -52,7 +52,7 @@ int testEvent7(void *closure, uint32_t event, void *param)
     state.state++;
     state.time0 = Timestamp();
   }
-  
+
   if (event == MOZQUIC_EVENT_CONNECTED) {
     test_assert(state.state == 1);
     state.state++;
@@ -92,7 +92,7 @@ int testEvent7(void *closure, uint32_t event, void *param)
     }
     return MOZQUIC_OK;
   }
-  
+
   if (state.state == 4) {
     test_assert(state.ctr == 16000);
     test_assert(state.time1 > state.time0);
@@ -124,12 +124,12 @@ int testEvent7(void *closure, uint32_t event, void *param)
 
   if (state.state == 7) {
     test_assert(1);
-    fprintf(stderr,"test7 client timing1 %ld timing2 %ld\n",
+    fprintf(stderr,"test7 client timing1 %lld timing2 %lld\n",
             state.time1 - state.time0, state.time2 - state.time1);
     // assert that the backpressure version was at least 500ms slower
     // than the non backpressure version
     test_assert((state.time2 - state.time1) - (state.time1 - state.time0) > 500);
-    
+
     mozquic_destroy_connection(parentConnection);
     fprintf(stderr,"exit ok\n");
     exit(0);

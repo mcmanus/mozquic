@@ -66,12 +66,12 @@ Log::DoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid, const
   }
 
   if (!m || !m->mAppHandlesLogging) {
-    fprintf(stderr,"%06ld:%016lx ", MozQuic::Timestamp() % 1000000, useCid);
+    fprintf(stderr,"%06lld:%016llx ", MozQuic::Timestamp() % 1000000, useCid);
     vfprintf(stderr, fmt, paramList);
   }
   else if (m && m->mConnEventCB && m->mClosure) {
     char buffer[2048];
-    int used = snprintf(buffer, 2048, "%06ld: ", MozQuic::Timestamp() % 1000000);
+    int used = snprintf(buffer, 2048, "%06lld: ", MozQuic::Timestamp() % 1000000);
     if (used >= 2047) {
       return MOZQUIC_OK;
     }
