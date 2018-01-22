@@ -67,6 +67,8 @@ static int connEventCB(void *closure, uint32_t event, void *param)
         assert(fd[mozquic_get_streamid(stream)] != NULL);
       }
     }
+    _argc = 1; // in case of 0rtt this state gets called again - don't
+    // double up the streams
   }
   
   if (event == MOZQUIC_EVENT_NEW_STREAM_DATA) {
