@@ -183,9 +183,10 @@ MozQuic::FlushStream0(bool forceAck)
     mStreamState->mUnAckedPackets.push_back(std::move(packet));
 
     Log::sDoLogCID(Log::HANDSHAKE, 5, this, connID,
-                   "TRANSMIT0[%lX] this=%p len=%d total0=%d\n",
+                   "TRANSMIT0[%lX] this=%p len=%d total0=%d byte0=%x\n",
                    usedPacketNumber, this, cipherLen + 17,
-                   mNextTransmitPacketNumber - mOriginalTransmitPacketNumber);
+                   mNextTransmitPacketNumber - mOriginalTransmitPacketNumber,
+                   cipherPkt[0]);
 
     mNextTransmitPacketNumber++;
 

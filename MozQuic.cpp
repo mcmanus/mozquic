@@ -215,8 +215,9 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     *bytesOut = written + headerLen;
   }
 
-  ConnectionLog5("TRANSMIT[%lX] this=%p len=%d\n",
-                 mNextTransmitPacketNumber, this, written + headerLen);
+  ConnectionLog5("TRANSMIT[%lX] this=%p len=%d byte0=%X\n",
+                 mNextTransmitPacketNumber, this, written + headerLen,
+                 header[0]);
   mNextTransmitPacketNumber++;
   
   return MOZQUIC_OK;
