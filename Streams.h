@@ -16,7 +16,6 @@ enum  {
   kMaxStreamIDClientDefaultUni    = 1024 + 2,
   kMaxStreamDataDefault           = 10 * 1024 * 1024,
   kMaxDataDefault                 = 50 * 1024 * 1024,
-  kForgetUnAckedThresh            = 6000,
 };
 
 enum StreamType{

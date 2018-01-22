@@ -28,6 +28,8 @@ namespace mozquic  {
 #define StreamLog9(...) Log::sDoLog(Log::STREAM, 9, mMozQuic, __VA_ARGS__);
 #define StreamLog10(...) Log::sDoLog(Log::STREAM, 10, mMozQuic, __VA_ARGS__);
 
+static const uint64_t kForgetUnAckedThresh = 6000;
+
 uint32_t
 StreamState::StartNewStream(StreamPair **outStream, StreamType streamType,
                             bool no_replay, const void *data, uint32_t amount,
@@ -1093,11 +1095,17 @@ StreamState::RetransmitTimer()
   // this is a crude stand in for reliability until we get a real loss
   // recovery system built
   uint64_t now = MozQuic::Timestamp();
+  now = std::max(now, kForgetUnAckedThresh);
   uint64_t discardEpoch = now - kForgetUnAckedThresh;
 
   for (auto packetIter = mUnAckedPackets.begin(); packetIter != mUnAckedPackets.end(); ) {
 
-    uint64_t retransEpoch = now - (mMozQuic->mSendState->SmoothedRTT() * 4);
+    uint64_t rto = mMozQuic->mSendState->SmoothedRTT() * 4;
+    rto = std::max(rto, 200UL);
+    
+    uint64_t retransEpoch;
+    retransEpoch = (now > rto) ? now - rto : 0;
+
     if ((*packetIter)->mTransmitTime > retransEpoch) {
       break;
     }
@@ -1121,8 +1129,8 @@ StreamState::RetransmitTimer()
 
     for (auto frameIter = (*packetIter)->mFrameList.begin();
          frameIter != (*packetIter)->mFrameList.end(); frameIter++) {
-      StreamLog4("data associated with packet %lX retransmitted type %d\n",
-                 (*packetIter)->mPacketNumber, (*frameIter)->mType);
+      StreamLog4("data associated with packet %lX retransmitted type %d rto %lld\n",
+                 (*packetIter)->mPacketNumber, (*frameIter)->mType, rto);
       // move the data pointer from iter to tmp
       std::unique_ptr<ReliableData> tmp(new ReliableData(*(*frameIter)));
       assert(!(*frameIter)->mData);
