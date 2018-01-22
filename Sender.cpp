@@ -269,7 +269,7 @@ Sender::RTTSample(uint64_t xmit, uint64_t delay)
     mSmoothedRTT = rtt;
   }
   mSmoothedRTT = std::max((uint16_t)1, mSmoothedRTT);
-  mSmoothedRTT = std::max((uint16_t)1, mRTTVar);
+  mRTTVar = std::max((uint16_t)1, mRTTVar);
 
   SenderLog6("New RTT Sample %u now smoothed %u rttvar %u\n",
              rtt, mSmoothedRTT, mRTTVar);

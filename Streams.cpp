@@ -1101,7 +1101,8 @@ StreamState::RetransmitTimer()
 
   for (auto packetIter = mUnAckedPackets.begin(); packetIter != mUnAckedPackets.end(); ) {
 
-    uint64_t rto = mMozQuic->mSendState->SmoothedRTT() * 4;
+    uint64_t rto = mMozQuic->mSendState->SmoothedRTT() +
+      (mMozQuic->mSendState->RTTVar() * 4);
     rto = std::max(rto, kMinRTO);
     StreamLog8("rto %llu based on srtt %u rttvar %u\n",
                rto, mMozQuic->mSendState->SmoothedRTT(),
