@@ -587,9 +587,18 @@ ShortHeaderData::DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t nex
   return rv;
 }
 
-ShortHeaderData::ShortHeaderData(unsigned char *pkt, uint32_t pktSize,
-                                 uint64_t nextPN, uint64_t defaultCID)
+ShortHeaderData::ShortHeaderData(MozQuic *logging,
+                                 unsigned char *pkt, uint32_t pktSize,
+                                 uint64_t nextPN, bool allowOmitCID,
+                                 uint64_t defaultCID)
 {
+  if (!allowOmitCID && (pkt[0] & 0x40)) {
+    Log::sDoLog(Log::CONNECTION, 1, logging,
+                "short header omitted CID but we did not allow that via param %X\n",
+                pkt[0]);
+    return;
+  }
+
   mHeaderSize = 0xffffffff;
   mConnectionID = 0;
   mPacketNumber = 0;
@@ -603,6 +612,9 @@ ShortHeaderData::ShortHeaderData(unsigned char *pkt, uint32_t pktSize,
   } else if (pnSize == SHORT_4) {
     pnSize = 4;
   } else {
+    Log::sDoLog(Log::CONNECTION, 1, logging,
+                "short header failed to parse packet size byte 0 %X\n",
+                pkt[0]);
     return;
   }
 

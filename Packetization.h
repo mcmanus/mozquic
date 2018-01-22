@@ -47,7 +47,7 @@ private:
   static uint64_t DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next);
 
 public:
-  ShortHeaderData(unsigned char *, uint32_t, uint64_t, uint64_t);
+  ShortHeaderData(MozQuic *logging, unsigned char *, uint32_t, uint64_t, bool, uint64_t);
   uint32_t mHeaderSize;
   uint64_t mConnectionID;
   uint64_t mPacketNumber;

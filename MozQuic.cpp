@@ -671,7 +671,8 @@ MozQuic::Intake(bool *partialResult)
     MozQuic *tmpSession = nullptr;
       
     if (!(pkt[0] & 0x80)) { // short form protected packets
-      ShortHeaderData tmpShortHeader(pkt, pktSize, 0, mLocalOmitCID ? mConnectionID : 0);
+      ShortHeaderData tmpShortHeader(this, pkt, pktSize, 0, mLocalOmitCID,
+                                     mLocalOmitCID ? mConnectionID : 0);
       if (pktSize < tmpShortHeader.mHeaderSize) {
         return rv;
       }
@@ -685,7 +686,8 @@ MozQuic::Intake(bool *partialResult)
         continue;
       }
       session = tmpSession->mAlive;
-      ShortHeaderData shortHeader(pkt, pktSize, session->mNextRecvPacketNumber,
+      ShortHeaderData shortHeader(this, pkt, pktSize, session->mNextRecvPacketNumber,
+                                  mLocalOmitCID,
                                   mLocalOmitCID ? mConnectionID : 0);
       assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
       ConnectionLogCID5(shortHeader.mConnectionID,
