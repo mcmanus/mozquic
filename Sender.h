@@ -74,6 +74,7 @@ public:
   void Connected();
   bool CanSendNow(uint64_t amt, bool zeroRtt);
   uint16_t SmoothedRTT() { return mSmoothedRTT; }
+  uint16_t RTTVar() { return mRTTVar; }
   
   bool EmptyQueue() 
   {
@@ -85,6 +86,7 @@ private:
   MozQuic *mMozQuic;
   std::list<std::unique_ptr<BufferedPacket>> mQueue;
   uint16_t mSmoothedRTT;
+  uint16_t mRTTVar;
   uint16_t mDropRate;
 
   bool mCCState;

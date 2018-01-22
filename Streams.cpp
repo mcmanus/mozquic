@@ -29,6 +29,7 @@ namespace mozquic  {
 #define StreamLog10(...) Log::sDoLog(Log::STREAM, 10, mMozQuic, __VA_ARGS__);
 
 static const uint64_t kForgetUnAckedThresh = 6000;
+static const uint64_t kMinRTO = 50;
 
 uint32_t
 StreamState::StartNewStream(StreamPair **outStream, StreamType streamType,
@@ -1101,8 +1102,11 @@ StreamState::RetransmitTimer()
   for (auto packetIter = mUnAckedPackets.begin(); packetIter != mUnAckedPackets.end(); ) {
 
     uint64_t rto = mMozQuic->mSendState->SmoothedRTT() * 4;
-    rto = std::max(rto, 200UL);
-    
+    rto = std::max(rto, kMinRTO);
+    StreamLog8("rto %llu based on srtt %u rttvar %u\n",
+               rto, mMozQuic->mSendState->SmoothedRTT(),
+               mMozQuic->mSendState->RTTVar());
+
     uint64_t retransEpoch;
     retransEpoch = (now > rto) ? now - rto : 0;
 

@@ -25,6 +25,7 @@ namespace mozquic {
 Sender::Sender(MozQuic *session)
   : mMozQuic(session)
   , mSmoothedRTT(100)
+  , mRTTVar(50)
   , mDropRate(0)
   , mCCState(false)
   , mPacingTicker(0)
@@ -256,19 +257,22 @@ Sender::RTTSample(uint64_t xmit, uint64_t delay)
     return;
   }
   rtt -= delay;
-  if (rtt > 0xffff) {
-    rtt = 0xffff;
-  }
+  rtt = std::min(rtt, 0xffffUL);
+
   if (mCCState) {
+    uint64_t diff = (mSmoothedRTT > rtt) ?
+      (mSmoothedRTT - rtt) : (rtt - mSmoothedRTT);
+    mRTTVar = (mRTTVar - (mRTTVar >> 2)) + (diff >> 2);
     mSmoothedRTT = (mSmoothedRTT - (mSmoothedRTT >> 3)) + (rtt >> 3);
   } else {
+    mRTTVar = rtt >> 1;
     mSmoothedRTT = rtt;
   }
-  if (mSmoothedRTT < 1) {
-    mSmoothedRTT = 1;
-  }
+  mSmoothedRTT = std::max((uint16_t)1, mSmoothedRTT);
+  mSmoothedRTT = std::max((uint16_t)1, mRTTVar);
 
-  SenderLog6("New RTT Sample %u now smoothed %u\n", rtt, mSmoothedRTT);
+  SenderLog6("New RTT Sample %u now smoothed %u rttvar %u\n",
+             rtt, mSmoothedRTT, mRTTVar);
 }
 
 }
