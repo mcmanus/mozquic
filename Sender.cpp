@@ -22,12 +22,16 @@ namespace mozquic {
 #define SenderLog9(...) Log::sDoLog(Log::SENDER, 9, mMozQuic, __VA_ARGS__);
 #define SenderLog10(...) Log::sDoLog(Log::SENDER, 10, mMozQuic, __VA_ARGS__);
 
+static const uint16_t kMaxBackoff = 32;
+  
 Sender::Sender(MozQuic *session)
   : mMozQuic(session)
   , mSmoothedRTT(100)
   , mRTTVar(50)
+  , mBackoffFactor(1)
   , mDropRate(0)
   , mCCState(false)
+  , mWarpRTT(true)
   , mPacingTicker(0)
   , mWindow(kDefaultMSS * 10) // bytes
   , mWindowUsed(0)
@@ -196,6 +200,8 @@ Sender::Ack(uint64_t packetNumber, uint32_t bytes)
   if (mEndOfRecovery) {
     // leaving recovery
     mEndOfRecovery = 0;
+    mWarpRTT = true;
+    mBackoffFactor = 1;
     SenderLog5("leaving recovery\n");
     mUnPacedPacketCredits = 10;
   }
@@ -216,9 +222,6 @@ Sender::Ack(uint64_t packetNumber, uint32_t bytes)
 void
 Sender::ReportLoss(uint64_t packetNumber, uint32_t bytes)
 {
-  SenderLog6("Report Loss [%lX] %lu endRecovery=%lX\n",
-             packetNumber, bytes, mEndOfRecovery);
-
   if (mWindowUsed >= bytes) {
     mWindowUsed -= bytes;
   } else {
@@ -231,9 +234,11 @@ Sender::ReportLoss(uint64_t packetNumber, uint32_t bytes)
     if (mWindow < kMinWindow) {
       mWindow = kMinWindow;
     }
+    mBackoffFactor = mBackoffFactor * 2;
+    mBackoffFactor = std::min(mBackoffFactor, kMaxBackoff);
     mSSThresh = mWindow;
-    SenderLog6("Report Loss (now %lu/%lu) ssthresh=%lu\n",
-               mWindowUsed, mWindow, mSSThresh);
+    SenderLog5("Report Loss [%lX] (now %lu/%lu) ssthresh=%lu\n",
+               packetNumber, mWindowUsed, mWindow, mSSThresh);
   }
 }
 
@@ -259,20 +264,22 @@ Sender::RTTSample(uint64_t xmit, uint64_t delay)
   rtt -= delay;
   rtt = std::min(rtt, 0xffffUL);
 
-  if (mCCState) {
+  bool warpRTT = mWarpRTT;
+  if (!mWarpRTT) {
     uint64_t diff = (mSmoothedRTT > rtt) ?
       (mSmoothedRTT - rtt) : (rtt - mSmoothedRTT);
     mRTTVar = (mRTTVar - (mRTTVar >> 2)) + (diff >> 2);
     mSmoothedRTT = (mSmoothedRTT - (mSmoothedRTT >> 3)) + (rtt >> 3);
   } else {
+    mWarpRTT = false;
     mRTTVar = rtt >> 1;
     mSmoothedRTT = rtt;
   }
   mSmoothedRTT = std::max((uint16_t)1, mSmoothedRTT);
   mRTTVar = std::max((uint16_t)1, mRTTVar);
 
-  SenderLog6("New RTT Sample %u now smoothed %u rttvar %u\n",
-             rtt, mSmoothedRTT, mRTTVar);
+  SenderLog6("New RTT Sample %u now smoothed %u rttvar %u (warp=%d)\n",
+             rtt, mSmoothedRTT, mRTTVar, warpRTT);
 }
 
 }

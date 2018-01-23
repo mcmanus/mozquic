@@ -30,6 +30,7 @@ namespace mozquic  {
 
 static const uint64_t kForgetUnAckedThresh = 6000;
 static const uint64_t kMinRTO = 50;
+static const uint64_t kMaxRTO = 8000;
 
 uint32_t
 StreamState::StartNewStream(StreamPair **outStream, StreamType streamType,
@@ -450,7 +451,7 @@ StreamState::HandleStopSendingFrame(FrameHeaderData *result, bool fromCleartext,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  StreamLog4("recvd stop sending %ld %lx\n",
+  StreamLog4("recvd stop sending %ld %lX\n",
              result->u.mStopSending.mStreamID, result->u.mStopSending.mErrorCode);
   RstStream(result->u.mStopSending.mStreamID, result->u.mStopSending.mErrorCode);
   return MOZQUIC_OK;
@@ -1104,9 +1105,8 @@ StreamState::RetransmitTimer()
     uint64_t rto = mMozQuic->mSendState->SmoothedRTT() +
       (mMozQuic->mSendState->RTTVar() * 4);
     rto = std::max(rto, kMinRTO);
-    StreamLog8("rto %llu based on srtt %u rttvar %u\n",
-               rto, mMozQuic->mSendState->SmoothedRTT(),
-               mMozQuic->mSendState->RTTVar());
+    rto *= mMozQuic->mSendState->BackoffFactor();
+    rto = std::min(rto, kMaxRTO);
 
     uint64_t retransEpoch;
     retransEpoch = (now > rto) ? now - rto : 0;
@@ -1127,6 +1127,14 @@ StreamState::RetransmitTimer()
       packetIter++;
       continue;
     }
+
+    StreamLog4("rto loss pn=%lX (expired by %llu rto %llu) based on srtt %u rttvar %u backofffactor %u\n",
+               (*packetIter)->mPacketNumber,
+               retransEpoch - (*packetIter)->mTransmitTime,
+               rto,
+               mMozQuic->mSendState->SmoothedRTT(),
+               mMozQuic->mSendState->RTTVar(),
+               mMozQuic->mSendState->BackoffFactor());
 
     (*packetIter)->mRetransmitted = true;
     mMozQuic->mSendState->ReportLoss((*packetIter)->mPacketNumber,
@@ -1154,7 +1162,7 @@ uint32_t
 StreamState::CreateRstStreamFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                   ReliableData *chunk)
 {
-  StreamLog3("generating stream reset %d id=%ld pkt=%ld\n",
+  StreamLog3("generating stream reset %d id=%ld pkt=%lX\n",
              chunk->mOffset, chunk->mStreamID,
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kRstStream);
@@ -1185,7 +1193,7 @@ uint32_t
 StreamState::CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                       ReliableData *chunk)
 {
-  StreamLog5("generating max stream data id=%d val=%ld into pkt=%lx\n",
+  StreamLog5("generating max stream data id=%d val=%ld into pkt=%lX\n",
              chunk->mStreamID, chunk->mStreamCreditValue,
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxStreamData);
@@ -1225,7 +1233,7 @@ uint32_t
 StreamState::CreateMaxStreamIDFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                     ReliableData *chunk)
 {
-  StreamLog5("generating max stream id=%d into pkt=%lx\n",
+  StreamLog5("generating max stream id=%d into pkt=%lX\n",
              chunk->mMaxStreamID,
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxStreamID);
@@ -1246,7 +1254,7 @@ uint32_t
 StreamState::CreatePingFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                              ReliableData *chunk)
 {
-  StreamLog5("generating ping len=%d into pkt=%lx\n", chunk->mLen,
+  StreamLog5("generating ping len=%d into pkt=%lX\n", chunk->mLen,
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kPing);
 
@@ -1267,7 +1275,7 @@ uint32_t
 StreamState::CreatePongFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                              ReliableData *chunk)
 {
-  StreamLog5("generating pong len=%d into pkt=%lx\n", chunk->mLen,
+  StreamLog5("generating pong len=%d into pkt=%lX\n", chunk->mLen,
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kPong);
 
@@ -1317,7 +1325,7 @@ uint32_t
 StreamState::CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk)
 {
-  StreamLog5("generating max data val=%ld into pkt=%lx\n",
+  StreamLog5("generating max data val=%ld into pkt=%lX\n",
              chunk->mConnectionCredit,
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kMaxData);
@@ -1341,7 +1349,7 @@ uint32_t
 StreamState::CreateStreamBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                       ReliableData *chunk)
 {
-  StreamLog2("generating stream blocked id=%d into pkt=%lx\n",
+  StreamLog2("generating stream blocked id=%d into pkt=%lX\n",
              chunk->mStreamID,
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kStreamBlocked);
@@ -1366,7 +1374,7 @@ uint32_t
 StreamState::CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                 ReliableData *chunk)
 {
-  StreamLog2("generating blocked into pkt=%lx\n",
+  StreamLog2("generating blocked into pkt=%lX\n",
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kBlocked);
   assert(!chunk->mLen);
@@ -1385,7 +1393,7 @@ uint32_t
 StreamState::CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                         ReliableData *chunk, bool &toRemove)
 {
-  StreamLog2("generating streamID blocked into pkt=%lx\n",
+  StreamLog2("generating streamID blocked into pkt=%lX\n",
              mMozQuic->mNextTransmitPacketNumber);
   assert(chunk->mType == ReliableData::kStreamIDBlocked);
   assert(!chunk->mLen);

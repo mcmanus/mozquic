@@ -75,6 +75,7 @@ public:
   bool CanSendNow(uint64_t amt, bool zeroRtt);
   uint16_t SmoothedRTT() { return mSmoothedRTT; }
   uint16_t RTTVar() { return mRTTVar; }
+  uint16_t BackoffFactor() { return mBackoffFactor; }
   
   bool EmptyQueue() 
   {
@@ -87,9 +88,11 @@ private:
   std::list<std::unique_ptr<BufferedPacket>> mQueue;
   uint16_t mSmoothedRTT;
   uint16_t mRTTVar;
+  uint16_t mBackoffFactor;
   uint16_t mDropRate;
 
   bool mCCState;
+  bool mWarpRTT;
   uint64_t mPacingTicker;
 
   uint64_t mWindow; // bytes
