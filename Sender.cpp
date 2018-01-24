@@ -9,6 +9,8 @@
 #include "MozQuicInternal.h"
 #include "Sender.h"
 
+#include <algorithm>
+
 namespace mozquic {
 
 #define SenderLog1(...) Log::sDoLog(Log::SENDER, 1, mMozQuic, __VA_ARGS__);
