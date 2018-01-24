@@ -259,7 +259,7 @@ Sender::RTTSample(uint64_t xmit, uint64_t delay)
     return;
   }
   rtt -= delay;
-  rtt = std::min(rtt, 0xffffUL);
+  rtt = std::min(rtt, (uint64_t)0xffff);
 
   if (mCCState) {
     uint64_t diff = (mSmoothedRTT > rtt) ?
