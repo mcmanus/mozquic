@@ -39,7 +39,7 @@ MozQuic::CheckPeer(uint32_t deadline)
   plainPkt[used++] = 0; // data len
 
   return ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, FRAME_TYPE_PING_LENGTH,
-                           mMTU - headerLen - kTagLen, true);
+                           mMTU - headerLen - kTagLen, true, true);
 }
 
 void
@@ -77,7 +77,8 @@ MozQuic::StartPMTUD1()
   uint32_t bytesOut = 0;
   if (ProtectedTransmit(plainPkt, headerLen,
                         plainPkt + headerLen, room + 1,
-                        mPMTUDTarget - headerLen - kTagLen, false, mPMTUDTarget, &bytesOut) != MOZQUIC_OK) {
+                        mPMTUDTarget - headerLen - kTagLen, false, true, false,
+                        mPMTUDTarget, &bytesOut) != MOZQUIC_OK) {
     mPMTUD1PacketNumber = 0;
   }
   else {

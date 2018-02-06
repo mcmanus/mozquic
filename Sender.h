@@ -62,14 +62,12 @@ class Sender final
 {
 public:
   Sender(MozQuic *session);
-  uint32_t Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT,
+  uint32_t Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOnly,
                     const unsigned char *, uint32_t len, struct sockaddr_in *peer);
   void RTTSample(uint64_t xmit, uint64_t delay);
   void Ack(uint64_t packetNumber, uint32_t packetLength);
   void ReportLoss(uint64_t packetNumber, uint32_t packetLength);
   void Dismissed0RTTPackets(uint32_t bytes);
-  void SetDropRate(uint64_t dr) { mDropRate = dr; }
-  uint16_t DropRate() { return mDropRate; }
   uint32_t Tick(const uint64_t now);
   void Connected();
   bool CanSendNow(uint64_t amt, bool zeroRtt);
@@ -81,16 +79,34 @@ public:
     return mQueue.empty();
   }
 
+  void EstablishPTOTimer();
+
 private:
   
+  uint64_t PTODeadline();
+  uint64_t RTODeadline(uint32_t numTimesFired);
+  void SendProbeData(bool fromRTO);
+  uint32_t SendOne(bool fromRTO);
+  void     LossTimerTick(const uint64_t now);
+
   MozQuic *mMozQuic;
   std::list<std::unique_ptr<BufferedPacket>> mQueue;
   uint16_t mSmoothedRTT;
   uint16_t mRTTVar;
-  uint16_t mDropRate;
 
   bool mCCState;
   uint64_t mPacingTicker;
+
+  // 0 is no unacked data no timer set
+  // 1 tlp set no expirations yet
+  // 2 tlp set one tlp probe sent
+  // 3 rto set two tlp probes sent
+  // 4 rto set N-3 rto expirations with N-3 rto retrans
+  uint32_t mTimerState;
+  uint64_t mDeadline;
+
+  uint64_t mMaxAckDelay;
+  uint64_t mMinRTT;
 
   uint64_t mWindow; // bytes
   uint64_t mWindowUsed; // bytes
@@ -98,7 +114,7 @@ private:
   uint64_t mUnPacedPacketCredits;
   uint64_t mLastSend;
   uint64_t mSSThresh;
-  uint64_t mEndOfRecovery;
+  uint64_t mEndOfRecovery; // packet #
 };
 
 } //namespace

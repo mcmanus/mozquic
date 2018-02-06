@@ -128,7 +128,6 @@ public:
   static const uint32_t kForgetInitialConnectionIDsThresh = 15000; // ms
 
   MozQuic(bool handleIO);
-  MozQuic();
   ~MozQuic();
 
   int StartClient();
@@ -172,7 +171,8 @@ public:
   }
   void SetStreamWindow(uint64_t w) { mAdvertiseStreamWindow = w; }
   void SetConnWindowBytes(uint64_t bytes) { mAdvertiseConnectionWindow = bytes; }
-  void SetDropRate(uint64_t dr);
+  void SetDropRate(uint64_t dr) { mDropRate = dr; }
+
   void SetMaxSizeAllowed(uint16_t ms) { mLocalMaxSizeAllowed = ms; }
   void SetClientPort(int clientPort) { mClientPort = clientPort; }
 
@@ -198,8 +198,11 @@ public:
 
   void StartBackPressure() { mBackPressure = true; }
   void ReleaseBackPressure();
-  uint32_t RealTransmit(const unsigned char *, uint32_t len, struct sockaddr_in *peer);
-  
+  uint32_t RealTransmit(const unsigned char *, uint32_t len, struct sockaddr_in *peer, bool updateTimers);
+  uint32_t RetransmitOldestUnackedData(bool fromRTO);
+  uint32_t FlushOnce(bool forceack, bool forceframe);
+  bool     AnyUnackedPackets();
+    
 private:
   void RaiseError(uint32_t err, const char *fmt, ...);
 
@@ -280,7 +283,8 @@ private:
   uint32_t CreateLongPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
   uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                              unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
-                             bool addAcks, uint32_t mtuOverride = 0, uint32_t *bytesOut = nullptr);
+                             bool addAcks, bool ackable, bool queueOnly = false,
+                             uint32_t mtuOverride = 0, uint32_t *bytesOut = nullptr);
 
   // Stateless Reset
   bool     StatelessResetCheckForReceipt(const unsigned char *pkt, uint32_t pktSize);
@@ -339,6 +343,7 @@ private:
 
   uint16_t mMaxPacketConfig;
   uint16_t mMTU;
+  uint16_t mDropRate;
   uint64_t mConnectionID;
   uint64_t mOriginalConnectionID;
   uint64_t mNextTransmitPacketNumber;
@@ -389,6 +394,11 @@ private:
   earlyDataState mEarlyDataState;
   uint64_t mEarlyDataLastPacketNumber;
 
+public:
+  uint64_t HighestTransmittedAckable() { return mHighestTransmittedAckable; }
+private:
+  uint64_t mHighestTransmittedAckable;
+  
 public: // callbacks from nsshelper
   int32_t NSSInput(void *buf, int32_t amount);
   int32_t NSSOutput(const void *buf, int32_t amount);

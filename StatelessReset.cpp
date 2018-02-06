@@ -57,7 +57,7 @@ MozQuic::StatelessResetSend(uint64_t connID, struct sockaddr_in *peer)
 
   StatelessResetCalculateToken(mStatelessResetKey, connID, out + 9 + pad); // from key and CID
 
-  return mSendState->Transmit(0, true, false, out, 25 + pad, peer);
+  return mSendState->Transmit(0, true, false, false, out, 25 + pad, peer);
 }
 
 uint32_t

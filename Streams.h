@@ -110,6 +110,7 @@ public:
 
   // FlowController Methods
   uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) override;
+  uint32_t ConnectionWriteNow(std::unique_ptr<ReliableData> &p);
   uint32_t ScrubUnWritten(uint32_t id) override;
   void Reset0RTTData() override;
   uint32_t GetIncrement() override;
@@ -120,11 +121,14 @@ public:
   uint32_t StartNewStream(StreamPair **outStream, StreamType streamType, bool no_replay, const void *data, uint32_t amount, bool fin);
   uint32_t MakeSureStreamCreated(uint32_t streamID);
   uint32_t FindStream(uint32_t streamID, std::unique_ptr<ReliableData> &d);
-  uint32_t RetransmitTimer();
+  uint32_t RetransmitOldestUnackedData(bool fromRTO);
+  uint32_t ReportLossLessThan(uint64_t packetNumber);
+  bool     AnyUnackedPackets();
   void     DeleteDoneStreams();
   bool     MaybeDeleteStream(uint32_t streamID);
   uint32_t RstStream(uint32_t streamID, uint16_t code);
 
+  uint32_t FlushOnce(bool forceAck, bool forceFrame, bool &outDidWrite);
   uint32_t Flush(bool forceAck);
   void     TrackPacket(uint64_t packetNumber, uint32_t packetSize);
   uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
@@ -231,12 +235,8 @@ private: // these still need friend mozquic
   std::list<uint32_t> mStreamsReadyToWrite;
 
   // retransmit happens off of the FrameList in mUnAckedPackets
-  // duplicating it and placing it in mConnUnWritten. The
-  // dup'd entry is marked retransmitted so it doesn't repeat that. After a
-  // certain amount of time the retransmitted packet is just forgotten (as
-  // it won't be retransmitted again - that happens to the dup'd
-  // incarnation)
-  // mUnackedData is sorted by the packet number it was sent in.
+  // duplicating it and placing it in mConnUnWritten.
+  // mUnackedPackets is sorted by the packet number it was sent in.
   std::list<std::unique_ptr<ReliableData>> mConnUnWritten;
   std::list<std::unique_ptr<TransmittedPacket>> mUnAckedPackets;
 
@@ -285,6 +285,9 @@ public:
   uint32_t mStreamID;
   uint64_t mOffset;
   bool     mFin;
+  bool     mFromRTO;
+  bool     mSendUnblocked;
+  bool     mQueueOnTransmit;
 
   uint16_t mRstCode; // for kRstStream
   uint16_t mStopSendingCode;
@@ -301,14 +304,15 @@ class TransmittedPacket
 public:
   TransmittedPacket(uint64_t packetNumber)
     : mPacketNumber(packetNumber), mPacketLen(0), mTransmitTime(0)
-    , mRetransmitted(false)
+    , mFromRTO(false), mQueueOnTransmit(false)
   {
   }
 
   uint64_t mPacketNumber;
   uint32_t mPacketLen;
   uint64_t mTransmitTime;
-  bool     mRetransmitted; // no framelist after retransmitted
+  bool     mFromRTO;
+  bool     mQueueOnTransmit;
   std::list<std::unique_ptr<ReliableData>> mFrameList;
 private:
 };

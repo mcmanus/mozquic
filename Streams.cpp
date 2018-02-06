@@ -28,9 +28,6 @@ namespace mozquic  {
 #define StreamLog9(...) Log::sDoLog(Log::STREAM, 9, mMozQuic, __VA_ARGS__);
 #define StreamLog10(...) Log::sDoLog(Log::STREAM, 10, mMozQuic, __VA_ARGS__);
 
-static const uint64_t kForgetUnAckedThresh = 6000;
-static const uint64_t kMinRTO = 50;
-
 uint32_t
 StreamState::StartNewStream(StreamPair **outStream, StreamType streamType,
                             bool no_replay, const void *data, uint32_t amount,
@@ -70,7 +67,7 @@ StreamState::StartNewStream(StreamPair **outStream, StreamType streamType,
 bool
 StreamState::IsAllAcked()
 {
-  return mUnAckedPackets.empty()  && mConnUnWritten.empty();
+  return (!AnyUnackedPackets()) && mConnUnWritten.empty();
 }
 
 uint32_t
@@ -893,6 +890,7 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
                                (*iter)->mFin));
         (*iter)->mLen = room;
         (*iter)->mFin = false;
+        tmp->mFromRTO = (*iter)->mFromRTO;
         auto iterReg = iter++;
         mConnUnWritten.insert(iter, std::move(tmp));
         iter = iterReg;
@@ -925,9 +923,15 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
     } else {
       (*iter)->mTransmitKeyPhase = keyPhaseUnprotected;
     }
+    if ((*iter)->mFromRTO) {
+      transmittedPacket->mFromRTO = true;
+    }
+    if ((*iter)->mQueueOnTransmit) {
+      transmittedPacket->mQueueOnTransmit = true;
+    }
+
     // move it to the unacked list
-    std::unique_ptr<ReliableData> x(std::move(*iter));
-    transmittedPacket->mFrameList.push_back(std::move(x));
+    transmittedPacket->mFrameList.push_back(std::move(*iter));
     iter = mConnUnWritten.erase(iter);
     aFramePtr = framePtr;
   }
@@ -935,8 +939,10 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
 }
 
 uint32_t
-StreamState::Flush(bool forceAck)
+StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
 {
+  outWritten = false;
+
   if (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) {
     mMozQuic->FlushStream0(forceAck);
   }
@@ -964,8 +970,27 @@ StreamState::Flush(bool forceAck)
   const unsigned char *endpkt = plainPkt + mtu - kTagLen; // reserve 16 for aead tag
   std::unique_ptr<TransmittedPacket> packet(new TransmittedPacket(mMozQuic->mNextTransmitPacketNumber));
 
-  if (mMozQuic->mSendState->EmptyQueue() &&
-      mMozQuic->mSendState->CanSendNow(kInitialMTU, mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT)) {
+  bool makeFrames = false;
+  if (!mConnUnWritten.empty()) {
+
+    makeFrames = forceFrame;
+
+    if (!makeFrames) {
+      // this is the normal congestion control test.. make a frame if there is cwnd room and
+      // nothing is buffered in sender right now
+      makeFrames = mMozQuic->mSendState->EmptyQueue() &&
+        mMozQuic->mSendState->CanSendNow(kInitialMTU, mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT);
+    }
+    
+    // if that didn't work but the first bit of data is probe data (to be unblocked) ignore
+    // congestion control limits and do it right now
+    if (!makeFrames) {
+      auto iter = mConnUnWritten.begin();
+      makeFrames = (*iter)->mSendUnblocked;
+    }
+  }
+
+  if (makeFrames) {
     CreateFrames(framePtr, endpkt, false, packet.get());
   } else if (!forceAck) {
     return MOZQUIC_OK;
@@ -975,20 +1000,34 @@ StreamState::Flush(bool forceAck)
   bool bareAck = framePtr == (plainPkt + headerLen);
   uint32_t rv = mMozQuic->ProtectedTransmit(plainPkt, headerLen,
                                             plainPkt + headerLen, framePtr - (plainPkt + headerLen),
-                                            mtu - headerLen - kTagLen, true, 0, &bytesOut);
+                                            mtu - headerLen - kTagLen, true, !bareAck,
+                                            packet->mQueueOnTransmit, 0, &bytesOut);
   if (rv != MOZQUIC_OK) {
     return rv;
   }
+
+  outWritten = true;
   if (!bareAck && bytesOut) {
     packet->mTransmitTime = MozQuic::Timestamp();
     packet->mPacketLen = bytesOut;
     mUnAckedPackets.push_back(std::move(packet));
   }
 
-  if (!mConnUnWritten.empty()) {
-    return Flush(false);
-  }
   return MOZQUIC_OK;
+}
+
+uint32_t
+StreamState::Flush(bool forceAck)
+{
+  bool didWrite;
+
+  uint32_t rv = FlushOnce(forceAck, false, didWrite);
+
+  if (rv != MOZQUIC_OK) {
+    return rv;
+  }
+
+  return didWrite ? Flush(false) : MOZQUIC_OK;
 }
 
 void
@@ -1009,6 +1048,20 @@ StreamState::ConnectionWrite(std::unique_ptr<ReliableData> &p)
 
   mConnUnWritten.push_back(std::move(p));
 
+  return MOZQUIC_OK;
+}
+
+uint32_t
+StreamState::ConnectionWriteNow(std::unique_ptr<ReliableData> &p)
+{
+  // this data gets queued to front of unwritten and framed and
+  // transmitted after prioritization by flush()
+  assert (mMozQuic->GetConnectionState() != STATE_UNINITIALIZED);
+
+  p->mSendUnblocked = true;
+  p->mQueueOnTransmit = true; // this is the post cc queue
+  mConnUnWritten.push_front(std::move(p));
+  Flush(false);
   return MOZQUIC_OK;
 }
 
@@ -1086,67 +1139,96 @@ StreamState::ConnectionReadBytes(uint64_t amt)
   return ConnectionWrite(tmp);
 }
 
-uint32_t
-StreamState::RetransmitTimer()
+bool
+StreamState::AnyUnackedPackets()
 {
   if (mUnAckedPackets.empty()) {
-    return MOZQUIC_OK;
+    return false;
   }
+  for (auto pkt = mUnAckedPackets.begin();
+       pkt != mUnAckedPackets.end();
+       pkt++) {
 
-  // this is a crude stand in for reliability until we get a real loss
-  // recovery system built
-  uint64_t now = MozQuic::Timestamp();
-  now = std::max(now, kForgetUnAckedThresh);
-  uint64_t discardEpoch = now - kForgetUnAckedThresh;
-
-  for (auto packetIter = mUnAckedPackets.begin(); packetIter != mUnAckedPackets.end(); ) {
-
-    uint64_t rto = mMozQuic->mSendState->SmoothedRTT() +
-      (mMozQuic->mSendState->RTTVar() * 4);
-    rto = std::max(rto, kMinRTO);
-    StreamLog8("rto %llu based on srtt %u rttvar %u\n",
-               rto, mMozQuic->mSendState->SmoothedRTT(),
-               mMozQuic->mSendState->RTTVar());
-
-    uint64_t retransEpoch;
-    retransEpoch = (now > rto) ? now - rto : 0;
-
-    if ((*packetIter)->mTransmitTime > retransEpoch) {
-      break;
+    if (!(*pkt)->mFrameList.empty()) {
+      return true;
     }
+  }
+  
+  return false;
+}
 
-    if (((*packetIter)->mTransmitTime <= discardEpoch) && (*packetIter)->mRetransmitted) {
-      // this is only on packets that we are keeping around for timestamp purposes
-      StreamLog7("old unacked packet forgotten %lX\n", (*packetIter)->mPacketNumber);
-      assert((*packetIter)->mFrameList.empty());
-      packetIter = mUnAckedPackets.erase(packetIter);
+uint32_t
+StreamState::RetransmitOldestUnackedData(bool fromRTO)
+// loss timers use this if there is no new data
+{
+  for (auto packetIter = mUnAckedPackets.begin();
+       packetIter != mUnAckedPackets.end();
+       packetIter++) {
+
+    if ((*packetIter)->mFrameList.empty()) {
       continue;
     }
-
-    if ((*packetIter)->mRetransmitted) {
-      packetIter++;
-      continue;
-    }
-
-    (*packetIter)->mRetransmitted = true;
-    mMozQuic->mSendState->ReportLoss((*packetIter)->mPacketNumber,
-                                     (*packetIter)->mPacketLen);
 
     for (auto frameIter = (*packetIter)->mFrameList.begin();
          frameIter != (*packetIter)->mFrameList.end(); frameIter++) {
-      StreamLog4("data associated with packet %lX retransmitted type %d rto %lld\n",
-                 (*packetIter)->mPacketNumber, (*frameIter)->mType, rto);
+      StreamLog4("data associated with packet %lX retransmitted type %d %s not yet lost\n",
+                 (*packetIter)->mPacketNumber, (*frameIter)->mType,
+                 fromRTO ? "RTO-timer" : "TLP-timer");
       // move the data pointer from iter to tmp
       std::unique_ptr<ReliableData> tmp(new ReliableData(*(*frameIter)));
       assert(!(*frameIter)->mData);
       assert(tmp->mData);
 
       // its ok to bypass the per out stream flow control window on rexmit
+      tmp->mFromRTO = fromRTO;
+      ConnectionWriteNow(tmp);
+    }
+
+    (*packetIter)->mFrameList.clear();
+    // we do not erase the packet because it is not lost
+    // we do not report it lost because that is done when an ack for the rto
+    // probe is received.
+    return MOZQUIC_OK;
+  }
+  return MOZQUIC_ERR_GENERAL;
+}
+
+uint32_t
+StreamState::ReportLossLessThan(uint64_t packetNumber)
+{
+  bool firstTime = true;
+  for (auto packetIter = mUnAckedPackets.begin();
+         (packetIter != mUnAckedPackets.end()) &&
+         ((*packetIter)->mPacketNumber < packetNumber);
+       packetIter = mUnAckedPackets.erase(packetIter)) {
+
+    if (firstTime) {
+      StreamLog4("ReportLossLessThan Packet Number %lX\n", packetNumber);
+      firstTime = false;
+    }
+
+    mMozQuic->mSendState->ReportLoss((*packetIter)->mPacketNumber,
+                                     (*packetIter)->mPacketLen);
+
+    if ((*packetIter)->mFrameList.empty()) {
+      continue;
+    }
+    uint32_t ctr = 0;
+    for (auto frameIter = (*packetIter)->mFrameList.begin();
+         frameIter != (*packetIter)->mFrameList.end(); frameIter++) {
+      StreamLog4("data frame %u with packet %lX retransmitted type %d declared lost\n",
+                 ctr++, (*packetIter)->mPacketNumber, (*frameIter)->mType);
+      // move the data pointer from iter to tmp
+      std::unique_ptr<ReliableData> tmp(new ReliableData(*(*frameIter)));
+      assert(!(*frameIter)->mData);
+      assert(tmp->mData);
+      tmp->mFromRTO = false;
+      // its ok to bypass the per out stream flow control window on rexmit
       ConnectionWrite(tmp);
     }
     (*packetIter)->mFrameList.clear();
-    packetIter++;
   }
+  
   return MOZQUIC_OK;
 }
 
@@ -1921,6 +2003,9 @@ ReliableData::ReliableData(uint32_t id, uint64_t offset,
   , mStreamID(id)
   , mOffset(offset)
   , mFin(fin)
+  , mFromRTO(false)
+  , mSendUnblocked(false)
+  , mQueueOnTransmit(false)
   , mRstCode(0)
   , mStreamCreditValue(0)
   , mConnectionCredit(0)
@@ -1940,6 +2025,9 @@ ReliableData::ReliableData(ReliableData &orig)
   , mStreamID(orig.mStreamID)
   , mOffset(orig.mOffset)
   , mFin(orig.mFin)
+  , mFromRTO(false)
+  , mSendUnblocked(false)
+  , mQueueOnTransmit(false)
   , mRstCode(orig.mRstCode)
   , mStreamCreditValue(orig.mStreamCreditValue)
   , mConnectionCredit(orig.mConnectionCredit)

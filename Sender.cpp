@@ -13,6 +13,10 @@
 
 namespace mozquic {
 
+static const uint64_t kMinRTO = 50;
+static const uint64_t kMinTLP = 10;
+static const uint64_t kMaxAckDelay = 250;
+
 #define SenderLog1(...) Log::sDoLog(Log::SENDER, 1, mMozQuic, __VA_ARGS__);
 #define SenderLog2(...) Log::sDoLog(Log::SENDER, 2, mMozQuic, __VA_ARGS__);
 #define SenderLog3(...) Log::sDoLog(Log::SENDER, 3, mMozQuic, __VA_ARGS__);
@@ -28,15 +32,18 @@ Sender::Sender(MozQuic *session)
   : mMozQuic(session)
   , mSmoothedRTT(100)
   , mRTTVar(50)
-  , mDropRate(0)
   , mCCState(false)
   , mPacingTicker(0)
+  , mTimerState(0)
+  , mDeadline(0) // timerstate expiration (assuming state != 0)
+  , mMaxAckDelay(0)
+  , mMinRTT(-1)
   , mWindow(kDefaultMSS * 10) // bytes
   , mWindowUsed(0)
   , mUnPacedPacketCredits(10)
   , mLastSend(0)
   , mSSThresh(0xffffffff)
-  , mEndOfRecovery(0)
+  , mEndOfRecovery(0) // a packet number
 {
 }
 
@@ -102,9 +109,126 @@ Sender::CanSendNow(uint64_t amt, bool zeroRtt)
   return false;
 }
 
+uint64_t
+Sender::PTODeadline()
+{
+  uint64_t ptoDeadline = mSmoothedRTT + (mSmoothedRTT >> 1) + mMaxAckDelay;
+
+  // min pto is 10ms
+  ptoDeadline = std::max(ptoDeadline, kMinTLP) + MozQuic::Timestamp();
+
+  //  If RTO (Section 3.3.2) is earlier, schedule a TLP alarm in its place.
+  // That is, PTO SHOULD be scheduled for min(RTO, PTO).
+  uint64_t rtoDeadline = RTODeadline(0);
+  return std::min(ptoDeadline, rtoDeadline);
+}
+
+uint64_t
+Sender::RTODeadline(uint32_t numTimesFired)
+{
+  uint64_t rtoDeadline = mSmoothedRTT + 4 * mRTTVar + mMaxAckDelay;
+  rtoDeadline = rtoDeadline << numTimesFired;
+  rtoDeadline = std::max(rtoDeadline, kMinRTO);
+  rtoDeadline += MozQuic::Timestamp();
+  return rtoDeadline;
+}
+
+void
+Sender::EstablishPTOTimer()
+{
+  uint64_t ptoDeadline = PTODeadline();
+  
+  if (mTimerState >= 2) {
+    // an rto is scheduled, keep the deadline if its earlier
+    // than the ptoDeadline
+    ptoDeadline = std::min(ptoDeadline, mDeadline);
+  }
+  mDeadline = ptoDeadline;
+  mTimerState = 1;
+}
+
+void
+Sender::SendProbeData(bool fromRTO)
+{
+  // send probe: data, if not oldest unacked
+  // never blocked - but does count on window
+
+  // maybe some non prioritized application data can be promoted
+  if (mQueue.empty()) {
+    mMozQuic->FlushOnce(false, true);
+  }
+
+  // retransmit some old data
+  if (mQueue.empty()) {
+    mMozQuic->RetransmitOldestUnackedData(fromRTO);
+  }
+
+  if (!mQueue.empty()) {
+    SendOne(fromRTO);
+  }
+}
+
+void
+Sender::LossTimerTick(const uint64_t now)
+{
+  if (!mTimerState) {
+    return;
+  }
+  if (!mMozQuic->AnyUnackedPackets()) {
+    // this is the normal state of things
+    mTimerState = 0;
+    return;
+  }
+  if (now < mDeadline) {
+    return;
+  }
+
+  if (mTimerState == 1) { // 1st pto expired
+    SendProbeData(false);
+    // rearm timer for another pto
+    mDeadline = PTODeadline();
+    mTimerState = 2;
+  } else if (mTimerState == 2) { // 2nd pto expired
+    SendProbeData(false);
+    // rearm timer for rto
+    mDeadline = RTODeadline(0);
+    mTimerState = 3;
+  } else if (mTimerState >= 3) { // rto expired
+    SendProbeData(true);
+    SendProbeData(true); // 2 packets
+    // rearm timer for more rto
+    mDeadline = RTODeadline(mTimerState - 2);
+    mTimerState++;
+  }
+}
+
+uint32_t
+Sender::SendOne(bool fromRTO)
+{
+  assert (!mQueue.empty());
+  
+  mLastSend = MozQuic::Timestamp();
+  mWindowUsed += mQueue.front()->mBareAck ? 0 : mQueue.front()->mLen;
+  if (mUnPacedPacketCredits) {
+    mUnPacedPacketCredits--;
+  }
+  SenderLog6("Packet Sent from Queue Tick #%lX %ld (now %ld/%ld)\n",
+             mQueue.front()->mPacketNum,
+             mQueue.front()->mBareAck ? 0 : mQueue.front()->mLen,
+             mWindowUsed, mWindow);
+  mMozQuic->RealTransmit(mQueue.front()->mData.get(),
+                         mQueue.front()->mLen,
+                         mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr,
+                         false);
+  mQueue.pop_front();
+  return MOZQUIC_OK;
+}
+
 uint32_t
 Sender::Tick(const uint64_t now)
 {
+  LossTimerTick(now);
+
   if (mQueue.empty()) {
     return MOZQUIC_OK;
   }
@@ -114,47 +238,35 @@ Sender::Tick(const uint64_t now)
   }
 
   do {
-    mLastSend = MozQuic::Timestamp();
-    mWindowUsed += mQueue.front()->mBareAck ? 0 : mQueue.front()->mLen;
-    if (mUnPacedPacketCredits) {
-      mUnPacedPacketCredits--;
+    uint32_t rv = SendOne(false);
+    if (rv != MOZQUIC_OK) {
+      return rv;
     }
-    SenderLog7("Packet Sent from Queue Tick #%lX %ld (now %ld/%ld)\n",
-               mQueue.front()->mPacketNum,
-               mQueue.front()->mLen, mWindowUsed, mWindow);
-    mMozQuic->RealTransmit(mQueue.front()->mData.get(),
-                           mQueue.front()->mLen,
-                           mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr);
-    mQueue.pop_front();
-    
   } while (!mQueue.empty() && CanSendNow(mQueue.front()->mLen, false));
+
   return MOZQUIC_OK;
 }
 
 uint32_t
-Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT,
+Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOnly,
                  const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer)
 {
   // in order to queue we need to copy the packet, as its probably on the stack of
   // the caller. So avoid that if possible.
   assert (mQueue.empty() || (mCCState == true));
 
-  if (mDropRate && ((random() % 100) <  mDropRate)) {
-    SenderLog2("Transmit dropped due to drop rate\n");
-    return MOZQUIC_OK;
-  }
-
   SenderLog8("Sender::Transmit %ld %d\n", len, bareAck);
-  bool canSendNow = zeroRTT || CanSendNow(len, zeroRTT) || bareAck; // Do not queue zeroRTT packets.
+  bool canSendNow =
+    (!queueOnly) && (zeroRTT || CanSendNow(len, zeroRTT) || bareAck); // Do not queue zeroRTT packets.
   if (mQueue.empty() && canSendNow) {
     mLastSend = MozQuic::Timestamp();
     mWindowUsed += bareAck ? 0 : len;
     if (mUnPacedPacketCredits) {
       mUnPacedPacketCredits--;
     }
-    SenderLog7("Packet Sent Without Queue #%lX %d now (%ld/%ld)\n",
-               packetNumber, len, mWindowUsed, mWindow);
-    return mMozQuic->RealTransmit(pkt, len, explicitPeer);
+    SenderLog6("Packet Sent Without Queue #%lX %d now (%ld/%ld)\n",
+               packetNumber, bareAck ? 0 : len, mWindowUsed, mWindow);
+    return mMozQuic->RealTransmit(pkt, len, explicitPeer, true);
   }
   mQueue.emplace_back(new BufferedPacket(pkt, len, explicitPeer, packetNumber, bareAck));
   SenderLog7("Packet Queued %lX (gateok=%d)\n", packetNumber, canSendNow);
@@ -167,12 +279,14 @@ Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT,
     if (mUnPacedPacketCredits) {
       mUnPacedPacketCredits--;
     }
-    SenderLog7("Packet Sent from Queue #%lX %d now (%ld/%ld)\n",
+    SenderLog6("Packet Sent from Queue #%lX %d now (%ld/%ld)\n",
                mQueue.front()->mPacketNum,
-               mQueue.front()->mLen, mWindowUsed, mWindow);
+               bareAck ? 0 : mQueue.front()->mLen,
+               mWindowUsed, mWindow);
     mMozQuic->RealTransmit(mQueue.front()->mData.get(),
                            mQueue.front()->mLen,
-                           mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr);
+                           mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr,
+                           true);
     mQueue.pop_front();
     
   } while (!mQueue.empty() && (CanSendNow(mQueue.front()->mLen, false) || mQueue.front()->mBareAck));
@@ -190,8 +304,8 @@ Sender::Ack(uint64_t packetNumber, uint32_t bytes)
   }
 
   if (packetNumber < mEndOfRecovery) {
-    SenderLog6("Acknowledgment of %ld (now %ld/%ld) [recovery]\n",
-               bytes, mWindowUsed, mWindow);
+    SenderLog6("Acknowledgment %lX of %ld (now %ld/%ld) [recovery %lX]\n",
+               packetNumber, bytes, mWindowUsed, mWindow, mEndOfRecovery);
     return;
   }
 
@@ -203,9 +317,13 @@ Sender::Ack(uint64_t packetNumber, uint32_t bytes)
   }
 
   if (mWindow < mSSThresh) {
+    // slow start.. grow exponentially!
     mWindow += bytes;
   } else {
-    mWindow = kDefaultMSS * bytes / mWindow;
+    // AIMD - add one mss per ack'd window
+    // so that means the ack'd proportion of window is
+    // the propotion of mss we add to window
+    mWindow += kDefaultMSS * bytes / mWindow;
   }
   if (mWindow < kMinWindow) {
     mWindow = kMinWindow;
@@ -218,8 +336,9 @@ Sender::Ack(uint64_t packetNumber, uint32_t bytes)
 void
 Sender::ReportLoss(uint64_t packetNumber, uint32_t bytes)
 {
-  SenderLog6("Report Loss [%lX] %lu endRecovery=%lX\n",
-             packetNumber, bytes, mEndOfRecovery);
+  SenderLog4("Report Loss [%lX] %lu endRecovery=%lX%s\n",
+             packetNumber, bytes, mEndOfRecovery,
+             (mEndOfRecovery >= packetNumber) ? " In Recovery" : "");
 
   if (mWindowUsed >= bytes) {
     mWindowUsed -= bytes;
@@ -228,13 +347,14 @@ Sender::ReportLoss(uint64_t packetNumber, uint32_t bytes)
   }
 
   if (mEndOfRecovery < packetNumber) {
-    mEndOfRecovery = packetNumber;
+    assert(packetNumber <= (mMozQuic->HighestTransmittedAckable()));
+    mEndOfRecovery = mMozQuic->HighestTransmittedAckable();
     mWindow = mWindow >> 1;
     if (mWindow < kMinWindow) {
       mWindow = kMinWindow;
     }
     mSSThresh = mWindow;
-    SenderLog6("Report Loss (now %lu/%lu) ssthresh=%lu\n",
+    SenderLog4("Report Loss (now %lu/%lu) ssthresh=%lu\n",
                mWindowUsed, mWindow, mSSThresh);
   }
 }
@@ -255,10 +375,14 @@ Sender::RTTSample(uint64_t xmit, uint64_t delay)
   uint64_t now = MozQuic::Timestamp();
   assert(now >= xmit);
   uint64_t rtt = now - xmit;
-  if (rtt < delay) {
-    return;
+  mMinRTT = std::min(mMinRTT, rtt);
+
+  if ((rtt >= delay) && ((rtt - delay) >= mMinRTT)) {
+    rtt -= delay;
+    mMaxAckDelay = std::max(delay, mMaxAckDelay);
+    mMaxAckDelay = std::min(kMaxAckDelay, mMaxAckDelay); // cap the 'max'
   }
-  rtt -= delay;
+
   rtt = std::min(rtt, (uint64_t)0xffff);
 
   if (mCCState) {
@@ -273,7 +397,7 @@ Sender::RTTSample(uint64_t xmit, uint64_t delay)
   mSmoothedRTT = std::max((uint16_t)1, mSmoothedRTT);
   mRTTVar = std::max((uint16_t)1, mRTTVar);
 
-  SenderLog6("New RTT Sample %u now smoothed %u rttvar %u\n",
+  SenderLog7("New RTT Sample %u now smoothed %u rttvar %u\n",
              rtt, mSmoothedRTT, mRTTVar);
 }
 

@@ -373,13 +373,6 @@ MozQuic::IgnorePKI()
   return mIgnorePKI || mIsLoopback;
 }
 
-
-void
-MozQuic::SetDropRate(uint64_t dr)
-{
-  mSendState->SetDropRate(dr);
-}
-
 void
 MozQuic::SetOriginName(const char *name)
 {

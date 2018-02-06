@@ -172,7 +172,9 @@ MozQuic::FlushStream0(bool forceAck)
       return rv;
     }
     assert (cipherLen == (framePtr - (pkt + 17)) + 16);
-    uint32_t code = mSendState->Transmit(mNextTransmitPacketNumber, bareAck, false, cipherPkt, cipherLen + 17, nullptr);
+    uint32_t code = mSendState->Transmit(mNextTransmitPacketNumber, bareAck, false,
+                                         packet->mQueueOnTransmit,
+                                         cipherPkt, cipherLen + 17, nullptr);
     if (code != MOZQUIC_OK) {
       HandshakeLog1("TRANSMIT0[%lX] this=%p Transmit Fail %x\n",
                     usedPacketNumber, this, rv);
@@ -181,6 +183,11 @@ MozQuic::FlushStream0(bool forceAck)
     packet->mTransmitTime = MozQuic::Timestamp();
     packet->mPacketLen = cipherLen + 17;
     mStreamState->mUnAckedPackets.push_back(std::move(packet));
+
+    if (!bareAck) {
+      assert(mHighestTransmittedAckable <= mNextTransmitPacketNumber);
+      mHighestTransmittedAckable = mNextTransmitPacketNumber;
+    }
 
     Log::sDoLogCID(Log::HANDSHAKE, 5, this, connID,
                    "TRANSMIT0[%lX] this=%p len=%d total0=%d byte0=%x\n",
@@ -497,7 +504,8 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
     }
   }
 
-  return mSendState->Transmit(clientHeader.mPacketNumber, true, false, pkt, framePtr - pkt, peer);
+  return mSendState->Transmit(clientHeader.mPacketNumber, true, false, false,
+                              pkt, framePtr - pkt, peer);
 }
 
 }

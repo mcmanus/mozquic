@@ -55,6 +55,7 @@ MozQuic::MozQuic(bool handleIO)
   , mClientOriginalOfferedVersion(0)
   , mMaxPacketConfig(kDefaultMaxPacketConfig)
   , mMTU(kInitialMTU)
+  , mDropRate(0)
   , mConnectionID(0)
   , mOriginalConnectionID(0)
   , mNextTransmitPacketNumber(0)
@@ -83,6 +84,7 @@ MozQuic::MozQuic(bool handleIO)
   , mCheck0RTTPossible(false)
   , mEarlyDataState(EARLY_DATA_NOT_NEGOTIATED)
   , mEarlyDataLastPacketNumber(0)
+  , mHighestTransmittedAckable(0)
 {
   Log::sParseSubscriptions(getenv("MOZQUIC_LOG"));
   
@@ -121,9 +123,60 @@ MozQuic::Destroy(uint32_t code, const char *reason)
 }
 
 uint32_t
-MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer)
+MozQuic::FlushOnce(bool forceAck, bool forceFrame)
+{
+  if (!mStreamState) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  bool didWrite;
+  return mStreamState->FlushOnce(forceAck, forceFrame, didWrite);
+}
+
+uint32_t
+MozQuic::RetransmitOldestUnackedData(bool fromRTO)
+{
+  // objective is to get oldest unacked data into Sender::mQueue
+
+  // streamstate::retransmitoldestunackeddata -> ss::connectionwritenow()
+  // .. puts data in mConnUnwritten (at front)
+  // .. calls flush()
+  // ss::flush dequeues from mConnUnWritten and quic frames it
+  // .. then puts it on mUnackedPackets with fromRTO tag
+  // .. then calls protectedTransmit()
+  // mq::protectedTransmit encrypts and calls transmit()
+  // transmit can't send it out yet (blocked on cwnd) and leaves in mQueue
+
+  if (mStreamState) {
+    mStreamState->RetransmitOldestUnackedData(fromRTO);
+  }
+  return MOZQUIC_OK;
+}
+
+bool
+MozQuic::AnyUnackedPackets()
+{
+  if (mStreamState) {
+    return mStreamState->AnyUnackedPackets();
+  }
+  return false;
+}
+ 
+uint32_t
+MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer,
+                      bool updateTimers)
 {
   // should only be called by 'sender' class after pacing and cong control conditions met.
+
+  if (updateTimers) {
+    mSendState->EstablishPTOTimer();
+  }
+
+  static bool one = true;
+  if (mDropRate && ((random() % 100) <  mDropRate)) {
+    one = false;
+    ConnectionLog2("Transmit dropped due to drop rate\n");
+    return MOZQUIC_OK;
+  }
 
   if (mAppHandlesSendRecv) {
     struct mozquic_eventdata_transmit data;
@@ -152,7 +205,7 @@ MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in
 uint32_t
 MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                            unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
-                           bool addAcks, uint32_t MTU, uint32_t *bytesOut)
+                           bool addAcks, bool ackable, bool queueOnly, uint32_t MTU, uint32_t *bytesOut)
 {
   assert(((headerLen >= 3) && (headerLen <= 13) && mConnectionState != CLIENT_STATE_0RTT) ||
          ((headerLen == 17) && (mConnectionState == CLIENT_STATE_0RTT)));
@@ -206,8 +259,9 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
   }
 
   rv = mSendState->Transmit(mNextTransmitPacketNumber, bareAck,
-                            mConnectionState == CLIENT_STATE_0RTT, cipherPkt,
-                            written + headerLen, nullptr);
+                            mConnectionState == CLIENT_STATE_0RTT,
+                            queueOnly,
+                            cipherPkt, written + headerLen, nullptr);
   if (rv != MOZQUIC_OK) {
     return rv;
   }
@@ -215,9 +269,14 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     *bytesOut = written + headerLen;
   }
 
-  ConnectionLog5("TRANSMIT[%lX] this=%p len=%d byte0=%X\n",
+  if (ackable) {
+    assert(mHighestTransmittedAckable <= mNextTransmitPacketNumber);
+    mHighestTransmittedAckable = mNextTransmitPacketNumber;
+  }
+
+  ConnectionLog5("TRANSMIT[%lX] this=%p len=%d byte0=%X ackable=%d\n",
                  mNextTransmitPacketNumber, this, written + headerLen,
-                 header[0]);
+                 header[0], ackable);
   mNextTransmitPacketNumber++;
   
   return MOZQUIC_OK;
@@ -281,7 +340,7 @@ MozQuic::Shutdown(uint16_t code, const char *reason)
   }
 
   ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, used - headerLen,
-                    mMTU - headerLen - kTagLen, false);
+                    mMTU - headerLen - kTagLen, false, true);
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
 }
 
@@ -298,6 +357,7 @@ MozQuic::ReleaseBackPressure()
 void
 MozQuic::SetInitialPacketNumber()
 {
+  mHighestTransmittedAckable = 0;
   mNextTransmitPacketNumber = 0;
   for (int i=0; i < 2; i++) {
     mNextTransmitPacketNumber = mNextTransmitPacketNumber << 16;
@@ -860,10 +920,6 @@ MozQuic::IO()
   bool partialResult = false;
   do {
     Intake(&partialResult);
-    if ((mConnectionState != CLIENT_STATE_CLOSED) &&
-        (mConnectionState != SERVER_STATE_CLOSED)) {
-      mStreamState->RetransmitTimer();
-    }
     ClearOldInitialConnectIdsTimer();
     mSendState->Tick(Timestamp());
     mStreamState->Flush(false);
@@ -910,10 +966,10 @@ MozQuic::IO()
       }
     }
   } while (partialResult);
-
-  if (((mConnectionState == SERVER_STATE_1RTT) ||
-       (mConnectionState == SERVER_STATE_0RTT)) &&
-      (mNextTransmitPacketNumber - mOriginalTransmitPacketNumber) > 20) {
+  
+  if ((mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_0RTT ||
+       mConnectionState == CLIENT_STATE_1RTT || mConnectionState == CLIENT_STATE_0RTT) &&
+      (mNextTransmitPacketNumber - mOriginalTransmitPacketNumber) > 14) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"TimedOut Client In Handshake");
     return MOZQUIC_ERR_GENERAL;
   }
@@ -1563,7 +1619,7 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
 
   child->mNSSHelper.reset(new NSSHelper(child, mTolerateBadALPN, mOriginName.get()));
   child->mVersion = mVersion;
-  child->mSendState->SetDropRate(mSendState->DropRate());
+  child->mDropRate = mDropRate;
   child->mTimestampConnBegin = Timestamp();
   child->mOriginalConnectionID = aConnectionID;
   child->mAppHandlesSendRecv = mAppHandlesSendRecv;
