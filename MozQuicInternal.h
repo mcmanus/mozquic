@@ -353,6 +353,9 @@ private:
   uint64_t mNextRecvPacketNumber; // expected
   uint64_t mClientInitialPacketNumber; // only set on child in server
 
+  uint64_t mGenAckFor;
+  uint64_t mGenAckForTime;
+
   void *mClosure;
   int  (*mConnEventCB)(void *, uint32_t, void *);
 

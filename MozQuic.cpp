@@ -63,6 +63,8 @@ MozQuic::MozQuic(bool handleIO)
   , mOriginalTransmitPacketNumber(0)
   , mNextRecvPacketNumber(0)
   , mClientInitialPacketNumber(0)
+  , mGenAckFor(0)
+  , mGenAckForTime(0)
   , mClosure(nullptr)
   , mConnEventCB(nullptr)
   , mParent(nullptr)
@@ -217,6 +219,15 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
   if (!MTU) {
     MTU = mMTU;
   }
+
+  // if ack info has not changed, only send it 2xrtt
+  if (addAcks && !queueOnly &&
+      (mGenAckFor == mNextRecvPacketNumber) &&
+      ((Timestamp() - mGenAckForTime) < (mSendState->SmoothedRTT() >> 1))) {
+    addAcks = false;
+    AckLog6("redundant ack suppressed\n");
+  }
+
   if (addAcks) {
     uint32_t room = MTU - kTagLen - headerLen - dataLen;
     if (room > dataAllocation) {
@@ -226,8 +237,10 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     if (AckPiggyBack(data + dataLen, mNextTransmitPacketNumber, room, keyPhase1Rtt, bareAck, usedByAck) == MOZQUIC_OK) {
       if (usedByAck) {
         AckLog6("Handy-Ack adds to protected Transmit packet %lX by %d\n", mNextTransmitPacketNumber, usedByAck);
+        dataLen += usedByAck;
+        mGenAckFor = mNextRecvPacketNumber;
+        mGenAckForTime = Timestamp();
       }
-      dataLen += usedByAck;
     }
   }
 
