@@ -9,6 +9,11 @@ See https://github.com/quicwg/base-drafts/wiki/Third-Implementation-Draft
 
 based on tls -22
 
+Useful to increase UDP buffering on the host:
+sudo sysctl -w net.core.rmem_max=16000000
+sudo sysctl -w net.core.wmem_max=16000000
+
+
 == Build Notes
 
 ```

@@ -258,6 +258,7 @@ private:
   int ClientReadPostHandshakeTLSMessages();
   int Server1RTT();
   int Bind(int portno);
+  void AdjustBuffering();
   bool VersionOK(uint32_t proposed);
   uint32_t GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockaddr_in *peer);
   uint32_t ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);

@@ -27,6 +27,7 @@ namespace mozquic  {
 const char *MozQuic::kAlpn = MOZQUIC_ALPN;
   
 static const uint16_t kIdleTimeoutDefault = 600;
+static const int kTargetUDPBuffer = 16 * 1024 * 1024;
 
 MozQuic::MozQuic(bool handleIO)
   : mFD(MOZQUIC_SOCKET_BAD)
@@ -432,6 +433,8 @@ MozQuic::StartClient()
     connect(mFD, outAddr->ai_addr, outAddr->ai_addrlen);
     freeaddrinfo(outAddr);
   }
+
+  AdjustBuffering();
   mTimestampConnBegin = Timestamp();
   EnsureSetupClientTransportParameters();
 
@@ -454,7 +457,28 @@ MozQuic::StartServer()
   }
 
   mConnectionState = SERVER_STATE_LISTEN;
-  return Bind(mOriginPort);
+  int rv = Bind(mOriginPort);
+  if (rv == MOZQUIC_OK) {
+    AdjustBuffering();
+  }
+  return rv;
+}
+
+void
+MozQuic::AdjustBuffering()
+{
+  int bufferTarget = kTargetUDPBuffer;
+  setsockopt(mFD, SOL_SOCKET, SO_RCVBUF, &bufferTarget, sizeof(bufferTarget));
+  bufferTarget = kTargetUDPBuffer;
+  setsockopt(mFD, SOL_SOCKET, SO_SNDBUF, &bufferTarget, sizeof(bufferTarget));
+
+  socklen_t sizeofBufferTarget = sizeof(bufferTarget);
+  getsockopt(mFD, SOL_SOCKET, SO_RCVBUF, &bufferTarget, &sizeofBufferTarget);
+  ConnectionLog5("receive buffers - %dKB\n", bufferTarget / 1024);
+
+  sizeofBufferTarget = sizeof(bufferTarget);
+  getsockopt(mFD, SOL_SOCKET, SO_SNDBUF, &bufferTarget, &sizeofBufferTarget);
+  ConnectionLog5("send buffers - %dKB\n", bufferTarget / 1024);
 }
 
 int
@@ -464,6 +488,7 @@ MozQuic::Bind(int portno)
     mFD = socket(AF_INET, SOCK_DGRAM, 0); // todo v6 and non 0 addr
     fcntl(mFD, F_SETFL, fcntl(mFD, F_GETFL, 0) | O_NONBLOCK);
   }
+
   struct sockaddr_in sin;
   memset (&sin, 0, sizeof (sin));
   sin.sin_family = AF_INET;
