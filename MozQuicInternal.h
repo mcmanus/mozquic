@@ -207,7 +207,7 @@ private:
   void RaiseError(uint32_t err, const char *fmt, ...);
 
   void AckScoreboard(uint64_t num, enum keyPhase kp);
-  int MaybeSendAck();
+  int MaybeSendAck(bool delackOK = false);
 
   uint32_t ClearOldInitialConnectIdsTimer();
   void Acknowledge(uint64_t packetNum, keyPhase kp);
@@ -355,6 +355,7 @@ private:
 
   uint64_t mGenAckFor;
   uint64_t mGenAckForTime;
+  uint64_t mDelAckTimer;
 
   void *mClosure;
   int  (*mConnEventCB)(void *, uint32_t, void *);

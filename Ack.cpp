@@ -54,7 +54,7 @@ MozQuic::AckScoreboard(uint64_t packetNumber, enum keyPhase kp)
 }
 
 int
-MozQuic::MaybeSendAck()
+MozQuic::MaybeSendAck(bool delAckOK)
 {
   if (mStreamState->mAckList.empty()) {
     return MOZQUIC_OK;
@@ -65,8 +65,24 @@ MozQuic::MaybeSendAck()
       mConnectionState != SERVER_STATE_CONNECTED) {
     return MOZQUIC_OK;
   }
-  // todo for doing some kind of delack
 
+  if (delAckOK && (Timestamp() < mDelAckTimer) ) {
+    AckLog5("bare ack delayed due to existing delAckTimer\n");
+    return MOZQUIC_OK;
+  }
+
+  if (delAckOK && !mDelAckTimer) {
+    uint64_t timerVal = mSendState->SmoothedRTT() >> 2;
+    AckLog5("bare ack arm and delay delAckTimer %d\n", timerVal);
+    mDelAckTimer = Timestamp() + timerVal;
+    return MOZQUIC_OK;
+  }
+  
+  if (mDelAckTimer) {
+    AckLog5("bare ack timer expired\n");
+    mDelAckTimer = 0;
+  }
+  
   for (auto iter = mStreamState->mAckList.begin();
        iter != mStreamState->mAckList.end(); ++iter) {
     if (iter->Transmitted()) {

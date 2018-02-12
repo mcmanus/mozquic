@@ -76,6 +76,8 @@ int testEvent11(void *closure, uint32_t event, void *param)
     if (state.amtR == AMOUNT && state.amtW == AMOUNT &&
         mozquic_get_allacked(state.conn)) {
       state.state++;
+      mozquic_destroy_connection(state.conn);
+      state.conn = NULL;
     }
   }
 

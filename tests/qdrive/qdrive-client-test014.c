@@ -106,6 +106,13 @@ int testEvent14(void *closure, uint32_t event, void *param)
   } else if (testState.test_state == 5) {
     mozquic_destroy_connection (parentConnection);
     testState.test_state++;
+  }
+
+  if (testState.test_state >= 6) {
+    testState.test_state++;
+  }
+
+  if (testState.test_state == 20) {
     fprintf(stderr,"exit ok\n");
     exit(0);
   }

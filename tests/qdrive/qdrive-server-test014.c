@@ -89,10 +89,15 @@ int testEvent14(void *closure, uint32_t event, void *param)
                 testState.test_state == 5);
     testState.test_state++;
     mozquic_destroy_connection(testState.child[testState.connection -1]);
-    if (testState.test_state == 6) {
-      exit (0);
-    }
     return MOZQUIC_OK;
+  }
+
+  if (testState.test_state >= 6) {
+    testState.test_state++;
+  }
+
+  if (testState.test_state == 20) {
+    exit(0);
   }
 
   return MOZQUIC_OK;

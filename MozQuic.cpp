@@ -65,6 +65,7 @@ MozQuic::MozQuic(bool handleIO)
   , mClientInitialPacketNumber(0)
   , mGenAckFor(0)
   , mGenAckForTime(0)
+  , mDelAckTimer(0)
   , mClosure(nullptr)
   , mConnEventCB(nullptr)
   , mParent(nullptr)
@@ -240,6 +241,7 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
         dataLen += usedByAck;
         mGenAckFor = mNextRecvPacketNumber;
         mGenAckForTime = Timestamp();
+        mDelAckTimer = 0;
       }
     }
   }
@@ -941,7 +943,7 @@ MozQuic::Intake(bool *partialResult)
     }
 
     if ((rv == MOZQUIC_OK) && sendAck) {
-      rv = session->MaybeSendAck();
+      rv = session->MaybeSendAck(true);
     }
   } while (rv == MOZQUIC_OK && !(*partialResult));
 
@@ -959,8 +961,12 @@ MozQuic::IO()
   do {
     Intake(&partialResult);
     ClearOldInitialConnectIdsTimer();
-    mSendState->Tick(Timestamp());
-    mStreamState->Flush(false);
+    if (mSendState) {
+      mSendState->Tick(Timestamp());
+    }
+    if (mStreamState) {
+      mStreamState->Flush(false);
+    }
 
     if (mIsClient) {
       switch (mConnectionState) {
@@ -1002,6 +1008,9 @@ MozQuic::IO()
           (*iter)->IO();
         }
       }
+    }
+    if (Timestamp() < mDelAckTimer) {
+      MaybeSendAck(true);
     }
   } while (partialResult);
   
