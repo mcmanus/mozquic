@@ -69,6 +69,7 @@ static const uint32_t mozquic_library_version = 1;
   {
     const char *originName;
     int originPort;
+    int ipv6;
     int handleIO; // true if library should schedule read and write events
     unsigned int appHandlesSendRecv; // flag to control TRANSMIT/RECV/TLSINPUT events
     unsigned int appHandlesLogging; // flag to control LOG events
@@ -128,7 +129,7 @@ static const uint32_t mozquic_library_version = 1;
   {
     const unsigned char *pkt;
     uint32_t len;
-    struct sockaddr_in *explicitPeer;
+    const struct sockaddr *explicitPeer;
   };
 
   struct mozquic_eventdata_tlsinput

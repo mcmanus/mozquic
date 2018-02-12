@@ -178,6 +178,7 @@ public:
 
   void SetAppHandlesSendRecv() { mAppHandlesSendRecv = true; }
   void SetAppHandlesLogging() { mAppHandlesLogging = true; }
+  void SetV6() { mIPV6 = true; }
   bool IgnorePKI();
   void Destroy(uint32_t, const char *);
   uint32_t CheckPeer(uint32_t);
@@ -198,11 +199,13 @@ public:
 
   void StartBackPressure() { mBackPressure = true; }
   void ReleaseBackPressure();
-  uint32_t RealTransmit(const unsigned char *, uint32_t len, struct sockaddr_in *peer, bool updateTimers);
+  uint32_t RealTransmit(const unsigned char *, uint32_t len,
+                        const struct sockaddr *peer, bool updateTimers);
   uint32_t RetransmitOldestUnackedData(bool fromRTO);
   uint32_t FlushOnce(bool forceack, bool forceframe);
   bool     AnyUnackedPackets();
-    
+  bool     IsV6() { return mIPV6; }
+
 private:
   void RaiseError(uint32_t err, const char *fmt, ...);
 
@@ -213,9 +216,9 @@ private:
   void Acknowledge(uint64_t packetNum, keyPhase kp);
   uint32_t AckPiggyBack(unsigned char *pkt, uint64_t pktNumber, uint32_t avail, keyPhase kp,
                         bool bareAck, uint32_t &used);
-  uint32_t Recv(unsigned char *, uint32_t len, uint32_t &outLen, struct sockaddr_in *peer);
+  uint32_t Recv(unsigned char *, uint32_t len, uint32_t &outLen, const struct sockaddr *peer);
   int ProcessServerCleartext(unsigned char *, uint32_t size, LongHeaderData &, bool &);
-  int ProcessClientInitial(unsigned char *, uint32_t size, struct sockaddr_in *peer,
+  int ProcessClientInitial(unsigned char *, uint32_t size, const struct sockaddr *peer,
                            LongHeaderData &, MozQuic **outSession, bool &);
   int ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeaderData &, bool&);
   uint32_t ProcessGeneralDecoded(const unsigned char *, uint32_t size, bool &, bool fromClearText);
@@ -261,11 +264,11 @@ private:
   int Bind(int portno);
   void AdjustBuffering();
   bool VersionOK(uint32_t proposed);
-  uint32_t GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockaddr_in *peer);
+  uint32_t GenerateVersionNegotiation(LongHeaderData &clientHeader, const struct sockaddr *peer);
   uint32_t ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
   uint32_t ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
 
-  MozQuic *Accept(struct sockaddr_in *peer, uint64_t aConnectionID, uint64_t ciNumber);
+  MozQuic *Accept(const struct sockaddr *peer, uint64_t aConnectionID, uint64_t ciNumber);
 
   void StartPMTUD1();
   void CompletePMTUD1();
@@ -290,7 +293,7 @@ private:
 
   // Stateless Reset
   bool     StatelessResetCheckForReceipt(const unsigned char *pkt, uint32_t pktSize);
-  uint32_t StatelessResetSend(uint64_t connID, struct sockaddr_in *peer);
+  uint32_t StatelessResetSend(uint64_t connID, const struct sockaddr *peer);
   static uint32_t StatelessResetCalculateToken(const unsigned char *key128,
                                                uint64_t connID, unsigned char *out);
   uint32_t StatelessResetEnsureKey();
@@ -315,12 +318,14 @@ private:
   bool mBackPressure;
   bool mEnabled0RTT;
   bool mReject0RTTData;
+  bool mIPV6;
 
   enum connectionState mConnectionState;
   int mOriginPort;
   int mClientPort;
   std::unique_ptr<char []> mOriginName;
-  struct sockaddr_in mPeer; // todo not a v4 world
+
+  struct sockaddr_in6 mPeer; // cast into v4
 
   // both only set in server parent
   unsigned char mStatelessResetKey[128];

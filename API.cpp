@@ -146,6 +146,9 @@ int mozquic_new_connection(mozquic_connection_t **outConnection,
   if (inConfig->appHandlesLogging) {
     q->SetAppHandlesLogging();
   }
+  if (inConfig->ipv6) {
+    q->SetV6();
+  }
   if (internal->ignorePKI) {
     q->SetIgnorePKI();
   }

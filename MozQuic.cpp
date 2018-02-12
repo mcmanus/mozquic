@@ -21,6 +21,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include "prerror.h"
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 namespace mozquic  {
 
@@ -48,6 +50,7 @@ MozQuic::MozQuic(bool handleIO)
   , mBackPressure(false)
   , mEnabled0RTT(false)
   , mReject0RTTData(false)
+  , mIPV6(false)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mClientPort(-1)
@@ -166,7 +169,7 @@ MozQuic::AnyUnackedPackets()
 }
  
 uint32_t
-MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer,
+MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, const struct sockaddr *explicitPeer,
                       bool updateTimers)
 {
   // should only be called by 'sender' class after pacing and cong control conditions met.
@@ -192,9 +195,9 @@ MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, struct sockaddr_in
 
   int rv;
   if (mIsChild || explicitPeer) {
-    struct sockaddr_in *peer = explicitPeer ? explicitPeer : &mPeer;
-    rv = sendto(mFD, pkt, len, 0,
-                (struct sockaddr *)peer, sizeof(struct sockaddr_in));
+    const struct sockaddr *peer = explicitPeer ? explicitPeer : (const struct sockaddr *) &mPeer;
+    socklen_t sop = mIPV6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+    rv = sendto(mFD, pkt, len, 0, peer, sop);
   } else {
     rv = send(mFD, pkt, len, 0);
   }
@@ -422,12 +425,14 @@ MozQuic::StartClient()
     }
 
     if (outAddr->ai_family == AF_INET) {
+      mIPV6 = false;
       mFD = socket(AF_INET, SOCK_DGRAM, 0);
       ((struct sockaddr_in *) outAddr->ai_addr)->sin_port = htons(mOriginPort);
       if ((ntohl(((struct sockaddr_in *) outAddr->ai_addr)->sin_addr.s_addr) & 0xff000000) == 0x7f000000) {
         mIsLoopback = true;
       }
     } else if (outAddr->ai_family == AF_INET6) {
+      mIPV6 = true;
       mFD = socket(AF_INET6, SOCK_DGRAM, 0);
       ((struct sockaddr_in6 *) outAddr->ai_addr)->sin6_port = htons(mOriginPort);
       const void *ptr1 = &in6addr_loopback.s6_addr;
@@ -499,16 +504,33 @@ MozQuic::AdjustBuffering()
 int
 MozQuic::Bind(int portno)
 {
+  int domain = AF_INET;
+  
   if (mFD == MOZQUIC_SOCKET_BAD) {
-    mFD = socket(AF_INET, SOCK_DGRAM, 0); // todo v6 and non 0 addr
+    if (mIPV6) {
+      domain = AF_INET6;
+    }
+    mFD = socket(domain, SOCK_DGRAM, 0); // todo v6 and non 0 addr
     fcntl(mFD, F_SETFL, fcntl(mFD, F_GETFL, 0) | O_NONBLOCK);
   }
 
-  struct sockaddr_in sin;
-  memset (&sin, 0, sizeof (sin));
-  sin.sin_family = AF_INET;
-  sin.sin_port = htons(portno);
-  int rv = bind(mFD, (const sockaddr *)&sin, sizeof (sin));
+  int rv;
+  if (domain == AF_INET) {
+    struct sockaddr_in sin;
+    memset (&sin, 0, sizeof (sin));
+    sin.sin_family = domain;
+    sin.sin_port = htons(portno);
+    rv = bind(mFD, (const sockaddr *)&sin, sizeof (sin));
+  } else {
+    int verdad = 1;
+    setsockopt(mFD, IPPROTO_IPV6, IPV6_V6ONLY, &verdad, sizeof(verdad));
+    struct sockaddr_in6 sin;
+    memset (&sin, 0, sizeof (sin));
+    sin.sin6_family = domain;
+    sin.sin6_port = htons(portno);
+    rv = bind(mFD, (const sockaddr *)&sin, sizeof (sin));
+  }
+
   return (rv != -1) ? MOZQUIC_OK : MOZQUIC_ERR_IO;
 }
 
@@ -761,8 +783,9 @@ MozQuic::Intake(bool *partialResult)
     uint32_t pktSize = 0;
     uint32_t decodedSize = 0;
     sendAck = false;
-    struct sockaddr_in peer;
-    rv = Recv(pkt, kMozQuicMSS, pktSize, &peer);
+    struct sockaddr_in6 peer;
+
+    rv = Recv(pkt, kMozQuicMSS, pktSize, (const sockaddr *)&peer);
     if (rv != MOZQUIC_OK || !pktSize) {
       return rv;
     }
@@ -782,7 +805,7 @@ MozQuic::Intake(bool *partialResult)
         ConnectionLogCID1(tmpShortHeader.mConnectionID,
                           "no session found for encoded packet pn=%lX size=%d\n",
                           tmpShortHeader.mPacketNumber, pktSize);
-        StatelessResetSend(tmpShortHeader.mConnectionID, &peer);
+        StatelessResetSend(tmpShortHeader.mConnectionID, (const sockaddr *) &peer);
         rv = MOZQUIC_ERR_GENERAL;
         continue;
       }
@@ -815,7 +838,7 @@ MozQuic::Intake(bool *partialResult)
         if (!mIsClient) {
           ConnectionLog1("unacceptable version recvd on server %lX.\n", longHeader.mVersion);
           if (pktSize >= kInitialMTU) {
-            session->GenerateVersionNegotiation(longHeader, &peer);
+            session->GenerateVersionNegotiation(longHeader, (const sockaddr *)&peer);
           } else {
             ConnectionLog1("packet too small to be CI, ignoring\n");
           }
@@ -901,7 +924,9 @@ MozQuic::Intake(bool *partialResult)
       switch (longHeader.mType) {
 
       case PACKET_TYPE_INITIAL:
-        rv = session->ProcessClientInitial(pkt, pktSize, &peer, longHeader, &tmpSession, sendAck);
+        rv = session->ProcessClientInitial(pkt, pktSize,
+                                           (const sockaddr *) &peer,
+                                           longHeader, &tmpSession, sendAck);
         // ack after processing - find new session
         if (rv == MOZQUIC_OK) {
           session = tmpSession->mAlive;
@@ -1037,7 +1062,7 @@ MozQuic::IO()
 
 uint32_t
 MozQuic::Recv(unsigned char *pkt, uint32_t avail, uint32_t &outLen,
-              struct sockaddr_in *peer)
+              const struct sockaddr *peer)
 {
   uint32_t code = MOZQUIC_OK;
 
@@ -1620,12 +1645,22 @@ MozQuic::GetRemotePeerAddressHash(unsigned char *out, uint32_t *outLen)
 
   *outLen = 0;
   unsigned char *ptr = out;
-  assert (mPeer.sin_family == AF_INET); // todo - need v6 support in server
+
+  if (mIPV6) {
+    assert (mPeer.sin6_family == AF_INET6);
+    memcpy(ptr, &mPeer.sin6_addr.s6_addr, 16);
+    ptr += 16;
+    memcpy(ptr, &mPeer.sin6_port, sizeof(in_port_t));
+    ptr += sizeof(in_port_t);
+  } else {
+    const struct sockaddr_in *v4ptr = (const struct sockaddr_in *) &mPeer;
+    assert (v4ptr->sin_family == AF_INET);
+    memcpy(ptr, &(v4ptr->sin_addr.s_addr), sizeof(uint32_t));
+    ptr += sizeof(uint32_t);
+    memcpy(ptr, &(v4ptr->sin_port), sizeof(in_port_t));
+    ptr += sizeof(in_port_t);
+  }
   
-  memcpy(ptr, &mPeer.sin_addr.s_addr, sizeof(uint32_t));
-  ptr += sizeof(uint32_t);
-  memcpy(ptr, &mPeer.sin_port, sizeof(in_port_t));
-  ptr += sizeof(in_port_t);
   uint64_t connID = PR_htonll(mOriginalConnectionID);
   memcpy(ptr, &connID, sizeof (uint64_t));
   ptr += sizeof(uint64_t);
@@ -1637,7 +1672,7 @@ MozQuic::GetRemotePeerAddressHash(unsigned char *out, uint32_t *outLen)
 }
 
 MozQuic *
-MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t aCIPacketNumber)
+MozQuic::Accept(const struct sockaddr *clientAddr, uint64_t aConnectionID, uint64_t aCIPacketNumber)
 {
   MozQuic *child = new MozQuic(mHandleIO);
   child->mStreamState.reset(new StreamState(child, mAdvertiseStreamWindow, mAdvertiseConnectionWindow));
@@ -1645,8 +1680,17 @@ MozQuic::Accept(struct sockaddr_in *clientAddr, uint64_t aConnectionID, uint64_t
   child->mIsChild = true;
   child->mIsClient = false;
   child->mParent = this;
+  child->mIPV6 = mIPV6;
   child->mConnectionState = SERVER_STATE_LISTEN;
-  memcpy(&child->mPeer, clientAddr, sizeof (struct sockaddr_in));
+
+  if (mIPV6) {
+    memcpy(&child->mPeer, clientAddr, sizeof (struct sockaddr_in6));
+    assert(child->mPeer.sin6_family == AF_INET6);
+  } else {
+    memcpy(&child->mPeer, clientAddr, sizeof (struct sockaddr_in));
+    assert(((struct sockaddr_in *)(&child->mPeer))->sin_family == AF_INET);
+  }
+  
   child->mFD = mFD;
   child->mClientInitialPacketNumber = aCIPacketNumber;
 

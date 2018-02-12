@@ -379,7 +379,7 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
 
 int
 MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
-                              struct sockaddr_in *clientAddr,
+                              const struct sockaddr *clientAddr,
                               LongHeaderData &header,
                               MozQuic **childSession,
                               bool &sendAck)
@@ -468,7 +468,7 @@ MozQuic::ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
 }
 
 uint32_t
-MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockaddr_in *peer)
+MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, const struct sockaddr *peer)
 {
   assert(!mIsChild);
   assert(!mIsClient);
@@ -494,6 +494,7 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, struct sockadd
     memcpy (framePtr, &tmp32, sizeof(uint32_t));
     framePtr += sizeof(uint32_t);
   }
+
   if (mSabotageVN) {
     // redo the list of version backwards as a test
     framePtr = pkt + 13;

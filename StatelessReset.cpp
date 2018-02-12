@@ -32,7 +32,7 @@ MozQuic::StatelessResetEnsureKey()
 }
 
 uint32_t
-MozQuic::StatelessResetSend(uint64_t connID, struct sockaddr_in *peer)
+MozQuic::StatelessResetSend(uint64_t connID, const struct sockaddr *peer)
 {
   if (mIsClient) {
     return MOZQUIC_ERR_GENERAL;

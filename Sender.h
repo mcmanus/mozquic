@@ -27,21 +27,9 @@ public:
   }
 
   BufferedPacket(const unsigned char *pkt, uint32_t pktSize,
-                 struct sockaddr_in *sin, uint64_t packetNum,
-                 bool bareAck)
-    : mData(new unsigned char[pktSize])
-    , mLen(pktSize)
-    , mHeaderSize(0)
-    , mPacketNum(packetNum)
-    , mExplicitPeer(false)
-    , mBareAck(bareAck)
-  {
-    memcpy((void *)mData.get(), pkt, mLen);
-    if (sin) {
-      mExplicitPeer = true;
-      memcpy(&mSockAddr, sin, sizeof (struct sockaddr_in));
-    }
-  }
+                 const struct sockaddr *sin, size_t soSin,
+                 uint64_t packetNum, bool bareAck);
+
   ~BufferedPacket()
   {
   }
@@ -52,7 +40,7 @@ public:
   uint32_t mPacketNum;
   bool     mExplicitPeer;
   bool     mBareAck;
-  struct sockaddr_in mSockAddr;
+  struct sockaddr_in6 mSockAddr;
 };
 
 const uint32_t kDefaultMSS = 1460;
@@ -63,7 +51,7 @@ class Sender final
 public:
   Sender(MozQuic *session);
   uint32_t Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOnly,
-                    const unsigned char *, uint32_t len, struct sockaddr_in *peer);
+                    const unsigned char *, uint32_t len, const struct sockaddr *peer);
   void RTTSample(uint64_t xmit, uint64_t delay);
   void Ack(uint64_t packetNumber, uint32_t packetLength);
   void ReportLoss(uint64_t packetNumber, uint32_t packetLength);

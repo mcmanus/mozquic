@@ -213,7 +213,9 @@ int main(int argc, char **argv)
   
   memset(&config, 0, sizeof(config));
   if (has_arg(argc, argv, "-peer", &argVal)) {
-    char *c = strchr(argVal, ':');
+    char *tmp = argVal;
+    while (*tmp == ':') tmp++;
+    char *c = strchr(tmp, ':');
     if (c) {
       *c++ = 0;
       config.originPort = atoi(c);

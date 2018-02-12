@@ -218,7 +218,7 @@ Sender::SendOne(bool fromRTO)
              mWindowUsed, mWindow);
   mMozQuic->RealTransmit(mQueue.front()->mData.get(),
                          mQueue.front()->mLen,
-                         mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr,
+                         mQueue.front()->mExplicitPeer ? (const struct sockaddr *)&(mQueue.front()->mSockAddr) : nullptr,
                          false);
   mQueue.pop_front();
   return MOZQUIC_OK;
@@ -247,9 +247,26 @@ Sender::Tick(const uint64_t now)
   return MOZQUIC_OK;
 }
 
+BufferedPacket::BufferedPacket(const unsigned char *pkt, uint32_t pktSize,
+                               const struct sockaddr *sin, size_t soSin,
+                               uint64_t packetNum, bool bareAck)
+  : mData(new unsigned char[pktSize])
+  , mLen(pktSize)
+  , mHeaderSize(0)
+  , mPacketNum(packetNum)
+  , mExplicitPeer(false)
+  , mBareAck(bareAck)
+{
+  memcpy((void *)mData.get(), pkt, mLen);
+  if (sin) {
+    mExplicitPeer = true;
+    memcpy(&mSockAddr, sin, soSin);
+  }
+}
+
 uint32_t
 Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOnly,
-                 const unsigned char *pkt, uint32_t len, struct sockaddr_in *explicitPeer)
+                 const unsigned char *pkt, uint32_t len, const struct sockaddr *explicitPeer)
 {
   // in order to queue we need to copy the packet, as its probably on the stack of
   // the caller. So avoid that if possible.
@@ -268,7 +285,10 @@ Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOn
                packetNumber, bareAck ? 0 : len, mWindowUsed, mWindow);
     return mMozQuic->RealTransmit(pkt, len, explicitPeer, true);
   }
-  mQueue.emplace_back(new BufferedPacket(pkt, len, explicitPeer, packetNumber, bareAck));
+  size_t soSin =
+    mMozQuic->IsV6() ? sizeof (struct sockaddr_in6) : sizeof (struct sockaddr_in);
+  mQueue.emplace_back(new BufferedPacket(pkt, len, explicitPeer,
+                                         soSin, packetNumber, bareAck));
   SenderLog7("Packet Queued %lX (gateok=%d)\n", packetNumber, canSendNow);
   if (!canSendNow) {
     return MOZQUIC_OK;
@@ -285,7 +305,7 @@ Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOn
                mWindowUsed, mWindow);
     mMozQuic->RealTransmit(mQueue.front()->mData.get(),
                            mQueue.front()->mLen,
-                           mQueue.front()->mExplicitPeer ? &(mQueue.front()->mSockAddr) : nullptr,
+                           mQueue.front()->mExplicitPeer ? (const struct sockaddr *)&(mQueue.front()->mSockAddr) : nullptr,
                            true);
     mQueue.pop_front();
     
