@@ -87,7 +87,8 @@ MozQuic::MaybeSendAck()
 // #3 gap=4, additional ack block=1 // 2, 1
 
 uint32_t
-MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, keyPhase kp, uint32_t &used)
+MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, keyPhase kp,
+                      bool bareAck, uint32_t &used)
 {
   used = 0;
 
@@ -127,14 +128,16 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
       used += outputSize;
       avail -= outputSize;
 
-      // todo scale transport parameter
       assert(iter->mReceiveTime.size());
-      uint64_t delay64 = Timestamp() - *(iter->mReceiveTime.begin());
-      delay64 *= 1000; // wire encoding is microseconds
-      if (kp != keyPhaseUnprotected) {
-        delay64 /= (1ULL << mLocalAckDelayExponent);
-      } else {
-        delay64 /= (1ULL << kDefaultAckDelayExponent);
+      uint64_t delay64 =  0;
+      if (!bareAck) {
+        delay64 = Timestamp() - *(iter->mReceiveTime.begin());
+        delay64 *= 1000; // wire encoding is microseconds
+        if (kp != keyPhaseUnprotected) {
+          delay64 /= (1ULL << mLocalAckDelayExponent);
+        } else {
+          delay64 /= (1ULL << kDefaultAckDelayExponent);
+        }
       }
 
       if (EncodeVarint(delay64, pkt + used, avail, outputSize) != MOZQUIC_OK) {
@@ -250,14 +253,14 @@ MozQuic::Acknowledge(uint64_t packetNum, keyPhase kp)
 void
 MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
                     const unsigned char *endOfPacket, bool fromCleartext,
-                    uint32_t &used)
+                    uint32_t &outUsedByAckFrame)
 {
   // frameptr points to the beginning of the ackblock section
   assert (ackMetaInfo->mType == FRAME_TYPE_ACK);
   assert (ackMetaInfo->u.mAck.mAckBlocks <= 4096);
 
   const unsigned char *originalFramePtr = framePtr;
-  used = 0;
+  outUsedByAckFrame = 0;
 
   uint16_t numRanges = 0;
   std::array<std::pair<uint64_t, uint64_t>, 4096> ackStack;
@@ -269,14 +272,14 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       return;
     }
 
-    uint32_t used;
+    uint32_t amtParsed;
     if (idx != 0) { // mind the gap
       uint64_t gap;
-      if (DecodeVarint(framePtr, endOfPacket - framePtr, gap, used) != MOZQUIC_OK) {
+      if (DecodeVarint(framePtr, endOfPacket - framePtr, gap, amtParsed) != MOZQUIC_OK) {
         RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
         return;
       }
-      framePtr += used;
+      framePtr += amtParsed;
       if (largestAcked < (gap + 1)) {
         RaiseError(MOZQUIC_ERR_GENERAL, (char *) "invalid ack encoding");
         return;
@@ -285,11 +288,11 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
     }
     uint64_t extra = 0;
 
-    if (DecodeVarint(framePtr, endOfPacket - framePtr, extra, used) != MOZQUIC_OK) {
+    if (DecodeVarint(framePtr, endOfPacket - framePtr, extra, amtParsed) != MOZQUIC_OK) {
       RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ack frame header short");
       return;
     }
-    framePtr += used;
+    framePtr += amtParsed;
 
     AckLog5("ACK RECVD (%s) FOR %lX -> %lX\n",
             fromCleartext ? "cleartext" : "protected",
@@ -312,6 +315,7 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
     largestAcked -= extra + 1;
   }
 
+  outUsedByAckFrame = framePtr - originalFramePtr;
   bool maybeDoEarlyRetransmit = false;
   uint64_t reportLossLessThan = 0;
 
@@ -401,8 +405,6 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       }
     } // haveackfor iteration
   } //ranges iteration
-
-  used = framePtr -originalFramePtr;
 }
 
 uint32_t

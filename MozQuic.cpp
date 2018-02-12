@@ -223,7 +223,7 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
       room = dataAllocation;
     }
     uint32_t usedByAck = 0;
-    if (AckPiggyBack(data + dataLen, mNextTransmitPacketNumber, room, keyPhase1Rtt, usedByAck) == MOZQUIC_OK) {
+    if (AckPiggyBack(data + dataLen, mNextTransmitPacketNumber, room, keyPhase1Rtt, bareAck, usedByAck) == MOZQUIC_OK) {
       if (usedByAck) {
         AckLog6("Handy-Ack adds to protected Transmit packet %lX by %d\n", mNextTransmitPacketNumber, usedByAck);
       }
