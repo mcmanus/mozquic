@@ -254,6 +254,8 @@ namespace mozquic {
 static bool mozQuicInit = false;
 static PRDescIdentity nssHelperIdentity;
 static PRIOMethods nssHelperMethods;
+static const char *kServerLabel = "QUIC server handshake secret";
+static const char *kClientLabel = "QUIC client handshake secret";
 
 static class keyWrapper 
 {
@@ -535,11 +537,79 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
   return ssl_hello_retry_request;
 }
 
+class ServerHandshakeReceiverKeys
+{
+public:
+  ~ServerHandshakeReceiverKeys() {
+    if (mPacketProtectionHandshakeReceiverKey) {
+      PK11_FreeSymKey(mPacketProtectionHandshakeReceiverKey);
+    }
+  }
+
+  PK11SymKey *Take()
+  {
+    PK11SymKey *rv = mPacketProtectionHandshakeReceiverKey;
+    mPacketProtectionHandshakeReceiverKey = nullptr;
+    return rv;
+  }
+
+  ServerHandshakeReceiverKeys(uint64_t cid)
+  {
+    PK11SlotInfo *slot = nullptr;
+    PK11SymKey *cidKey = nullptr;
+    PK11SymKey *handshakeSecret = nullptr;
+    unsigned char expandOut[32];
+    
+    uint64_t tmp64 = PR_htonll(cid);
+    SECItem cidItem = { siBuffer, (unsigned char *)&tmp64, 8 };
+
+    if (!(slot = PK11_GetInternalSlot())) {
+      goto cleanup;
+    }
+
+    cidKey =  PK11_ImportSymKey(slot, CKM_NSS_HKDF_SHA256,
+                                PK11_OriginUnwrap,
+                                CKA_DERIVE, &cidItem, NULL);
+    if (!cidKey) {
+      goto cleanup;
+    }
+
+    if ((tls13_HkdfExtract(gCleartextSaltKey.key, cidKey, ssl_hash_sha256, &handshakeSecret) != SECSuccess) ||
+        !handshakeSecret) {
+      goto cleanup;
+    }
+    assert (PK11_ExtractKeyValue(handshakeSecret) == SECSuccess);
+    assert (PK11_GetKeyData(handshakeSecret)->len == 32);
+
+    if (tls13_HkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
+                                 kClientLabel, strlen(kClientLabel),
+                                 expandOut, 32) != SECSuccess) {
+      goto cleanup;
+    }
+
+    NSSHelper::MakeKeyFromRaw(expandOut, 32, 16, ssl_hash_sha256,
+                              CKM_NSS_HKDF_SHA256, CKM_AES_KEY_GEN,
+                              mPacketProtectionHandshakeReceiverIV, &mPacketProtectionHandshakeReceiverKey);
+
+  cleanup:
+    if (slot) {
+      PK11_FreeSlot(slot);
+    }
+    if (cidKey) {
+      PK11_FreeSymKey(cidKey);
+    }
+    if (handshakeSecret) {
+      PK11_FreeSymKey(handshakeSecret);
+    }
+  }
+
+  PK11SymKey    *mPacketProtectionHandshakeReceiverKey;
+  unsigned char  mPacketProtectionHandshakeReceiverIV[12];
+};
+
 void
 NSSHelper::MakeHandshakeKeys(uint64_t cid)
 {
-  static const char *clientLabel = "QUIC client handshake secret";
-  static const char *serverLabel = "QUIC server handshake secret";
   PK11SlotInfo *slot = nullptr;
   PK11SymKey *cidKey = nullptr;
   PK11SymKey *handshakeSecret = nullptr;
@@ -570,24 +640,26 @@ NSSHelper::MakeHandshakeKeys(uint64_t cid)
   assert (PK11_ExtractKeyValue(handshakeSecret) == SECSuccess);
   assert (PK11_GetKeyData(handshakeSecret)->len == 32);
 
-  if (tls13_HkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
-                               clientLabel, strlen(clientLabel),
-                               expandOut, 32) != SECSuccess) {
-    goto cleanup;
-  }
-
   if (mIsClient) {
+    if (tls13_HkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
+                                 kClientLabel, strlen(kClientLabel),
+                                 expandOut, 32) != SECSuccess) {
+      goto cleanup;
+    }
+
     MakeKeyFromRaw(expandOut, 32, 16, ssl_hash_sha256,
                    CKM_NSS_HKDF_SHA256, CKM_AES_KEY_GEN,
                    mPacketProtectionHandshakeSenderIV, &mPacketProtectionHandshakeSenderKey);
   } else {
-    MakeKeyFromRaw(expandOut, 32, 16, ssl_hash_sha256,
-                   CKM_NSS_HKDF_SHA256, CKM_AES_KEY_GEN,
-                   mPacketProtectionHandshakeReceiverIV, &mPacketProtectionHandshakeReceiverKey);
+    ServerHandshakeReceiverKeys skey(mPacketProtectionHandshakeCID);
+    mPacketProtectionHandshakeReceiverKey = skey.Take();
+    memcpy(mPacketProtectionHandshakeReceiverIV,
+           skey.mPacketProtectionHandshakeReceiverIV,
+           sizeof(mPacketProtectionHandshakeReceiverIV));
   }
 
   if (tls13_HkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
-                               serverLabel, strlen(serverLabel),
+                               kServerLabel, strlen(kServerLabel),
                                expandOut, 32) != SECSuccess) {
     goto cleanup;
   }
@@ -791,6 +863,49 @@ NSSHelper::BlockOperation(enum operationType mode,
     rv = PK11_Decrypt(key, mech, &param, out, &enlen, outAvail,
                       data, dataLen) == SECSuccess ? MOZQUIC_OK : MOZQUIC_ERR_GENERAL;
   }
+  written = enlen;
+  return rv;
+}
+
+uint32_t
+NSSHelper::staticDecryptHandshake(const unsigned char *aadData, uint32_t aadLen,
+                                  const unsigned char *data, uint32_t dataLen,
+                                  uint64_t packetNumber, uint64_t connectionID,
+                                  unsigned char *out, uint32_t outAvail, uint32_t &written)
+// out should be at least dataLen - 16 (for tag removal)
+{
+  assert(outAvail >= (dataLen + 16));
+
+  CK_GCM_PARAMS gcmParams;
+  unsigned char *params;
+  unsigned int paramsLength;
+  unsigned char nonce[12];
+
+  assert(sizeof(nonce) == 12);
+  ServerHandshakeReceiverKeys keys(connectionID);
+  memcpy(nonce, keys.mPacketProtectionHandshakeReceiverIV, sizeof(nonce));
+  packetNumber = PR_htonll(packetNumber);
+  unsigned char *tmp = (unsigned char *)&packetNumber;
+  for(int i = 0; i < 8; ++i) {
+    nonce[i + 4] ^= tmp[i];
+  }
+
+  params = (unsigned char *) &gcmParams;
+  paramsLength = sizeof(gcmParams);
+  memset(&gcmParams, 0, sizeof(gcmParams));
+  gcmParams.pIv = nonce;
+  gcmParams.ulIvLen = sizeof(nonce);
+  gcmParams.pAAD = (unsigned char *)aadData;
+  gcmParams.ulAADLen = aadLen;
+  gcmParams.ulTagBits = 128;
+
+  unsigned int enlen = 0;
+  SECItem param = {siBuffer, params, paramsLength};
+  uint32_t rv = MOZQUIC_OK;
+
+  rv = PK11_Decrypt(keys.mPacketProtectionHandshakeReceiverKey,
+                    CKM_AES_GCM, &param, out, &enlen, outAvail,
+                    data, dataLen) == SECSuccess ? MOZQUIC_OK : MOZQUIC_ERR_GENERAL;
   written = enlen;
   return rv;
 }

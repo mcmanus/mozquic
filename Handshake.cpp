@@ -47,22 +47,23 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize,
       return tmpSession->IntegrityCheck(pkt, pktSize, pktNum, connID, outbuf, outSize);
     }
   }
-  std::unique_ptr<NSSHelper> tmpNSS;
-  if (!mNSSHelper) {
-    assert(!mIsClient);
-    // todo we really only need the handshake keys
-    tmpNSS.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get()));
-  }
-  NSSHelper *nss = tmpNSS.get() ? tmpNSS.get() : mNSSHelper.get();
 
-  assert(mOriginalConnectionID ||
-         ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL));
+  assert(mOriginalConnectionID || ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL));
   if ((pkt[0] & 0x7f) != PACKET_TYPE_INITIAL) {
     connID = mOriginalConnectionID;
   }
-  
-  if (nss->DecryptHandshake(pkt, 17, pkt + 17, pktSize - 17, pktNum, connID,
-                            outbuf + 17, kMozQuicMSS - 17, outSize) != MOZQUIC_OK) {
+
+  uint32_t rv;
+  if (mNSSHelper) {
+    rv = mNSSHelper->DecryptHandshake(pkt, 17, pkt + 17, pktSize - 17, pktNum, connID,
+                                      outbuf + 17, kMozQuicMSS - 17, outSize);
+  } else {
+    assert ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL || (pkt[0] & 0x7f) == PACKET_TYPE_RETRY);
+    rv = NSSHelper::staticDecryptHandshake(pkt, 17, pkt + 17, pktSize - 17, pktNum, connID,
+                                           outbuf + 17, kMozQuicMSS - 17, outSize);
+  }
+    
+  if (rv != MOZQUIC_OK) {
     ConnectionLog1("Decrypt handshake failed packet %lX integrity error\n", pktNum);
     return false;
   }

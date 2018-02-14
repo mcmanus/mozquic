@@ -116,10 +116,16 @@ private:
                           unsigned int secretSize, unsigned int keySize, SSLHashType hashType,
                           CK_MECHANISM_TYPE importMechanism1, CK_MECHANISM_TYPE importMechanism2,
                           unsigned char *outIV, PK11SymKey **outKey);
-  uint32_t MakeKeyFromRaw(unsigned char *initialSecret,
+public:
+  static uint32_t MakeKeyFromRaw(unsigned char *initialSecret,
                           unsigned int secretSize, unsigned int keySize, SSLHashType hashType,
                           CK_MECHANISM_TYPE importMechanism1, CK_MECHANISM_TYPE importMechanism2,
                           unsigned char *outIV, PK11SymKey **outKey);
+  static uint32_t staticDecryptHandshake(const unsigned char *aadData, uint32_t aadLen,
+                                         const unsigned char *data, uint32_t dataLen,
+                                         uint64_t packetNumber, uint64_t connectionID,
+                                         unsigned char *out, uint32_t outAvail, uint32_t &written);
+private:
   static void GetKeyParamsFromCipherSuite(uint16_t cipherSuite,
                                           unsigned int &secretSize,
                                           unsigned int &keySize,
