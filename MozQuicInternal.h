@@ -384,6 +384,7 @@ private:
   uint64_t mPMTUD1Deadline;
   uint64_t mPMTUD1PacketNumber;
   uint16_t mPMTUDTarget;
+  uint64_t mIdleDeadline;
 
   bool     mDecodedOK;
   bool     mLocalOmitCID;

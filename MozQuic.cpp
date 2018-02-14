@@ -78,6 +78,7 @@ MozQuic::MozQuic(bool handleIO)
   , mPMTUD1Deadline(0)
   , mPMTUD1PacketNumber(0)
   , mPMTUDTarget(kMaxMTU)
+  , mIdleDeadline(0)
   , mDecodedOK(false)
   , mLocalOmitCID(false)
   , mPeerOmitCID(false)
@@ -173,6 +174,8 @@ MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, const struct socka
                       bool updateTimers)
 {
   // should only be called by 'sender' class after pacing and cong control conditions met.
+
+  mIdleDeadline = Timestamp() + (mPeerIdleTimeout * 1000);
 
   if (updateTimers) {
     mSendState->EstablishPTOTimer();
@@ -1034,9 +1037,18 @@ MozQuic::IO()
         }
       }
     }
-    if (Timestamp() < mDelAckTimer) {
+    uint64_t now = Timestamp();
+    if (mDelAckTimer && now >= mDelAckTimer) {
       MaybeSendAck(true);
     }
+    if (mConnectionState == CLIENT_STATE_CONNECTED ||
+        mConnectionState == SERVER_STATE_CONNECTED) {
+      if (now > mIdleDeadline) {
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *)"Idle Timeout");
+        return MOZQUIC_ERR_GENERAL;
+      }
+    }
+
   } while (partialResult);
   
   if ((mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_0RTT ||
@@ -1087,6 +1099,9 @@ MozQuic::Recv(unsigned char *pkt, uint32_t avail, uint32_t &outLen,
     return code;
   }
 
+  if (outLen) {
+    mIdleDeadline = Timestamp() + (mPeerIdleTimeout * 1000);
+  }
   return MOZQUIC_OK;
 }
 
@@ -1200,6 +1215,8 @@ MozQuic::ClientConnected()
     } else {
       ConnectionLog5("Decoding Server Transport Parameters: passed\n");
     }
+    mPeerIdleTimeout = std::min(mPeerIdleTimeout, (uint16_t)600); // 7.4.1
+    mIdleDeadline = Timestamp() + (mPeerIdleTimeout * 1000);
     mRemoteTransportExtensionInfo = nullptr;
     mRemoteTransportExtensionInfoLen = 0;
     extensionInfo = nullptr;
@@ -1321,7 +1338,9 @@ MozQuic::ServerConnected()
             mStreamState->mPeerMaxStreamID[BIDI_STREAM],
             mStreamState->mPeerMaxStreamID[UNI_STREAM],
             mPeerIdleTimeout, mPeerOmitCID, mMaxPacketConfig);
-            
+    mPeerIdleTimeout = std::min(mPeerIdleTimeout, (uint16_t)600); // 7.4.1
+    mIdleDeadline = Timestamp() + (mPeerIdleTimeout * 1000);
+
     Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,
                 "Decoding Client Transport Parameters: %s\n",
                 decodeResult == MOZQUIC_OK ? "passed" : "failed");
