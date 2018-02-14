@@ -254,8 +254,21 @@ namespace mozquic {
 static bool mozQuicInit = false;
 static PRDescIdentity nssHelperIdentity;
 static PRIOMethods nssHelperMethods;
-static PK11SymKey *sCleartextSaltKey; // todo leaked globally once
-  
+
+static class keyWrapper 
+{
+public:
+  keyWrapper()
+    : key(nullptr) { }
+
+  ~keyWrapper() {
+    if (key) {
+      PK11_FreeSymKey(key);
+    }
+  }
+  PK11SymKey *key;
+} gCleartextSaltKey;
+
 int
 NSSHelper::Init(char *dir)
 {
@@ -278,13 +291,13 @@ NSSHelper::Init(char *dir)
     return MOZQUIC_ERR_GENERAL;
   }
   
-  if (!sCleartextSaltKey) {
+  if (!gCleartextSaltKey.key) {
     PK11SlotInfo *slot = PK11_GetInternalSlot();
     if (slot) {
-      sCleartextSaltKey = PK11_ImportSymKey(slot,
-                                            CKM_NSS_HKDF_SHA256,
-                                            PK11_OriginUnwrap,
-                                            CKA_DERIVE, &saltItem, NULL);
+      gCleartextSaltKey.key = PK11_ImportSymKey(slot,
+                                                CKM_NSS_HKDF_SHA256,
+                                                PK11_OriginUnwrap,
+                                                CKA_DERIVE, &saltItem, NULL);
       PK11_FreeSlot(slot);
     }
   }
@@ -550,7 +563,7 @@ NSSHelper::MakeHandshakeKeys(uint64_t cid)
     goto cleanup;
   }
 
-  if ((tls13_HkdfExtract(sCleartextSaltKey, cidKey, ssl_hash_sha256, &handshakeSecret) != SECSuccess) ||
+  if ((tls13_HkdfExtract(gCleartextSaltKey.key, cidKey, ssl_hash_sha256, &handshakeSecret) != SECSuccess) ||
       !handshakeSecret) {
     goto cleanup;
   }
