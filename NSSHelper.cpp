@@ -992,23 +992,8 @@ NSSHelper::BadCertificate(void *client_data, PRFileDesc *fd)
   return self->mMozQuic->IgnorePKI() ? SECSuccess : SECFailure;
 }
 
-// server version
-NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey)
-  : mMozQuic(quicSession)
-  , mNSSReady(false)
-  , mHandshakeComplete(false)
-  , mHandshakeFailed(false)
-  , mIsClient(false)
-  , mTolerateBadALPN(tolerateBadALPN)
-  , mDoHRR(false)
-  , mExternalCipherSuite(0)
-  , mLocalTransportExtensionLen(0)
-  , mRemoteTransportExtensionLen(0)
-  , mPacketProtectionSenderKey0(nullptr)
-  , mPacketProtectionReceiverKey0(nullptr)
-  , mPacketProtectionHandshakeCID(0)
-  , mPacketProtectionHandshakeSenderKey(nullptr)
-  , mPacketProtectionHandshakeReceiverKey(nullptr)
+void 
+NSSHelper::SharedInit()
 {
   memset(mExternalSendSecret, 0, sizeof(mExternalSendSecret));
   memset(mExternalRecvSecret, 0, sizeof(mExternalRecvSecret));
@@ -1023,14 +1008,14 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   // SSL_CipherPrefSet(mFD, TLS_CHACHA20_POLY1305_SHA256, 0);
 
   SSL_OptionSet(mFD, SSL_SECURITY, true);
-  SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, false);
-  SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, true);
+  SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, mIsClient);
+  SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, !mIsClient);
   SSL_OptionSet(mFD, SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_NEVER);
   SSL_OptionSet(mFD, SSL_NO_CACHE, false);
   SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, true);
   if (mMozQuic->Enabled0RTT()) {
     SSL_OptionSet(mFD, SSL_ENABLE_0RTT_DATA, true);
-    if (!mMozQuic->Reject0RTTData()) {
+    if (!mIsClient && !mMozQuic->Reject0RTTData()) {
       // If this option is not set 0rtt data will be rejected.
       // We will use this to test the case when the server rejects 0rtt data.
       SSL_SetupAntiReplay(1000, 1, 3);
@@ -1047,12 +1032,6 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   SSL_VersionRangeSet(mFD, &range);
   SSL_HandshakeCallback(mFD, HandshakeCallback, nullptr);
 
-  if (mMozQuic->GetForceAddressValidation()) {
-    SSL_HelloRetryRequestCallback(mFD, HRRCallback, this);
-  }
-
-  mNSSReady = true;
-
   unsigned char buffer[256];
   assert(strlen(MozQuic::kAlpn) < 256);
   buffer[0] = strlen(MozQuic::kAlpn);
@@ -1060,18 +1039,6 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   if (SSL_SetNextProtoNego(mFD,
                            buffer, strlen(MozQuic::kAlpn) + 1) != SECSuccess) {
     mNSSReady = false;
-  }
-
-  CERTCertificate *cert =
-    CERT_FindCertByNickname(CERT_GetDefaultCertDB(), originKey);
-  if (cert) {
-    SECKEYPrivateKey *key = PK11_FindKeyByAnyCert(cert, nullptr);
-    if (key) {
-      SECStatus rv = SSL_ConfigServerCert(mFD, cert, key, nullptr, 0);
-      if (mNSSReady && rv == SECSuccess) {
-        mNSSReady = true;
-      }
-    }
   }
 
   SSLExtensionSupport supportTransportParameters;
@@ -1086,96 +1053,80 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
     PR_Connect(mFD, &addr, 0);
   } else {
     TlsLog1("Transport ExtensionSupport not possible. not connecting\n");
+    mNSSReady = false;
   }
-  MakeHandshakeKeys(mMozQuic->ConnectionID());
-  // if you Read() from the helper, it pulls through the tls layer from the mozquic::stream0 buffer where
-  // peer data lke the client hello is stored.. if you Write() to the helper something
-  // like "", the tls layer adds the server hello on the way out into mozquic::stream0
 
+  MakeHandshakeKeys(mMozQuic->ConnectionID());
 }
 
-// client version
-NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey, bool unused)
+// server version
+NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey)
   : mMozQuic(quicSession)
-  , mNSSReady(false)
+  , mNSSReady(true)
   , mHandshakeComplete(false)
   , mHandshakeFailed(false)
-  , mIsClient(true)
+  , mIsClient(false)
   , mTolerateBadALPN(tolerateBadALPN)
+  , mDoHRR(false)
   , mExternalCipherSuite(0)
   , mLocalTransportExtensionLen(0)
   , mRemoteTransportExtensionLen(0)
   , mPacketProtectionSenderKey0(nullptr)
   , mPacketProtectionReceiverKey0(nullptr)
+  , mPacketProtectionHandshakeCID(0)
+  , mPacketProtectionHandshakeSenderKey(nullptr)
+  , mPacketProtectionHandshakeReceiverKey(nullptr)
 {
-  // todo most of this can be put in an init routine shared between c/s
+  SharedInit();
 
-  mFD = PR_CreateIOLayerStub(nssHelperIdentity, &nssHelperMethods);
-  mFD->secret = (struct PRFilePrivate *)this;
-  mFD = SSL_ImportFD(nullptr, mFD);
-
-  // To disable any of the usual cipher suites..
-  // SSL_CipherPrefSet(mFD, TLS_AES_128_GCM_SHA256, 0);
-  // SSL_CipherPrefSet(mFD, TLS_AES_256_GCM_SHA384, 0);
-  // SSL_CipherPrefSet(mFD, TLS_CHACHA20_POLY1305_SHA256, 0);
-
-  SSL_OptionSet(mFD, SSL_SECURITY, true);
-  SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, true);
-  SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, false);
-  SSL_OptionSet(mFD, SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_NEVER);
-  SSL_OptionSet(mFD, SSL_NO_CACHE, false);
-  SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, true);
-  if (mMozQuic->Enabled0RTT()) {
-    SSL_OptionSet(mFD, SSL_ENABLE_0RTT_DATA, true);
+  if (mMozQuic->GetForceAddressValidation()) {
+    SSL_HelloRetryRequestCallback(mFD, HRRCallback, this);
   }
-  SSL_OptionSet(mFD, SSL_REQUEST_CERTIFICATE, false);
-  SSL_OptionSet(mFD, SSL_REQUIRE_CERTIFICATE, SSL_REQUIRE_NEVER);
 
-  SSL_OptionSet(mFD, SSL_ENABLE_NPN, false);
-  SSL_OptionSet(mFD, SSL_ENABLE_ALPN, true);
+  CERTCertificate *cert =
+    CERT_FindCertByNickname(CERT_GetDefaultCertDB(), originKey);
+  if (cert) {
+    SECKEYPrivateKey *key = PK11_FindKeyByAnyCert(cert, nullptr);
+    if (key) {
+      SECStatus rv = SSL_ConfigServerCert(mFD, cert, key, nullptr, 0);
+      if (rv == SECFailure) {
+        mNSSReady = false;
+      }
+    }
+  }
+}
+
+// client version
+NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey, bool unused)
+  : mMozQuic(quicSession)
+  , mNSSReady(true)
+  , mHandshakeComplete(false)
+  , mHandshakeFailed(false)
+  , mIsClient(true)
+  , mTolerateBadALPN(tolerateBadALPN)
+  , mDoHRR(false)
+  , mExternalCipherSuite(0)
+  , mLocalTransportExtensionLen(0)
+  , mRemoteTransportExtensionLen(0)
+  , mPacketProtectionSenderKey0(nullptr)
+  , mPacketProtectionReceiverKey0(nullptr)
+  , mPacketProtectionHandshakeCID(0)
+  , mPacketProtectionHandshakeSenderKey(nullptr)
+  , mPacketProtectionHandshakeReceiverKey(nullptr)
+{
+  SharedInit();
   SSL_SendAdditionalKeyShares(mFD, 2);
   SSLNamedGroup groups[] = {  ssl_grp_ec_secp256r1,
                               ssl_grp_ec_curve25519,
                               ssl_grp_ec_secp384r1
   };
   SSL_NamedGroupConfig(mFD, groups, PR_ARRAY_SIZE(groups));
-
-  SSLVersionRange range = {SSL_LIBRARY_VERSION_TLS_1_3,
-                           SSL_LIBRARY_VERSION_TLS_1_3};
-  SSL_VersionRangeSet(mFD, &range);
-  SSL_HandshakeCallback(mFD, HandshakeCallback, nullptr);
   SSL_BadCertHook(mFD, BadCertificate, nullptr);
 
   char module_name[] = "library=libnssckbi.so name=\"Root Certs\"";
   SECMOD_LoadUserModule(module_name, NULL, PR_FALSE);
 
-  mNSSReady = true;
-
-  unsigned char buffer[256];
-  assert(strlen(MozQuic::kAlpn) < 256);
-  buffer[0] = strlen(MozQuic::kAlpn);
-  memcpy(buffer + 1, MozQuic::kAlpn, strlen(MozQuic::kAlpn));
-  if (SSL_SetNextProtoNego(mFD,
-                           buffer, strlen(MozQuic::kAlpn) + 1) != SECSuccess) {
-    mNSSReady = false;
-  }
-
   SSL_SetURL(mFD, originKey);
-
-  SSLExtensionSupport supportTransportParameters;
-  if (SSL_GetExtensionSupport(kTransportParametersID, &supportTransportParameters) == SECSuccess &&
-      supportTransportParameters != ssl_ext_native_only &&
-      SSL_InstallExtensionHooks(mFD, kTransportParametersID,
-                                TransportExtensionWriter, this,
-                                TransportExtensionHandler, this) == SECSuccess) {
-    PRNetAddr addr;
-    memset(&addr,0,sizeof(addr));
-    addr.raw.family = PR_AF_INET;
-    PR_Connect(mFD, &addr, 0);
-  } else {
-    TlsLog1("Transport Extension Support not possible. not connecting\n");
-  }
-  MakeHandshakeKeys(mMozQuic->ConnectionID());
 }
 
 int

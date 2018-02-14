@@ -25,12 +25,16 @@ enum operationType {
   kDecrypt0RTT,
 };
 
+// if you Read() from the helper, it pulls through the tls layer from the mozquic::stream0 buffer where
+// peer data lke the client hello is stored.. if you Write() to the helper something
+// like "", the tls layer adds the server hello on the way out into mozquic::stream0
+
 class NSSHelper final
 {
 public:
   static int Init(char *dir);
   NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey);
-  NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey, bool clientindicator); // todo, subclass
+  NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey, bool clientindicator);
   ~NSSHelper();
   uint32_t ReadTLSData();
   uint32_t DriveHandshake();
@@ -86,6 +90,7 @@ public:
   bool IsEarlyDataAcceptedClient();
 
 private:
+  void SharedInit();
   static PRStatus NSPRGetPeerName(PRFileDesc *aFD, PRNetAddr*addr);
   static PRStatus NSPRGetSocketOption(PRFileDesc *aFD, PRSocketOptionData *aOpt);
   static PRStatus nssHelperConnect(PRFileDesc *fd, const PRNetAddr *addr, PRIntervalTime to);
