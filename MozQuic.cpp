@@ -227,6 +227,12 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     MTU = mMTU;
   }
 
+  if (mNextTransmitPacketNumber >= ((1ULL << 62) - 1)) {
+    ConnectionLog1("Connection Packet Number Exhausted\n");
+    RaiseError(MOZQUIC_ERR_GENERAL, "Connection Packet Number Exhausted\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
   // if ack info has not changed, only send it 2xrtt
   if (addAcks && !queueOnly &&
       (mGenAckFor == mNextRecvPacketNumber) &&
