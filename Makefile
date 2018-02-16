@@ -41,6 +41,7 @@ OBJS += Ping.o
 OBJS += Sender.o
 OBJS += StatelessReset.o
 OBJS += Streams.o
+OBJS += Timer.o
 OBJS += TransportExtension.o
 
 all: client server qdrive-client qdrive-server

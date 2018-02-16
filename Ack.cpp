@@ -66,21 +66,23 @@ MozQuic::MaybeSendAck(bool delAckOK)
     return MOZQUIC_OK;
   }
 
-  if (delAckOK && (Timestamp() < mDelAckTimer) ) {
+  if (delAckOK &&
+      mDelAckTimer->Armed() && !mDelAckTimer->Expired()) {
     AckLog5("bare ack delayed due to existing delAckTimer\n");
     return MOZQUIC_OK;
   }
 
-  if (delAckOK && !mDelAckTimer) {
+  if (delAckOK && !mDelAckTimer->Armed()) {
     uint64_t timerVal = mSendState->SmoothedRTT() >> 2;
     AckLog5("bare ack arm and delay delAckTimer %d\n", timerVal);
-    mDelAckTimer = Timestamp() + timerVal;
+    mDelAckTimer->Arm(timerVal);
     return MOZQUIC_OK;
   }
-  
-  if (mDelAckTimer) {
+
+  if (mDelAckTimer->Armed()) {
+    assert(mDelAckTimer->Expired());
     AckLog5("bare ack timer expired\n");
-    mDelAckTimer = 0;
+    mDelAckTimer->Cancel();
   }
   
   for (auto iter = mStreamState->mAckList.begin();

@@ -100,15 +100,18 @@ static const uint32_t mozquic_library_version = 1;
   int mozquic_check_peer(mozquic_connection_t *conn, uint32_t deadlineMS); // generate PING_OK event
   int mozquic_get_streamid(mozquic_stream_t *stream);
   int mozquic_get_allacked(mozquic_connection_t *conn);
-
   int mozquic_start_backpressure(mozquic_connection_t *conn);
   int mozquic_release_backpressure(mozquic_connection_t *conn);
-  
+
   ////////////////////////////////////////////////////
   // IO handlers
   // if library is handling IO this does not need to be called
   // otherwise call it to indicate IO should be handled
   int mozquic_IO(mozquic_connection_t *inSession);
+
+  // how long to wait on timers before calling mozquic_IO. in ms.
+  int mozquic_next_timer();
+
   // todo need one to get the pollset
 
   /* socket typedef */

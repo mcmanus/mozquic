@@ -33,9 +33,9 @@ Sender::Sender(MozQuic *session)
   , mSmoothedRTT(100)
   , mRTTVar(50)
   , mCCState(false)
-  , mPacingTicker(0)
+  , mPacingTimer(new Timer(this))
   , mTimerState(0)
-  , mDeadline(0) // timerstate expiration (assuming state != 0)
+  , mDeadline(new Timer(this)) // timerstate expiration (assuming state != 0)
   , mMaxAckDelay(0)
   , mMinRTT(-1)
   , mWindow(kDefaultMSS * 10) // bytes
@@ -67,7 +67,7 @@ Sender::CanSendNow(uint64_t amt, bool zeroRtt)
   // compete with flows that are not pacing, it is recommended to not
   // pace the first 10 sent packets when exiting quiescence.
 
-  mPacingTicker = 0;
+  mPacingTimer->Cancel();
   if (mCCState == false) {
     if (!zeroRtt) {
       return true;
@@ -98,10 +98,11 @@ Sender::CanSendNow(uint64_t amt, bool zeroRtt)
       spaceNeeded = 25; // max gap
     }
     assert(MozQuic::Timestamp() >= mLastSend);
-    uint64_t actualSpace = MozQuic::Timestamp() - mLastSend;
+    uint64_t now = MozQuic::Timestamp();
+    uint64_t actualSpace = now - mLastSend;
     if (actualSpace < spaceNeeded) {
       SenderLog8("Pacing requires %ld ms gap (have %ld)\n", spaceNeeded, actualSpace);
-      mPacingTicker = mLastSend + spaceNeeded;
+      mPacingTimer->Arm(mLastSend + spaceNeeded - now);
       return false;
     }
     return true;
@@ -115,7 +116,7 @@ Sender::PTODeadline()
   uint64_t ptoDeadline = mSmoothedRTT + (mSmoothedRTT >> 1) + mMaxAckDelay;
 
   // min pto is 10ms
-  ptoDeadline = std::max(ptoDeadline, kMinTLP) + MozQuic::Timestamp();
+  ptoDeadline = std::max(ptoDeadline, kMinTLP);
 
   //  If RTO (Section 3.3.2) is earlier, schedule a TLP alarm in its place.
   // That is, PTO SHOULD be scheduled for min(RTO, PTO).
@@ -129,7 +130,6 @@ Sender::RTODeadline(uint32_t numTimesFired)
   uint64_t rtoDeadline = mSmoothedRTT + 4 * mRTTVar + mMaxAckDelay;
   rtoDeadline = rtoDeadline << numTimesFired;
   rtoDeadline = std::max(rtoDeadline, kMinRTO);
-  rtoDeadline += MozQuic::Timestamp();
   return rtoDeadline;
 }
 
@@ -141,9 +141,10 @@ Sender::EstablishPTOTimer()
   if (mTimerState >= 2) {
     // an rto is scheduled, keep the deadline if its earlier
     // than the ptoDeadline
-    ptoDeadline = std::min(ptoDeadline, mDeadline);
+    uint64_t untilExpiration = mDeadline->Expires();
+    ptoDeadline = std::min(ptoDeadline, untilExpiration);
   }
-  mDeadline = ptoDeadline;
+  mDeadline->Arm(ptoDeadline);
   mTimerState = 1;
 }
 
@@ -169,35 +170,38 @@ Sender::SendProbeData(bool fromRTO)
 }
 
 void
-Sender::LossTimerTick(const uint64_t now)
+Sender::Alarm(Timer *alarm)
 {
-  if (!mTimerState) {
+  if (alarm == mPacingTimer.get()) {
+    PacingTimerExpired();
     return;
   }
+
+  assert(alarm == mDeadline.get());
+  assert(mTimerState);
+
   if (!mMozQuic->AnyUnackedPackets()) {
     // this is the normal state of things
+    mDeadline->Cancel();
     mTimerState = 0;
-    return;
-  }
-  if (now < mDeadline) {
     return;
   }
 
   if (mTimerState == 1) { // 1st pto expired
     SendProbeData(false);
     // rearm timer for another pto
-    mDeadline = PTODeadline();
+    mDeadline->Arm(PTODeadline());
     mTimerState = 2;
   } else if (mTimerState == 2) { // 2nd pto expired
     SendProbeData(false);
     // rearm timer for rto
-    mDeadline = RTODeadline(0);
+    mDeadline->Arm(RTODeadline(0));
     mTimerState = 3;
   } else if (mTimerState >= 3) { // rto expired
     SendProbeData(true);
     SendProbeData(true); // 2 packets
     // rearm timer for more rto
-    mDeadline = RTODeadline(mTimerState - 2);
+    mDeadline->Arm(RTODeadline(mTimerState - 2));
     mTimerState++;
   }
 }
@@ -224,27 +228,23 @@ Sender::SendOne(bool fromRTO)
   return MOZQUIC_OK;
 }
 
-uint32_t
-Sender::Tick(const uint64_t now)
+void
+Sender::PacingTimerExpired()
 {
-  LossTimerTick(now);
-
   if (mQueue.empty()) {
-    return MOZQUIC_OK;
+    return;
   }
   
-  if ((now < mPacingTicker) || !CanSendNow(mQueue.front()->mLen, false)) {
-    return MOZQUIC_OK;
+  if (!CanSendNow(mQueue.front()->mLen, false)) {
+    return;
   }
 
   do {
     uint32_t rv = SendOne(false);
     if (rv != MOZQUIC_OK) {
-      return rv;
+      break;
     }
   } while (!mQueue.empty() && CanSendNow(mQueue.front()->mLen, false));
-
-  return MOZQUIC_OK;
 }
 
 BufferedPacket::BufferedPacket(const unsigned char *pkt, uint32_t pktSize,

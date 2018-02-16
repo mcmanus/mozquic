@@ -41,6 +41,8 @@ public:
   uint32_t mVersion;
 };
 
+class MozQuic;
+
 class ShortHeaderData
 {
 private:
@@ -74,8 +76,6 @@ enum FrameType {
   FRAME_MASK_STREAM            = 0xf8,
   FRAME_TYPE_STREAM            = 0x10, // 0001 0...
 };
-
-class MozQuic;
 
 class FrameHeaderData
 {

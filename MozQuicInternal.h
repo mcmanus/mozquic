@@ -17,6 +17,7 @@
 #include "prnetdb.h"
 #include "MozQuic.h"
 #include "Packetization.h"
+#include "Timer.h"
 
 namespace mozquic {
 
@@ -116,19 +117,45 @@ class StreamState;
 class ReliableData;
 class BufferedPacket;
 
-class MozQuic final
+class ConnIDTimeout
+  : public TimerNotification
+{
+public:
+  ConnIDTimeout(MozQuic *session)
+    : mSession(session)    {}
+  virtual ~ConnIDTimeout() {}
+  void Alarm(Timer *) override;
+private:
+  MozQuic *mSession;
+};
+
+class InitialClientPacketInfo {
+public:
+  InitialClientPacketInfo() {}
+  virtual ~InitialClientPacketInfo() {}
+  uint64_t mServerConnectionID;
+  uint64_t mHashKey;
+  uint64_t mTimestamp;
+  std::unique_ptr<Timer> mTimer;
+};
+
+class MozQuic
+  : public TimerNotification
 {
   friend class StreamPair;
   friend class Log;
   friend class FrameHeaderData;
   friend class StreamState;
+  friend class ConnIDTimeout;
 
 public:
   static const char *kAlpn;
   static const uint32_t kForgetInitialConnectionIDsThresh = 15000; // ms
 
   MozQuic(bool handleIO);
-  ~MozQuic();
+  virtual ~MozQuic();
+
+  void Alarm(Timer *) override;
 
   int StartClient();
   int StartServer();
@@ -212,7 +239,6 @@ private:
   void AckScoreboard(uint64_t num, enum keyPhase kp);
   int MaybeSendAck(bool delackOK = false);
 
-  uint32_t ClearOldInitialConnectIdsTimer();
   void Acknowledge(uint64_t packetNum, keyPhase kp);
   uint32_t AckPiggyBack(unsigned char *pkt, uint64_t pktNumber, uint32_t avail, keyPhase kp,
                         bool bareAck, uint32_t &used);
@@ -337,16 +363,12 @@ private:
   uint32_t mVersion;
   uint32_t mClientOriginalOfferedVersion;
 
-  // todo mvp lifecycle.. stuff never comes out of here
   std::unordered_map<uint64_t, MozQuic *> mConnectionHash;
+
   // This maps connectionId sent by a client and connectionId chosen by the
   // server. This is used to detect dup client initial packets.
   // The elemets are going to be removed using a timer.
-  struct InitialClientPacketInfo {
-    uint64_t mServerConnectionID;
-    uint64_t mTimestamp;
-  };
-  std::unordered_map<uint64_t, struct InitialClientPacketInfo> mConnectionHashOriginalNew;
+  std::unordered_map<uint64_t, std::unique_ptr<InitialClientPacketInfo>> mConnectionHashOriginalNew;
 
   uint16_t mMaxPacketConfig;
   uint16_t mMTU;
@@ -360,7 +382,7 @@ private:
 
   uint64_t mGenAckFor;
   uint64_t mGenAckForTime;
-  uint64_t mDelAckTimer;
+  std::unique_ptr<Timer> mDelAckTimer;
 
   void *mClosure;
   int  (*mConnEventCB)(void *, uint32_t, void *);
@@ -380,11 +402,12 @@ private:
   uint64_t mTimestampConnBegin;
 
   // Related to PING and PMTUD
-  uint64_t mPingDeadline;
-  uint64_t mPMTUD1Deadline;
+  std::unique_ptr<Timer> mPingDeadline;
+  std::unique_ptr<Timer> mPMTUD1Deadline;
   uint64_t mPMTUD1PacketNumber;
   uint16_t mPMTUDTarget;
-  uint64_t mIdleDeadline;
+
+  std::unique_ptr<Timer> mIdleDeadline;
 
   bool     mDecodedOK;
   bool     mLocalOmitCID;
@@ -405,6 +428,8 @@ private:
   bool mCheck0RTTPossible;
   earlyDataState mEarlyDataState;
   uint64_t mEarlyDataLastPacketNumber;
+
+  ConnIDTimeout mConnIDTimeout;
 
 public:
   uint64_t HighestTransmittedAckable() { return mHighestTransmittedAckable; }

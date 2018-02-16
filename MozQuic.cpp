@@ -10,6 +10,7 @@
 #include "NSSHelper.h"
 #include "Sender.h"
 #include "Streams.h"
+#include "Timer.h"
 #include "TransportExtension.h"
 
 #include "assert.h"
@@ -68,17 +69,17 @@ MozQuic::MozQuic(bool handleIO)
   , mClientInitialPacketNumber(0)
   , mGenAckFor(0)
   , mGenAckForTime(0)
-  , mDelAckTimer(0)
+  , mDelAckTimer(new Timer(this))
   , mClosure(nullptr)
   , mConnEventCB(nullptr)
   , mParent(nullptr)
   , mAlive(this)
   , mTimestampConnBegin(0)
-  , mPingDeadline(0)
-  , mPMTUD1Deadline(0)
+  , mPingDeadline(new Timer(this))
+  , mPMTUD1Deadline(new Timer(this))
   , mPMTUD1PacketNumber(0)
   , mPMTUDTarget(kMaxMTU)
-  , mIdleDeadline(0)
+  , mIdleDeadline(new Timer(this))
   , mDecodedOK(false)
   , mLocalOmitCID(false)
   , mPeerOmitCID(false)
@@ -92,6 +93,7 @@ MozQuic::MozQuic(bool handleIO)
   , mCheck0RTTPossible(false)
   , mEarlyDataState(EARLY_DATA_NOT_NEGOTIATED)
   , mEarlyDataLastPacketNumber(0)
+  , mConnIDTimeout(this)
   , mHighestTransmittedAckable(0)
 {
   Log::sParseSubscriptions(getenv("MOZQUIC_LOG"));
@@ -114,6 +116,28 @@ MozQuic::~MozQuic()
 {
   if (!mIsChild && (mFD != MOZQUIC_SOCKET_BAD)) {
     close(mFD);
+  }
+}
+
+void
+MozQuic::Alarm(Timer *timer)
+{
+  if (timer == mDelAckTimer.get()) {
+    MaybeSendAck(false);
+  } else if (timer == mPingDeadline.get()) {
+    if (mConnEventCB) {
+      ConnectionLog1("ping deadline expired\n");
+      mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
+    }
+  } else if (timer == mIdleDeadline.get()) {
+    if (mConnectionState == CLIENT_STATE_CONNECTED ||
+        mConnectionState == SERVER_STATE_CONNECTED) {
+      RaiseError(MOZQUIC_ERR_GENERAL, (char *)"Idle Timeout");
+    }
+  } else if (timer == mPMTUD1Deadline.get()) {
+    AbortPMTUD1();
+  } else {
+    assert(0);
   }
 }
 
@@ -175,7 +199,7 @@ MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, const struct socka
 {
   // should only be called by 'sender' class after pacing and cong control conditions met.
 
-  mIdleDeadline = Timestamp() + (mPeerIdleTimeout * 1000);
+  mIdleDeadline->Arm(mPeerIdleTimeout * 1000);
 
   if (updateTimers) {
     mSendState->EstablishPTOTimer();
@@ -253,7 +277,7 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
         dataLen += usedByAck;
         mGenAckFor = mNextRecvPacketNumber;
         mGenAckForTime = Timestamp();
-        mDelAckTimer = 0;
+        mDelAckTimer->Cancel();
       }
     }
   }
@@ -554,7 +578,7 @@ MozQuic::FindSession(uint64_t cid, bool isClientOriginal)
   if (isClientOriginal) {
     auto i = mConnectionHashOriginalNew.find(cid);
     if (i != mConnectionHashOriginalNew.end()) {
-      cid = (*i).second.mServerConnectionID;
+      cid = (*i).second->mServerConnectionID;
     } else {
       return nullptr;
     }
@@ -994,10 +1018,6 @@ MozQuic::IO()
   bool partialResult = false;
   do {
     Intake(&partialResult);
-    ClearOldInitialConnectIdsTimer();
-    if (mSendState) {
-      mSendState->Tick(Timestamp());
-    }
     if (mStreamState) {
       mStreamState->Flush(false);
     }
@@ -1043,19 +1063,10 @@ MozQuic::IO()
         }
       }
     }
-    uint64_t now = Timestamp();
-    if (mDelAckTimer && now >= mDelAckTimer) {
-      MaybeSendAck(true);
-    }
-    if (mConnectionState == CLIENT_STATE_CONNECTED ||
-        mConnectionState == SERVER_STATE_CONNECTED) {
-      if (now > mIdleDeadline) {
-        RaiseError(MOZQUIC_ERR_GENERAL, (char *)"Idle Timeout");
-        return MOZQUIC_ERR_GENERAL;
-      }
-    }
 
   } while (partialResult);
+
+  Timer::Tick();
   
   if ((mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_0RTT ||
        mConnectionState == CLIENT_STATE_1RTT || mConnectionState == CLIENT_STATE_0RTT) &&
@@ -1064,14 +1075,6 @@ MozQuic::IO()
     return MOZQUIC_ERR_GENERAL;
   }
 
-  if (mPingDeadline && mConnEventCB && mPingDeadline < Timestamp()) {
-    ConnectionLog1("ping deadline expired set at %ld now %ld\n", mPingDeadline, Timestamp());
-    mPingDeadline = 0;
-    mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
-  }
-  if (mPMTUD1Deadline && mPMTUD1Deadline < Timestamp()) {
-    AbortPMTUD1();
-  }
   if (mConnEventCB) {
     mConnEventCB(mClosure, MOZQUIC_EVENT_IO, this);
   }
@@ -1106,7 +1109,7 @@ MozQuic::Recv(unsigned char *pkt, uint32_t avail, uint32_t &outLen,
   }
 
   if (outLen) {
-    mIdleDeadline = Timestamp() + (mPeerIdleTimeout * 1000);
+    mIdleDeadline->Arm(mPeerIdleTimeout * 1000);
   }
   return MOZQUIC_OK;
 }
@@ -1222,7 +1225,7 @@ MozQuic::ClientConnected()
       ConnectionLog5("Decoding Server Transport Parameters: passed\n");
     }
     mPeerIdleTimeout = std::min(mPeerIdleTimeout, (uint16_t)600); // 7.4.1
-    mIdleDeadline = Timestamp() + (mPeerIdleTimeout * 1000);
+    mIdleDeadline->Arm(mPeerIdleTimeout * 1000);
     mRemoteTransportExtensionInfo = nullptr;
     mRemoteTransportExtensionInfoLen = 0;
     extensionInfo = nullptr;
@@ -1345,7 +1348,7 @@ MozQuic::ServerConnected()
             mStreamState->mPeerMaxStreamID[UNI_STREAM],
             mPeerIdleTimeout, mPeerOmitCID, mMaxPacketConfig);
     mPeerIdleTimeout = std::min(mPeerIdleTimeout, (uint16_t)600); // 7.4.1
-    mIdleDeadline = Timestamp() + (mPeerIdleTimeout * 1000);
+    mIdleDeadline->Arm(mPeerIdleTimeout * 1000);
 
     Log::sDoLog(Log::CONNECTION, decodeResult == MOZQUIC_OK ? 5 : 1, this,
                 "Decoding Client Transport Parameters: %s\n",
@@ -1469,8 +1472,8 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
     mDecodedOK = true;
     StartPMTUD1();
   }
-  if (mPingDeadline && mConnEventCB) {
-    mPingDeadline = 0;
+  if (mPingDeadline->Armed() && mConnEventCB) {
+    mPingDeadline->Cancel();
     mConnEventCB(mClosure, MOZQUIC_EVENT_PING_OK, nullptr);
   }
 
@@ -1741,10 +1744,19 @@ MozQuic::Accept(const struct sockaddr *clientAddr, uint64_t aConnectionID, uint6
   child->mAppHandlesSendRecv = mAppHandlesSendRecv;
   child->mAppHandlesLogging = mAppHandlesLogging;
   mConnectionHash.insert( { child->mConnectionID, child });
-  mConnectionHashOriginalNew.insert( { aConnectionID,
-                                       { child->mConnectionID, Timestamp() }
-                                     } );
 
+  // the struct can hold the unique ptr to the timer
+  // the hash has to be a hash of unique pointers to structs
+
+  std::unique_ptr<InitialClientPacketInfo> t(new InitialClientPacketInfo());
+  t->mServerConnectionID = child->mConnectionID;
+  t->mHashKey = aConnectionID;
+  t->mTimestamp = Timestamp();
+  t->mTimer.reset(new Timer(&mConnIDTimeout));
+  t->mTimer->SetData(t.get());
+  t->mTimer->Arm(kForgetInitialConnectionIDsThresh);
+  mConnectionHashOriginalNew.insert(std::make_pair(aConnectionID, std::move(t)));
+  
   return child;
 }
 
@@ -1823,25 +1835,17 @@ MozQuic::NSSOutput(const void *buf, int32_t amount)
   return mStreamState->mStream0->Write((const unsigned char *)buf, amount, false);
 }
 
-uint32_t
-MozQuic::ClearOldInitialConnectIdsTimer()
+void
+ConnIDTimeout::Alarm(Timer *timer)
 {
-  // todo, really crude
-
-  uint64_t now = Timestamp();
-  uint64_t discardEpoch = now - kForgetInitialConnectionIDsThresh;
-
-  for (auto i = mConnectionHashOriginalNew.begin(); i != mConnectionHashOriginalNew.end(); ) {
-    if ((*i).second.mTimestamp < discardEpoch) {
-      ConnectionLog7("Forget an old client initial connectionID: %lX\n",
-                    (*i).first);
-      i = mConnectionHashOriginalNew.erase(i);
-    } else {
-      i++;
-    }
-  }
-  return MOZQUIC_OK;
+  InitialClientPacketInfo *ci = (InitialClientPacketInfo *)timer->Data();
+  
+  auto i = mSession->mConnectionHashOriginalNew.find(ci->mHashKey);
+  assert(i != mSession->mConnectionHashOriginalNew.end());
+  assert((*i).second->mTimestamp <= (MozQuic::Timestamp() - MozQuic::kForgetInitialConnectionIDsThresh));
+  Log::sDoLog(Log::CONNECTION, 7, mSession,
+              "Forget an old client initial connectionID: %lX\n", ci->mHashKey);
+  mSession->mConnectionHashOriginalNew.erase(i);
 }
-
 }
 

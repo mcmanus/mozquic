@@ -289,6 +289,11 @@ int mozquic_set_event_callback_closure(mozquic_connection_t *conn,
   return MOZQUIC_OK;
 }
 
+int mozquic_next_timer()
+{
+  return mozquic::Timer::NextTimerInMsec();
+}
+
 int mozquic_IO(mozquic_connection_t *conn)
 {
   mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));

@@ -18,7 +18,7 @@ namespace mozquic  {
 uint32_t
 MozQuic::CheckPeer(uint32_t deadline)
 {
-  if (mPingDeadline) {
+  if (mPingDeadline->Armed()) {
     return MOZQUIC_OK;
   }
   if ((mConnectionState != CLIENT_STATE_CONNECTED) &&
@@ -27,7 +27,7 @@ MozQuic::CheckPeer(uint32_t deadline)
     return MOZQUIC_ERR_GENERAL;
   }
 
-  mPingDeadline = Timestamp() + deadline;
+  mPingDeadline->Arm(deadline);
 
   assert(mMTU <= kMaxMTU);
   unsigned char plainPkt[kMaxMTU];
@@ -73,7 +73,8 @@ MozQuic::StartPMTUD1()
 
   ConnectionLog5("pmtud1: %d MTU test started\n", mPMTUDTarget);
   mPMTUD1PacketNumber = mNextTransmitPacketNumber;
-  mPMTUD1Deadline = Timestamp() + 3000; // 3 seconds to ack the ping
+  mPMTUD1Deadline->Arm(3000); // 3 seconds to ack the ping
+
   uint32_t bytesOut = 0;
   if (ProtectedTransmit(plainPkt, headerLen,
                         plainPkt + headerLen, room + 1,
@@ -157,8 +158,7 @@ MozQuic::CompletePMTUD1()
 {
   assert (mPMTUD1PacketNumber);
   ConnectionLog5("pmtud1: %d MTU CONFIRMED.\n", mPMTUDTarget);
-  mPMTUD1PacketNumber = 0;
-  mPMTUD1Deadline = 0;
+  mPMTUD1Deadline->Cancel();
   mMTU = mPMTUDTarget;
 }
 
@@ -168,7 +168,7 @@ MozQuic::AbortPMTUD1()
   assert (mPMTUD1PacketNumber);
   ConnectionLog1("pmtud1: %d MTU CHECK Failed.\n", mPMTUDTarget);
   mPMTUD1PacketNumber = 0;
-  mPMTUD1Deadline = 0;
+  mPMTUD1Deadline->Cancel();
 }
 
 }

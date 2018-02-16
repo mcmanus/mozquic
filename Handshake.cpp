@@ -410,11 +410,11 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
   // Check whether this is an dup.
   auto i = mConnectionHashOriginalNew.find(header.mConnectionID);
   if (i != mConnectionHashOriginalNew.end()) {
-    if ((*i).second.mTimestamp < (Timestamp() - kForgetInitialConnectionIDsThresh)) {
+    if ((*i).second->mTimestamp <= (Timestamp() - kForgetInitialConnectionIDsThresh)) {
       // This connectionId is too old, just remove it.
       mConnectionHashOriginalNew.erase(i);
     } else {
-      auto j = mConnectionHash.find((*i).second.mServerConnectionID);
+      auto j = mConnectionHash.find((*i).second->mServerConnectionID);
       if (j != mConnectionHash.end()) {
         *childSession = (*j).second;
         // It is a dup and we will ignore it.

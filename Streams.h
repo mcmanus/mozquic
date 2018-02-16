@@ -107,6 +107,7 @@ class StreamState : public FlowController
 public:
   StreamState(MozQuic *, uint64_t initialStreamWindow,
                          uint64_t initialConnectionWindow);
+  virtual ~StreamState() {}
 
   // FlowController Methods
   uint32_t ConnectionWrite(std::unique_ptr<ReliableData> &p) override;

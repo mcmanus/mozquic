@@ -6,6 +6,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "Timer.h"
 
 namespace mozquic {
 
@@ -46,17 +47,21 @@ public:
 const uint32_t kDefaultMSS = 1460;
 const uint32_t kMinWindow = 2 * kDefaultMSS;
 
-class Sender final
+class Sender
+ : public TimerNotification
 {
 public:
   Sender(MozQuic *session);
+  virtual ~Sender() {}
+  void Alarm(Timer *) override;
+
   uint32_t Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOnly,
                     const unsigned char *, uint32_t len, const struct sockaddr *peer);
   void RTTSample(uint64_t xmit, uint64_t delay);
   void Ack(uint64_t packetNumber, uint32_t packetLength);
   void ReportLoss(uint64_t packetNumber, uint32_t packetLength);
   void Dismissed0RTTPackets(uint32_t bytes);
-  uint32_t Tick(const uint64_t now);
+  void PacingTimerExpired();
   void Connected();
   bool CanSendNow(uint64_t amt, bool zeroRtt);
   uint16_t SmoothedRTT() { return mSmoothedRTT; }
@@ -83,7 +88,7 @@ private:
   uint16_t mRTTVar;
 
   bool mCCState;
-  uint64_t mPacingTicker;
+  std::unique_ptr<Timer> mPacingTimer;
 
   // 0 is no unacked data no timer set
   // 1 tlp set no expirations yet
@@ -91,7 +96,7 @@ private:
   // 3 rto set two tlp probes sent
   // 4 rto set N-3 rto expirations with N-3 rto retrans
   uint32_t mTimerState;
-  uint64_t mDeadline;
+  std::unique_ptr<Timer> mDeadline;
 
   uint64_t mMaxAckDelay;
   uint64_t mMinRTT;
