@@ -56,7 +56,7 @@ MozQuic::MozQuic(bool handleIO)
   , mOriginPort(-1)
   , mClientPort(-1)
   , mVersion(kMozQuicVersion1)
-//  , mVersion(kMozQuicIetfID8)
+//  , mVersion(kMozQuicIetfID9)
   , mClientOriginalOfferedVersion(0)
   , mMaxPacketConfig(kDefaultMaxPacketConfig)
   , mMTU(kInitialMTU)
@@ -1764,7 +1764,7 @@ bool
 MozQuic::VersionOK(uint32_t proposed)
 {
   if (proposed == kMozQuicVersion1 ||
-      proposed == kMozQuicIetfID8) {
+      proposed == kMozQuicIetfID9) {
     return true;
   }
   return false;

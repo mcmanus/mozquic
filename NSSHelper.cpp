@@ -22,7 +22,7 @@
 fail complie;
 #endif
 
-// relies on tls1.3 draft 22 known cset cbaa176ba
+// relies on tls1.3 draft 23 NSS_3_35_BRANCH
 
 #define sTlsLog1(...) Log::sDoLog(Log::TLS, 1, self->mMozQuic, __VA_ARGS__);
 #define sTlsLog2(...) Log::sDoLog(Log::TLS, 2, self->mMozQuic, __VA_ARGS__);

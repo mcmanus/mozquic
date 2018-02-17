@@ -7,7 +7,7 @@ greasing. (hq-08 alpn)
 
 See https://github.com/quicwg/base-drafts/wiki/Third-Implementation-Draft
 
-based on tls -22
+based on tls -23
 
 Useful to increase UDP buffering on the host:
 sudo sysctl -w net.core.rmem_max=16000000
@@ -31,6 +31,9 @@ setenv MOZQUIC_NSS_CONFIG $MOZQUIC_BUILD/mozquic/sample/nss-config/
 git clone git@github.com:mcmanus/mozquic.git
 git clone git@github.com:nss-dev/nss.git
 hg clone https://hg.mozilla.org/projects/nspr
+cd nss
+# get the -23 branch
+git checkout origin/NSS_3_35_BRANCH
 nss/build.sh
 cd mozquic
 make
