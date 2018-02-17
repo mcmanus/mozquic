@@ -53,6 +53,12 @@ Log::sDoLogCID(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
 uint32_t
 Log::DoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid, const char *fmt, va_list paramList)
 {
+  bool quiet = false;
+  if (level > 10) {
+    level -= 10;
+    quiet = true;
+  }
+
   assert (cat < kCategoryCount);
   if (mCategory[cat] < level) {
     return MOZQUIC_OK;
@@ -66,12 +72,16 @@ Log::DoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid, const
   }
 
   if (!m || !m->mAppHandlesLogging) {
-    fprintf(stderr,"%06lld:%016llx ", MozQuic::Timestamp() % 1000000, useCid);
+    if (!quiet) {
+      fprintf(stderr,"%06lld:%016llx ", MozQuic::Timestamp() % 1000000, useCid);
+    }
     vfprintf(stderr, fmt, paramList);
-  }
-  else if (m && m->mConnEventCB && m->mClosure) {
+  } else if (m && m->mConnEventCB && m->mClosure) {
     char buffer[2048];
-    int used = snprintf(buffer, 2048, "%06lld: ", MozQuic::Timestamp() % 1000000);
+    int used = 0;
+    if (!quiet) {
+      used = snprintf(buffer, 2048, "%06lld: ", MozQuic::Timestamp() % 1000000);
+    }
     if (used >= 2047) {
       return MOZQUIC_OK;
     }

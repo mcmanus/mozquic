@@ -167,6 +167,7 @@ public:
   void HandshakeTParamOutput(const unsigned char *, uint32_t amt);
   uint32_t HandshakeComplete(uint32_t errCode, struct mozquic_handshake_info *keyInfo);
   uint64_t ConnectionID() const { return mConnectionID;}
+  uint64_t OriginalConnectionID() const { return mOriginalConnectionID;}
   void SetOriginPort(int port) { mOriginPort = port; }
   void SetOriginName(const char *name);
   void SetStatelessResetKey(const unsigned char *key) { memcpy(mStatelessResetKey, key, 128); }
@@ -220,7 +221,7 @@ public:
 
   uint32_t MakePingWithData(uint8_t len, const unsigned char *data);
   bool DecodedOK() { return mDecodedOK; }
-  void GetRemotePeerAddressHash(unsigned char *out, uint32_t *outLen);
+  void GetPeerAddressHash(uint64_t cid, unsigned char *out, uint32_t *outLen);
   static uint64_t Timestamp();
   void Shutdown(uint16_t code, const char *);
 

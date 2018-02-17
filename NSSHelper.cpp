@@ -35,6 +35,8 @@ fail complie;
 #define sTlsLog9(...) Log::sDoLog(Log::TLS, 9, self->mMozQuic, __VA_ARGS__);
 #define sTlsLog10(...) Log::sDoLog(Log::TLS, 10, self->mMozQuic, __VA_ARGS__);
 
+#define sTlsLog6q(...) Log::sDoLog(Log::TLS, 16, self->mMozQuic, __VA_ARGS__);
+
 #define TlsLog1(...) Log::sDoLog(Log::TLS, 1, mMozQuic, __VA_ARGS__);
 #define TlsLog2(...) Log::sDoLog(Log::TLS, 2, mMozQuic, __VA_ARGS__);
 #define TlsLog3(...) Log::sDoLog(Log::TLS, 3, mMozQuic, __VA_ARGS__);
@@ -489,7 +491,11 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
 
   unsigned char sourceAddressInfo[128];
   uint32_t sourceAddressLen = sizeof(sourceAddressInfo);
-  self->mMozQuic->GetRemotePeerAddressHash(sourceAddressInfo, &sourceAddressLen);
+  // on the token generation (first pass) we want to place the server specified retry cid
+  // on the token validation (second pass) we want to confirm the initial had that retry cid
+  self->mMozQuic->GetPeerAddressHash(
+    firstHello? self->mMozQuic->ConnectionID() : self->mMozQuic->OriginalConnectionID(),
+    sourceAddressInfo, &sourceAddressLen);
 
   HASHContext *hcontext = HASH_Create(HASH_AlgSHA256);
   HASH_Begin(hcontext);
@@ -501,19 +507,19 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
   sTlsLog5("HRRCallback first=%d tokenlen=%d max=%d\n", firstHello, clientTokenLen, retryTokMax);
   sTlsLog6("Input : ");
   for (unsigned int i = 0 ; i < sourceAddressLen; i++) {
-    sTlsLog6("%02X ", sourceAddressInfo[i]);
+    sTlsLog6q("%02X ", sourceAddressInfo[i]);
   }
   sTlsLog6("\nDigest: ");
   for (unsigned int i = 0 ; i < digestLen; i++) {
-    sTlsLog6("%02X ", digest[i]);
+    sTlsLog6q("%02X ", digest[i]);
   }
   if (!firstHello) {
     sTlsLog6("\nCookie: ");
     for (unsigned int i = 0 ; i < clientTokenLen; i++) {
-      sTlsLog6("%02X ", clientToken[i]);
+      sTlsLog6q("%02X ", clientToken[i]);
     }
   }
-  sTlsLog6("\n");
+  sTlsLog6q("\n");
   sTlsLog5("HRRCallback %d bytes of SourceAddress into %d bytes of hash\n",
            sourceAddressLen, digestLen);
 

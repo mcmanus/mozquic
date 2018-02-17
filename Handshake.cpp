@@ -107,7 +107,6 @@ MozQuic::FlushStream0(bool forceAck)
   uint64_t connID = PR_htonll(mConnectionID);
   if (mConnectionState == SERVER_STATE_SSR) {
     HandshakeLog4("Generating Server Stateless Retry.\n");
-    connID = PR_htonll(mOriginalConnectionID);
     assert(mStreamState->mUnAckedPackets.empty());
   }
   memcpy(pkt + 1, &connID, 8);
@@ -223,11 +222,17 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
     return MOZQUIC_OK;
   }
 
-  if ((header.mVersion != mVersion) ||
-      (header.mConnectionID != mConnectionID)) {
+  if (header.mVersion != mVersion) {
     // this was supposedly copied from client - so this isn't a match
-    HandshakeLog1("version or cid mismatch\n");
+    HandshakeLog1("version mismatch\n");
     return MOZQUIC_ERR_VERSION;
+  }
+
+  if (header.mConnectionID != mConnectionID) {
+    HandshakeLog4("server RETRY changed connID to %lx\n",
+                  header.mConnectionID);
+    mConnectionID = header.mConnectionID;
+    mOriginalConnectionID = mConnectionID; // because its stateless
   }
 
   // essentially this is an ack of client_initial using the packet #
@@ -240,6 +245,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
       break;
     }
   }
+
   if (!foundReference) {
     // packet num was supposedly copied from client - so no match
     return MOZQUIC_ERR_VERSION;
@@ -365,7 +371,7 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
       return MOZQUIC_ERR_GENERAL;
     }
 
-    HandshakeLog4("server clear text changed connID to %lx\n",
+    HandshakeLog4("server HANDSHAKE changed connID to %lx\n",
                   header.mConnectionID);
     mConnectionID = header.mConnectionID;
   }
