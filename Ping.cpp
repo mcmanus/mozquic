@@ -60,16 +60,12 @@ MozQuic::StartPMTUD1()
     return;
   }
   unsigned char plainPkt[kMaxMTU];
-  uint32_t used = 0;
   mPMTUDTarget = (kMaxMTU < mMaxPacketConfig) ? kMaxMTU : mMaxPacketConfig;
 
-  CreateShortPacketHeader(plainPkt, mPMTUDTarget - kTagLen, used);
-  uint32_t headerLen = used;
-  plainPkt[used++] = FRAME_TYPE_PING;
-  plainPkt[used++] = 0; // datalen
-  uint32_t room = mPMTUDTarget - used - kTagLen;
-  memset(plainPkt + used, FRAME_TYPE_PADDING, room);
-  used += room;
+  uint32_t headerLen;
+  CreateShortPacketHeader(plainPkt, mPMTUDTarget - kTagLen, headerLen);
+  uint32_t padAmt = mPMTUDTarget - headerLen - kTagLen;
+  memset(plainPkt + headerLen, FRAME_TYPE_PADDING, padAmt);
 
   ConnectionLog5("pmtud1: %d MTU test started\n", mPMTUDTarget);
   mPMTUD1PacketNumber = mNextTransmitPacketNumber;
@@ -77,12 +73,11 @@ MozQuic::StartPMTUD1()
 
   uint32_t bytesOut = 0;
   if (ProtectedTransmit(plainPkt, headerLen,
-                        plainPkt + headerLen, room + 1,
-                        mPMTUDTarget - headerLen - kTagLen, false, true, false,
+                        plainPkt + headerLen, padAmt, kMaxMTU,
+                        false, true, false,
                         mPMTUDTarget, &bytesOut) != MOZQUIC_OK) {
     mPMTUD1PacketNumber = 0;
-  }
-  else {
+  } else {
     mStreamState->TrackPacket(mPMTUD1PacketNumber, bytesOut);
   }
 }
