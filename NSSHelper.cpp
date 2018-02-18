@@ -50,7 +50,7 @@ fail complie;
 
 extern "C"
 {
-// All of this hkdf code is copied from NSS
+// All of this hkdf code is copied from NSS and modified for quic
 
 static const struct {
   SSLHashType hash;
@@ -86,8 +86,8 @@ static PRUint8 kVersion1Salt[] =
 static SECItem saltItem = { siBuffer, kVersion1Salt, 20 };
 
 static SECStatus
-tls13_HkdfExtract(PK11SymKey *ikm1, PK11SymKey *ikm2, SSLHashType baseHash,
-                  PK11SymKey **prkp)
+QHkdfExtract(PK11SymKey *ikm1, PK11SymKey *ikm2, SSLHashType baseHash,
+             PK11SymKey **prkp)
 {
   CK_NSS_HKDFParams params;
   SECItem paramsi;
@@ -136,10 +136,10 @@ tls13_HkdfExtract(PK11SymKey *ikm1, PK11SymKey *ikm2, SSLHashType baseHash,
 }
 
 static SECStatus
-tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
-                      const char *label, unsigned int labelLen,
-                      CK_MECHANISM_TYPE algorithm, unsigned int keySize,
-                      PK11SymKey **keyp)
+QHkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
+                 const char *label, unsigned int labelLen,
+                 CK_MECHANISM_TYPE algorithm, unsigned int keySize,
+                 PK11SymKey **keyp)
 {
   CK_NSS_HKDFParams params;
   SECItem paramsi = { siBuffer, NULL, 0 };
@@ -150,27 +150,20 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
   PRUint8 *ptr = info;
   unsigned int infoLen;
   PK11SymKey *derived;
-  const char *kLabelPrefix = "tls13 ";
+  const char *kLabelPrefix = "QUIC ";
   const unsigned int kLabelPrefixLen = strlen(kLabelPrefix);
 
   /*
-   *  [draft-ietf-tls-tls13-11] Section 7.1:
+   *  QHKDF-Expand-Label(Secret, Label, Length) =
+   *       HKDF-Expand(Secret, QuicHkdfLabel, Length)
    *
-   *  HKDF-Expand-Label(Secret, Label, HashValue, Length) =
-   *       HKDF-Expand(Secret, HkdfLabel, Length)
+   *  Where QuicHkdfLabel is specified as:
    *
-   *  Where HkdfLabel is specified as:
-   *
-   *  struct HkdfLabel {
-   *    uint16 length;
-   *    opaque label<9..255>;
-   *    opaque hash_value<0..255>;
+   *  struct QuicHkdfLabel {
+   *    uint16 length; = Length
+   *    opaque label<6..255>; = "QUIC " + label
+   *    uint8 hashLength = 0;
    *  };
-   *
-   *  Where:
-   *  - HkdfLabel.length is Length
-   *  - HkdfLabel.hash_value is HashValue.
-   *  - HkdfLabel.label is "tls13 " + Label
    *
    */
   infoLen = 2 + 1 + kLabelPrefixLen + labelLen + 1;
@@ -185,7 +178,7 @@ tls13_HkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
   ptr += kLabelPrefixLen;
   PORT_Memcpy(ptr, label, labelLen);
   ptr += labelLen;
-  ptr = ssl_EncodeUintX(0, 1, ptr); // Hash is always empty for QUIC.
+  ptr = ssl_EncodeUintX(0, 1, ptr); // hashLength is always empty for QUIC.
   PORT_Assert((ptr - info) == infoLen);
 
   params.bExtract = CK_FALSE;
@@ -210,17 +203,17 @@ abort:
 }
 
 static SECStatus
-tls13_HkdfExpandLabelRaw(PK11SymKey *prk, SSLHashType baseHash,
-                         const char *label, unsigned int labelLen,
-                         unsigned char *output, unsigned int outputLen)
+QHkdfExpandLabelRaw(PK11SymKey *prk, SSLHashType baseHash,
+                    const char *label, unsigned int labelLen,
+                    unsigned char *output, unsigned int outputLen)
 {
   PK11SymKey *derived = NULL;
   SECItem *rawkey;
   SECStatus rv;
   
-  rv = tls13_HkdfExpandLabel(prk, baseHash, label, labelLen,
-                             kTlsHkdfInfo[baseHash].pkcs11Mech, outputLen,
-                             &derived);
+  rv = QHkdfExpandLabel(prk, baseHash, label, labelLen,
+                        kTlsHkdfInfo[baseHash].pkcs11Mech, outputLen,
+                        &derived);
   if (rv != SECSuccess || !derived) {
     goto abort;
   }
@@ -256,8 +249,12 @@ namespace mozquic {
 static bool mozQuicInit = false;
 static PRDescIdentity nssHelperIdentity;
 static PRIOMethods nssHelperMethods;
-static const char *kServerLabel = "QUIC server handshake secret";
-static const char *kClientLabel = "QUIC client handshake secret";
+static const char *k0RTTLabel =   "EXPORTER-QUIC 0rtt";
+static const char *kHandshakeServerLabel = "server hs";
+static const char *kHandshakeClientLabel = "client hs";
+static const char *k1RTTClientLabel = "EXPORTER-QUIC client 1rtt";
+static const char *k1RTTServerLabel = "EXPORTER-QUIC server 1rtt";
+// static const char *kPacketNumberLabel = "EXPORTER-QUIC packet number;
 
 static class keyWrapper 
 {
@@ -332,14 +329,14 @@ NSSHelper::MakeKeyFromRaw(unsigned char *initialSecret,
     goto failure;
   }
 
-  if (tls13_HkdfExpandLabelRaw(secretSKey, hashType,
-                               "key", 3, ppKey, keySize) != SECSuccess) {
+  if (QHkdfExpandLabelRaw(secretSKey, hashType,
+                          "key", 3, ppKey, keySize) != SECSuccess) {
     goto failure;
   }
 
   // iv length is max(8, n_min) - n_min is aead specific, but is 12 for everything currently known
-  if (tls13_HkdfExpandLabelRaw(secretSKey, hashType,
-                               "iv", 2, outIV, 12) != SECSuccess) {
+  if (QHkdfExpandLabelRaw(secretSKey, hashType,
+                          "iv", 2, outIV, 12) != SECSuccess) {
     goto failure;
   }
 
@@ -580,16 +577,16 @@ public:
       goto cleanup;
     }
 
-    if ((tls13_HkdfExtract(gCleartextSaltKey.key, cidKey, ssl_hash_sha256, &handshakeSecret) != SECSuccess) ||
+    if ((QHkdfExtract(gCleartextSaltKey.key, cidKey, ssl_hash_sha256, &handshakeSecret) != SECSuccess) ||
         !handshakeSecret) {
       goto cleanup;
     }
     assert (PK11_ExtractKeyValue(handshakeSecret) == SECSuccess);
     assert (PK11_GetKeyData(handshakeSecret)->len == 32);
 
-    if (tls13_HkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
-                                 kClientLabel, strlen(kClientLabel),
-                                 expandOut, 32) != SECSuccess) {
+    if (QHkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
+                            kHandshakeClientLabel, strlen(kHandshakeClientLabel),
+                            expandOut, 32) != SECSuccess) {
       goto cleanup;
     }
 
@@ -639,7 +636,7 @@ NSSHelper::MakeHandshakeKeys(uint64_t cid)
     goto cleanup;
   }
 
-  if ((tls13_HkdfExtract(gCleartextSaltKey.key, cidKey, ssl_hash_sha256, &handshakeSecret) != SECSuccess) ||
+  if ((QHkdfExtract(gCleartextSaltKey.key, cidKey, ssl_hash_sha256, &handshakeSecret) != SECSuccess) ||
       !handshakeSecret) {
     goto cleanup;
   }
@@ -647,9 +644,9 @@ NSSHelper::MakeHandshakeKeys(uint64_t cid)
   assert (PK11_GetKeyData(handshakeSecret)->len == 32);
 
   if (mIsClient) {
-    if (tls13_HkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
-                                 kClientLabel, strlen(kClientLabel),
-                                 expandOut, 32) != SECSuccess) {
+    if (QHkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
+                            kHandshakeClientLabel, strlen(kHandshakeClientLabel),
+                            expandOut, 32) != SECSuccess) {
       goto cleanup;
     }
 
@@ -664,9 +661,9 @@ NSSHelper::MakeHandshakeKeys(uint64_t cid)
            sizeof(mPacketProtectionHandshakeReceiverIV));
   }
 
-  if (tls13_HkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
-                               kServerLabel, strlen(kServerLabel),
-                               expandOut, 32) != SECSuccess) {
+  if (QHkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
+                          kHandshakeServerLabel, strlen(kHandshakeServerLabel),
+                          expandOut, 32) != SECSuccess) {
     goto cleanup;
   }
 
@@ -731,23 +728,23 @@ NSSHelper::HandshakeCallback(PRFileDesc *fd, void *client_data)
   }
 
   if (self->mIsClient) {
-    if (self->MakeKeyFromNSS(fd, false, "EXPORTER-QUIC client 1-RTT Secret",
+    if (self->MakeKeyFromNSS(fd, false, k1RTTClientLabel,
                              secretSize, keySize, hashType, importMechanism1, importMechanism2,
                              self->mPacketProtectionSenderIV0, &self->mPacketProtectionSenderKey0) != MOZQUIC_OK) {
       didHandshakeFail = true;
     }
-    if (self->MakeKeyFromNSS(fd, false, "EXPORTER-QUIC server 1-RTT Secret",
+    if (self->MakeKeyFromNSS(fd, false, k1RTTServerLabel,
                              secretSize, keySize, hashType, importMechanism1, importMechanism2,
                              self->mPacketProtectionReceiverIV0, &self->mPacketProtectionReceiverKey0) != MOZQUIC_OK) {
       didHandshakeFail = true;
     }
   } else {
-    if (self->MakeKeyFromNSS(fd, false, "EXPORTER-QUIC server 1-RTT Secret",
+    if (self->MakeKeyFromNSS(fd, false, k1RTTServerLabel,
                              secretSize, keySize, hashType, importMechanism1, importMechanism2,
                              self->mPacketProtectionSenderIV0, &self->mPacketProtectionSenderKey0) != MOZQUIC_OK) {
       didHandshakeFail = true;
     }
-    if (self->MakeKeyFromNSS(fd, false, "EXPORTER-QUIC client 1-RTT Secret",
+    if (self->MakeKeyFromNSS(fd, false, k1RTTClientLabel,
                              secretSize, keySize, hashType, importMechanism1, importMechanism2,
                              self->mPacketProtectionReceiverIV0, &self->mPacketProtectionReceiverKey0) != MOZQUIC_OK) {
       didHandshakeFail = true;
@@ -1344,7 +1341,7 @@ NSSHelper::IsEarlyDataPossible()
                               secretSize, keySize, hashType, mPacketProtectionMech0RTT,
                               importMechanism1, importMechanism2);
 
-  if (MakeKeyFromNSS(mFD, true, "EXPORTER-QUIC 0-RTT Secret",
+  if (MakeKeyFromNSS(mFD, true, k0RTTLabel,
                      secretSize, keySize, hashType, importMechanism1, importMechanism2,
                      mPacketProtectionIV0RTT, &mPacketProtectionKey0RTT) != MOZQUIC_OK) {
     return false;
@@ -1371,7 +1368,7 @@ NSSHelper::IsEarlyDataAcceptedServer()
                               secretSize, keySize, hashType, mPacketProtectionMech0RTT,
                               importMechanism1, importMechanism2);
 
-  if (MakeKeyFromNSS(mFD, true, "EXPORTER-QUIC 0-RTT Secret",
+  if (MakeKeyFromNSS(mFD, true, k0RTTLabel,
                      secretSize, keySize, hashType, importMechanism1, importMechanism2,
                      mPacketProtectionIV0RTT, &mPacketProtectionKey0RTT) != MOZQUIC_OK) {
     return false;
