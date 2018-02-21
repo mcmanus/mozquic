@@ -50,6 +50,10 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize,
 
   assert(mOriginalConnectionID || ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL));
   if ((pkt[0] & 0x7f) != PACKET_TYPE_INITIAL) {
+    if (!mOriginalConnectionID) {
+      ConnectionLog1("Decrypt handshake failed %lX not initial and unknown connid\n", pktNum);
+      return false;
+    }
     connID = mOriginalConnectionID;
   }
 

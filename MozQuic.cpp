@@ -660,7 +660,7 @@ MozQuic::Client1RTT()
     // handle server reply internally
     uint32_t code = mNSSHelper->DriveHandshake();
     if (code != MOZQUIC_OK) {
-      RaiseError(code, (char *) "client 1rtt handshake failed");
+      RaiseError(code, (char *) "client 1rtt handshake failed\n");
       return code;
     }
     if (!mCheck0RTTPossible) {
@@ -760,7 +760,7 @@ MozQuic::Server1RTT()
   if (!mStreamState->mStream0->Empty()) {
     uint32_t code = mNSSHelper->DriveHandshake();
     if (code != MOZQUIC_OK) {
-      RaiseError(code, (char *) "server 1rtt handshake failed");
+      RaiseError(code, (char *) "server 1rtt handshake failed\n");
       return code;
     }
 
