@@ -312,7 +312,7 @@ private:
   static void EncodeVarintAs8(uint64_t input, unsigned char *dest);
 
   uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
-  uint32_t CreateLongPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
+  uint32_t Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
   uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                              unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
                              bool addAcks, bool ackable, bool queueOnly = false,

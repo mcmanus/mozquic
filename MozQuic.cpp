@@ -885,7 +885,7 @@ MozQuic::Intake(bool *partialResult)
         continue;
       }
 
-      if (longHeader.mType < PACKET_TYPE_0RTT_PROTECTED) {
+      if (longHeader.mType != PACKET_TYPE_0RTT_PROTECTED) {
         *partialResult = true;
       }
 

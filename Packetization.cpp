@@ -187,18 +187,18 @@ MozQuic::EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint3
 }
 
 uint32_t
-MozQuic::CreateLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
-                                uint32_t &used)
+MozQuic::Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
+                                    uint32_t &used)
 {
   pkt[0] = 0x80 | PACKET_TYPE_0RTT_PROTECTED;
 
   uint64_t tmp64 = PR_htonll(mOriginalConnectionID);
   memcpy(pkt + 1, &tmp64, 8);
 
-  uint32_t tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
+  uint32_t tmp32 = htonl(mVersion);
   memcpy(pkt + 9, &tmp32, 4);
 
-  tmp32 = htonl(mVersion);
+  tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
   memcpy(pkt + 13, &tmp32, 4);
 
   used = 17;

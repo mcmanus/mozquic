@@ -957,7 +957,7 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
   assert(mtu <= kMaxMTU);
 
   if (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT) {
-    mMozQuic->CreateLongPacketHeader(plainPkt, mtu - kTagLen, headerLen);
+    mMozQuic->Create0RTTLongPacketHeader(plainPkt, mtu - kTagLen, headerLen);
   } else if ((mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) &&
              (mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED)) {
     // if 0RTT data gets rejected, wait for the connected state to send data.
