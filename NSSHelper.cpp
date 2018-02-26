@@ -1357,6 +1357,7 @@ NSSHelper::IsEarlyDataAcceptedServer()
 
   SSLPreliminaryChannelInfo info;
   if (SSL_GetPreliminaryChannelInfo(mFD, &info, sizeof(info)) != SECSuccess) {
+    TlsLog6("IsEarlyDataAccepted fail 1\n");
     return false;
   }
 
@@ -1371,9 +1372,10 @@ NSSHelper::IsEarlyDataAcceptedServer()
   if (MakeKeyFromNSS(mFD, true, k0RTTLabel,
                      secretSize, keySize, hashType, importMechanism1, importMechanism2,
                      mPacketProtectionIV0RTT, &mPacketProtectionKey0RTT) != MOZQUIC_OK) {
+    TlsLog6("IsEarlyDataAccepted fail 2\n");
     return false;
   }
-
+  TlsLog6("IsEarlyDataAccepted pass\n");
   return true;
 }
 
