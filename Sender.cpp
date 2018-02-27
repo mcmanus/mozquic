@@ -173,7 +173,7 @@ void
 Sender::Alarm(Timer *alarm)
 {
   if (alarm == mPacingTimer.get()) {
-    PacingTimerExpired();
+    Flush();
     return;
   }
 
@@ -229,7 +229,7 @@ Sender::SendOne(bool fromRTO)
 }
 
 void
-Sender::PacingTimerExpired()
+Sender::Flush()
 {
   if (mQueue.empty()) {
     return;

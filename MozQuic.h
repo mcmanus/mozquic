@@ -86,6 +86,7 @@ static const uint32_t mozquic_library_version = 1;
   int mozquic_nss_config(char *dir);
 
   int mozquic_new_connection(mozquic_connection_t **outSession, struct mozquic_config_t *inConfig);
+  int mozquic_shutdown_connection(mozquic_connection_t *inSession);
   int mozquic_destroy_connection(mozquic_connection_t *inSession);
   int mozquic_start_client(mozquic_connection_t *inSession); // client rename todo
   int mozquic_start_server(mozquic_connection_t *inSession);

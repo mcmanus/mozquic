@@ -61,7 +61,7 @@ public:
   void Ack(uint64_t packetNumber, uint32_t packetLength);
   void ReportLoss(uint64_t packetNumber, uint32_t packetLength);
   void Dismissed0RTTPackets(uint32_t bytes);
-  void PacingTimerExpired();
+  void Flush();
   void Connected();
   bool CanSendNow(uint64_t amt, bool zeroRtt);
   uint16_t SmoothedRTT() { return mSmoothedRTT; }

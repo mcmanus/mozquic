@@ -423,6 +423,9 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       }
     } // haveackfor iteration
   } //ranges iteration
+
+  // cong control limits are better now
+  mSendState->Flush();
 }
 
 uint32_t
