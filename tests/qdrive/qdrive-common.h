@@ -34,13 +34,13 @@ int setup_tests(struct testParam *testList, int numTests,
                 int argc, char **argv, struct mozquic_connection_t *c);
 uint64_t Timestamp();
 
-static inline void test_assert(int test_assertion) 
-{
-  assert(test_assertion);
-  // ndebug too
-  if (!test_assertion) {
-    void *ptr = 0;
-    *((int *)ptr) =  0xdeadbeef;
-    exit (-1); // rather un-necessary
-  }
-}
+#include <stdio.h>
+
+#define test_assert(assertion) \
+  do { \
+   if (!(assertion)) {\
+    fprintf(stderr,"assert failed %s:%d\n", __FILE__, __LINE__);\
+    fflush(stderr);                                             \
+    __builtin_trap();                                           \
+   } \
+  } while (0)
