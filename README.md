@@ -33,7 +33,7 @@ git clone git@github.com:nss-dev/nss.git
 hg clone https://hg.mozilla.org/projects/nspr
 cd nss
 # get the -23 branch
-git checkout origin/NSS_3_35_BRANCH
+git checkout origin/NSS_3_36_BRANCH
 nss/build.sh
 cd mozquic
 make

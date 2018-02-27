@@ -18,11 +18,11 @@
 #include "assert.h"
 #include "sechash.h"
 
-#if NSS_VMAJOR < 3 || (NSS_VMINOR < 35 && NSS_VMAJOR == 3)
-fail complie;
+#if NSS_VMAJOR < 3 || (NSS_VMINOR < 36 && NSS_VMAJOR == 3)
+fail compile due to nss version;
 #endif
 
-// relies on tls1.3 draft 23 NSS_3_35_BRANCH
+// relies on tls1.3 draft 23 NSS_3_36_BRANCH
 
 #define sTlsLog1(...) Log::sDoLog(Log::TLS, 1, self->mMozQuic, __VA_ARGS__);
 #define sTlsLog2(...) Log::sDoLog(Log::TLS, 2, self->mMozQuic, __VA_ARGS__);
@@ -1082,6 +1082,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
 {
   SharedInit();
 
+  SSL_SetMaxEarlyDataSize(mFD, 0xffffffff); // 0rtt nst requires
   if (mMozQuic->GetForceAddressValidation()) {
     SSL_HelloRetryRequestCallback(mFD, HRRCallback, this);
   }
