@@ -52,6 +52,7 @@ MozQuic::MozQuic(bool handleIO)
   , mEnabled0RTT(false)
   , mReject0RTTData(false)
   , mIPV6(false)
+  , mProcessed0RTT(false)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mClientPort(-1)
@@ -1454,6 +1455,7 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
     rv = mNSSHelper->DecryptBlock0RTT(pkt, headerSize, pkt + headerSize,
                                       pktSize - headerSize, packetNum, out,
                                       kMozQuicMSS, written);
+    mProcessed0RTT = true;
   } else {
     rv = mNSSHelper->DecryptBlock(pkt, headerSize, pkt + headerSize,
                                   pktSize - headerSize, packetNum, out,

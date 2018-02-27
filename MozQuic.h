@@ -78,8 +78,8 @@ static const uint32_t mozquic_library_version = 1;
     unsigned char reservedInternally[512];
   };
 
-  uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t, const void *);
-  uint32_t mozquic_unstable_api2(mozquic_connection_t *c, const char *name, uint64_t, const void *);
+  uint32_t mozquic_unstable_api1(struct mozquic_config_t *c, const char *name, uint64_t, void *);
+  uint32_t mozquic_unstable_api2(mozquic_connection_t *c, const char *name, uint64_t, void *);
   
   // this is a hack. it will be come a 'crypto config' and allow server key/cert and
   // some kind of client ca root

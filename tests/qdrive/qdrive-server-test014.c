@@ -87,6 +87,15 @@ int testEvent14(void *closure, uint32_t event, void *param)
   if (event == MOZQUIC_EVENT_CLOSE_CONNECTION) {
     test_assert(testState.test_state == 2 ||
                 testState.test_state == 5);
+    unsigned char did0RTT;
+    mozquic_unstable_api2(testState.child[testState.connection -1],
+                          "recvd0RTT", 0, &did0RTT);
+    if (testState.test_state == 2) {
+      test_assert(!did0RTT);
+    } else {
+      test_assert(did0RTT);
+    }
+
     testState.test_state++;
     mozquic_destroy_connection(testState.child[testState.connection -1]);
     return MOZQUIC_OK;

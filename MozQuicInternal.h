@@ -233,6 +233,7 @@ public:
   uint32_t FlushOnce(bool forceack, bool forceframe);
   bool     AnyUnackedPackets();
   bool     IsV6() { return mIPV6; }
+  unsigned char Processed0RTT() { return !!mProcessed0RTT; }
 
 private:
   void RaiseError(uint32_t err, const char *fmt, ...);
@@ -325,7 +326,6 @@ private:
                                                uint64_t connID, unsigned char *out);
   uint32_t StatelessResetEnsureKey();
   void EnsureSetupClientTransportParameters();
-
   mozquic_socket_t mFD;
 
   bool mHandleIO;
@@ -346,6 +346,7 @@ private:
   bool mEnabled0RTT;
   bool mReject0RTTData;
   bool mIPV6;
+  bool mProcessed0RTT;
 
   enum connectionState mConnectionState;
   int mOriginPort;
