@@ -184,6 +184,13 @@ int mozquic_destroy_connection(mozquic_connection_t *conn)
   return MOZQUIC_OK;
 }
 
+int mozquic_shutdown_connection(mozquic_connection_t *conn)
+{
+  mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
+  self->Shutdown(0, "");
+  return MOZQUIC_OK;
+}
+
 int mozquic_start_client(mozquic_connection_t *conn)
 {
   mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));

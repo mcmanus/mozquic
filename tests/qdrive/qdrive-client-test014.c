@@ -104,7 +104,7 @@ int testEvent14(void *closure, uint32_t event, void *param)
     parentConnection = NULL;
     testState.test_state++;
   } else if (testState.test_state == 5) {
-    mozquic_destroy_connection (parentConnection);
+    mozquic_shutdown_connection (parentConnection);
     testState.test_state++;
   }
 
