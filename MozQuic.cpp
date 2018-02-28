@@ -1407,8 +1407,8 @@ MozQuic::Process0RTTProtectedPacket(const unsigned char *pkt, uint32_t pktSize, 
   if ((mConnectionState == SERVER_STATE_SSR) ||
       (mConnectionState == SERVER_STATE_CLOSED) ||
       (mEarlyDataState == EARLY_DATA_IGNORED)) {
-    ConnectionLog1("0RTT protected packet - ignore 0RTT packet\n");
-    return MOZQUIC_OK;
+    ConnectionLog4("0RTT protected packet - ignore 0RTT packet due to state\n");
+    return MOZQUIC_ERR_GENERAL;
   } else if (mEarlyDataState == EARLY_DATA_NOT_NEGOTIATED) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"A 0RTT encrypted packet, but 0RTT not negotiated.\n");
     return MOZQUIC_ERR_GENERAL;
