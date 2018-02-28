@@ -1021,7 +1021,7 @@ NSSHelper::SharedInit()
     if (!mIsClient && !mMozQuic->Reject0RTTData()) {
       // If this option is not set 0rtt data will be rejected.
       // We will use this to test the case when the server rejects 0rtt data.
-      SSL_SetupAntiReplay(1000, 1, 3);
+      SSL_SetupAntiReplay(10000, 1, 3);
     }
   }
   SSL_OptionSet(mFD, SSL_REQUEST_CERTIFICATE, false);
