@@ -252,6 +252,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
 
   if (!foundReference) {
     // packet num was supposedly copied from client - so no match
+    HandshakeLog4("RETRY failed because packet number did not match an unacked initial\n");
     return MOZQUIC_ERR_VERSION;
   }
 
