@@ -270,8 +270,6 @@ Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOn
 {
   // in order to queue we need to copy the packet, as its probably on the stack of
   // the caller. So avoid that if possible.
-  assert (mQueue.empty() || (mCCState == true));
-
   SenderLog8("Sender::Transmit %ld %d\n", len, bareAck);
   bool canSendNow =
     (!queueOnly) && (zeroRTT || CanSendNow(len, zeroRTT) || bareAck); // Do not queue zeroRTT packets.
