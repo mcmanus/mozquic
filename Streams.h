@@ -226,8 +226,6 @@ private: // these still need friend mozquic
   bool     mMaxStreamIDBlocked[2]; // blocked from creating by streamID limits [0]->bidirectional [1]->unidirectional
   uint32_t mNextRecvStreamIDUsed[2]; //  id consumed by peer [0]->bidirectional [1]->unidirectional
 
-  std::unique_ptr<StreamPair> mStream0;
-
   // when issue #48 is resolved, this can become an unordered map
   std::map<uint32_t, std::shared_ptr<StreamPair>> mStreams;
 

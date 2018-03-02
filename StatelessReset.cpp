@@ -34,6 +34,9 @@ MozQuic::StatelessResetEnsureKey()
 uint32_t
 MozQuic::StatelessResetSend(uint64_t connID, const struct sockaddr *peer)
 {
+  return MOZQUIC_OK;
+  // dtls v1 hack
+#if 0
   if (mIsClient) {
     return MOZQUIC_ERR_GENERAL;
   }
@@ -58,6 +61,7 @@ MozQuic::StatelessResetSend(uint64_t connID, const struct sockaddr *peer)
   StatelessResetCalculateToken(mStatelessResetKey, connID, out + 9 + pad); // from key and CID
 
   return mSendState->Transmit(0, true, false, false, out, 25 + pad, peer);
+#endif
 }
 
 uint32_t

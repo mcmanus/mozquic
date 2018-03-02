@@ -117,18 +117,6 @@ class StreamState;
 class ReliableData;
 class BufferedPacket;
 
-class ConnIDTimeout
-  : public TimerNotification
-{
-public:
-  ConnIDTimeout(MozQuic *session)
-    : mSession(session)    {}
-  virtual ~ConnIDTimeout() {}
-  void Alarm(Timer *) override;
-private:
-  MozQuic *mSession;
-};
-
 class InitialClientPacketInfo {
 public:
   InitialClientPacketInfo() {}
@@ -136,7 +124,6 @@ public:
   uint64_t mServerConnectionID;
   uint64_t mHashKey;
   uint64_t mTimestamp;
-  std::unique_ptr<Timer> mTimer;
 };
 
 class MozQuic
@@ -146,7 +133,6 @@ class MozQuic
   friend class Log;
   friend class FrameHeaderData;
   friend class StreamState;
-  friend class ConnIDTimeout;
 
 public:
   static const char *kAlpn;
@@ -244,19 +230,13 @@ private:
   void Acknowledge(uint64_t packetNum, keyPhase kp);
   uint32_t AckPiggyBack(unsigned char *pkt, uint64_t pktNumber, uint32_t avail, keyPhase kp,
                         bool bareAck, uint32_t &used);
-  uint32_t Recv(unsigned char *, uint32_t len, uint32_t &outLen, const struct sockaddr *peer);
-  int ProcessServerCleartext(unsigned char *, uint32_t size, LongHeaderData &, bool &);
-  int ProcessClientInitial(unsigned char *, uint32_t size, const struct sockaddr *peer,
-                           LongHeaderData &, MozQuic **outSession, bool &);
-  int ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeaderData &, bool&);
+  uint32_t Recv(unsigned char *, uint32_t len, uint32_t &outLen, struct sockaddr_in6 *peer);
   uint32_t ProcessGeneralDecoded(const unsigned char *, uint32_t size, bool &, bool fromClearText);
   uint32_t ProcessGeneral(const unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   uint32_t Process0RTTProtectedPacket(const unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   uint32_t BufferForLater(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
                           uint64_t packetNum);
   uint32_t ReleaseProtectedPackets();
-  bool IntegrityCheck(unsigned char *, uint32_t size, uint64_t pktNum, uint64_t connID,
-                      unsigned char *outbuf, uint32_t &outSize);
   void ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
                   const unsigned char *endOfPacket, bool fromCleartext,
                   uint32_t &used);
@@ -278,8 +258,13 @@ private:
                                        uint32_t &_ptr);
   
   bool ServerState() { return mConnectionState > SERVER_STATE_BREAK; }
-  MozQuic *FindSession(uint64_t cid, bool isClientOriginal = false);
-  void RemoveSession(uint64_t cid);
+
+  uint64_t SerializeSockaddr(const sockaddr *peer);
+  uint64_t SerializeSockaddr(const struct sockaddr_in6 *peer);
+  MozQuic *FindSession(const struct sockaddr_in6 *peer);
+  MozQuic *FindSession(const sockaddr *peer);
+  void RemoveSession(const sockaddr *peer);
+
   uint32_t ClientConnected();
   uint32_t ServerConnected();
 
@@ -287,14 +272,10 @@ private:
   uint32_t FlushStream0(bool forceAck);
 
   int Client1RTT();
-  int ClientReadPostHandshakeTLSMessages();
   int Server1RTT();
   int Bind(int portno);
   void AdjustBuffering();
   bool VersionOK(uint32_t proposed);
-  uint32_t GenerateVersionNegotiation(LongHeaderData &clientHeader, const struct sockaddr *peer);
-  uint32_t ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
-  uint32_t ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
 
   MozQuic *Accept(const struct sockaddr *peer, uint64_t aConnectionID, uint64_t ciNumber);
 
@@ -313,7 +294,6 @@ private:
   static void EncodeVarintAs8(uint64_t input, unsigned char *dest);
 
   uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
-  uint32_t Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
   uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                              unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
                              bool addAcks, bool ackable, bool queueOnly = false,
@@ -366,11 +346,6 @@ private:
   uint32_t mClientOriginalOfferedVersion;
 
   std::unordered_map<uint64_t, MozQuic *> mConnectionHash;
-
-  // This maps connectionId sent by a client and connectionId chosen by the
-  // server. This is used to detect dup client initial packets.
-  // The elemets are going to be removed using a timer.
-  std::unordered_map<uint64_t, std::unique_ptr<InitialClientPacketInfo>> mConnectionHashOriginalNew;
 
   uint16_t mMaxPacketConfig;
   uint16_t mMTU;
@@ -430,8 +405,6 @@ private:
   bool mCheck0RTTPossible;
   earlyDataState mEarlyDataState;
   uint64_t mEarlyDataLastPacketNumber;
-
-  ConnIDTimeout mConnIDTimeout;
 
 public:
   uint64_t HighestTransmittedAckable() { return mHighestTransmittedAckable; }

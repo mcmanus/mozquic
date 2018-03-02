@@ -1,0 +1,25 @@
+* stick frames in application data..
+ x dtls for init
+ x dtls for handshake
+ x remove header read and write
+ x dtls mfd for block operations
+ 
+x cid = 0 - always
+
+x packet numbers for acks come from parsing packet on wire (assume 1
+  per recv())..
+
+* when generating pn ekr will provide api (nexttransmit)
+
+x stream 0 can go away
+
+* 0-rtt
+
+x disable vn and assert 09 in api and require (soft fail)  hq-09 alpn
+
+* tests
+
+x all the crypto stuff hkdf etc should go away
+
+..handshake messages from server are being interpreted as quic messages
+by client.. todo check epoch and seqno.. nsshelper 210

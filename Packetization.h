@@ -18,36 +18,16 @@ enum {
   STREAM_OFF_BIT = 0x04,
 };
 
-enum LongHeaderType {
-  PACKET_TYPE_INITIAL                = 0x7F,
-  PACKET_TYPE_RETRY                  = 0x7E,
-  PACKET_TYPE_HANDSHAKE              = 0x7D,
-  PACKET_TYPE_0RTT_PROTECTED         = 0x7C,
-};
-
 enum ShortHeaderType {
   SHORT_1 = 0x1F,
   SHORT_2 = 0x1E,
   SHORT_4 = 0x1D,
 };
 
-class LongHeaderData
-{
-public:
-  LongHeaderData(unsigned char *, uint32_t);
-  enum LongHeaderType mType;
-  uint64_t mConnectionID;
-  uint64_t mPacketNumber;
-  uint32_t mVersion;
-};
-
 class MozQuic;
 
 class ShortHeaderData
 {
-private:
-  static uint64_t DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next);
-
 public:
   ShortHeaderData(MozQuic *logging, unsigned char *, uint32_t, uint64_t, bool, uint64_t);
   uint32_t mHeaderSize;

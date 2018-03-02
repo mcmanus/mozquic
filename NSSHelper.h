@@ -36,10 +36,8 @@ public:
   NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey);
   NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *originKey, bool clientindicator);
   ~NSSHelper();
-  uint32_t ReadTLSData();
   uint32_t DriveHandshake();
   bool IsHandshakeComplete() { return mHandshakeComplete; }
-  uint32_t HandshakeSecret(unsigned int ciphersuite, unsigned char *sendSecret, unsigned char *recvSecret);
 
   uint32_t EncryptBlock(const unsigned char *aeadData, uint32_t aeadLen,
                         const unsigned char *plaintext, uint32_t plaintextLen,
@@ -51,18 +49,6 @@ public:
                         uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                         uint32_t &written);
 
-
-  uint32_t EncryptHandshake(const unsigned char *aeadData, uint32_t aeadLen,
-                            const unsigned char *plaintext, uint32_t plaintextLen,
-                            uint64_t packetNumber, uint64_t cid,
-                            unsigned char *out, uint32_t outAvail,
-                            uint32_t &written);
-
-  uint32_t DecryptHandshake(const unsigned char *aeadData, uint32_t aeadLen,
-                            const unsigned char *ciphertext, uint32_t ciphertextLen,
-                            uint64_t packetNumber, uint64_t cid,
-                            unsigned char *out, uint32_t outAvail,
-                            uint32_t &written);
 
   uint32_t EncryptBlock0RTT(const unsigned char *aeadData, uint32_t aeadLen,
                             const unsigned char *plaintext, uint32_t plaintextLen,
@@ -117,29 +103,8 @@ private:
                           const unsigned char *plaintext, uint32_t plaintextLen,
                           uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
                           uint32_t &written);
-  uint32_t MakeKeyFromNSS(PRFileDesc *fd, bool earlyKey, const char *label,
-                          unsigned int secretSize, unsigned int keySize, SSLHashType hashType,
-                          CK_MECHANISM_TYPE importMechanism1, CK_MECHANISM_TYPE importMechanism2,
-                          unsigned char *outIV, PK11SymKey **outKey);
 public:
-  static uint32_t MakeKeyFromRaw(unsigned char *initialSecret,
-                          unsigned int secretSize, unsigned int keySize, SSLHashType hashType,
-                          CK_MECHANISM_TYPE importMechanism1, CK_MECHANISM_TYPE importMechanism2,
-                          unsigned char *outIV, PK11SymKey **outKey);
-  static uint32_t staticDecryptHandshake(const unsigned char *aadData, uint32_t aadLen,
-                                         const unsigned char *data, uint32_t dataLen,
-                                         uint64_t packetNumber, uint64_t connectionID,
-                                         unsigned char *out, uint32_t outAvail, uint32_t &written);
 private:
-  static void GetKeyParamsFromCipherSuite(uint16_t cipherSuite,
-                                          unsigned int &secretSize,
-                                          unsigned int &keySize,
-                                          SSLHashType &hashType,
-                                          CK_MECHANISM_TYPE &packetMechanism,
-                                          CK_MECHANISM_TYPE &importMechanism1,
-                                          CK_MECHANISM_TYPE &importMechanism2);
-  void MakeHandshakeKeys(uint64_t cid);
-  
   MozQuic             *mMozQuic;
   PRFileDesc          *mFD;
   bool                 mNSSReady;
@@ -150,30 +115,14 @@ private:
 
   bool                mDoHRR;
 
-  unsigned char       mExternalSendSecret[48];
-  unsigned char       mExternalRecvSecret[48];
-  unsigned int        mExternalCipherSuite;
+  unsigned char *mBlockBuffer;
+  uint32_t       mBlockBufferLen;
 
   unsigned char       mLocalTransportExtensionInfo[2048];
   uint16_t            mLocalTransportExtensionLen;
   unsigned char       mRemoteTransportExtensionInfo[2048];
   uint16_t            mRemoteTransportExtensionLen;
 
-  CK_MECHANISM_TYPE   mPacketProtectionMech;
-  PK11SymKey         *mPacketProtectionSenderKey0;
-  unsigned char       mPacketProtectionSenderIV0[12];
-  PK11SymKey         *mPacketProtectionReceiverKey0;
-  unsigned char       mPacketProtectionReceiverIV0[12];
-
-  CK_MECHANISM_TYPE   mPacketProtectionMech0RTT;
-  PK11SymKey         *mPacketProtectionKey0RTT;
-  unsigned char       mPacketProtectionIV0RTT[12];
-
-  uint64_t            mPacketProtectionHandshakeCID;
-  PK11SymKey         *mPacketProtectionHandshakeSenderKey;
-  unsigned char       mPacketProtectionHandshakeSenderIV[12];
-  PK11SymKey         *mPacketProtectionHandshakeReceiverKey;
-  unsigned char       mPacketProtectionHandshakeReceiverIV[12];
 };
 
 } //namespace

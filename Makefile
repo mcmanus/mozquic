@@ -32,7 +32,6 @@ endif
 
 OBJS += Ack.o
 OBJS += API.o
-OBJS += Handshake.o
 OBJS += Logging.o
 OBJS += MozQuic.o
 OBJS += NSSHelper.o

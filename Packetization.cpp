@@ -19,37 +19,8 @@ uint32_t
 MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
                                  uint32_t &used)
 {
-  // need to decide if we want 2 or 4 byte packet numbers. 1 is pretty much
-  // always too short as it doesn't allow a useful window
-  // if (nextNumber - lowestUnacked) > 16000 then use 4.
-  uint8_t pnSizeType = SHORT_2;
-  if (!mStreamState->mUnAckedPackets.empty() &&
-      ((mNextTransmitPacketNumber - mStreamState->mUnAckedPackets.front()->mPacketNumber) > 16000)) {
-    pnSizeType = SHORT_4; // 4 bytes
-  }
-
-  // section 5.2 of transport short form header:
-  // (0, mPeerOmitCID, k=0) | type [2 or 3]
-  pkt[0] = ((mPeerOmitCID) ? 0x40 : 0x00) | pnSizeType;
-  used = 1;
-
-  if (!mPeerOmitCID) {
-    uint64_t tmp64 = PR_htonll(mConnectionID);
-    memcpy(pkt + used, &tmp64, 8);
-    used += 8;
-  }
-
-  if (pnSizeType == 0x1e) { // 2 bytes
-    uint16_t tmp16 = htons(mNextTransmitPacketNumber & 0xffff);
-    memcpy(pkt + used, &tmp16, 2);
-    used += 2;
-  } else {
-    assert(pnSizeType == 0x1d);
-    uint32_t tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
-    memcpy(pkt + used, &tmp32, 4);
-    used += 4;
-  }
-
+  used = 0;
+  // dtls hack
   return MOZQUIC_OK;
 }
 
@@ -182,26 +153,6 @@ MozQuic::EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint3
     // out of range
     return MOZQUIC_ERR_GENERAL;
   }
-
-  return MOZQUIC_OK;
-}
-
-uint32_t
-MozQuic::Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
-                                    uint32_t &used)
-{
-  pkt[0] = 0x80 | PACKET_TYPE_0RTT_PROTECTED;
-
-  uint64_t tmp64 = PR_htonll(mOriginalConnectionID);
-  memcpy(pkt + 1, &tmp64, 8);
-
-  uint32_t tmp32 = htonl(mVersion);
-  memcpy(pkt + 9, &tmp32, 4);
-
-  tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
-  memcpy(pkt + 13, &tmp32, 4);
-
-  used = 17;
 
   return MOZQUIC_OK;
 }
@@ -542,95 +493,28 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
   mValid = MOZQUIC_OK;
 }
 
-LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize)
-{
-  // these fields are all version independent - though the interpretation
-  // of type is not.
-  assert(pktSize >= 17);
-  assert(pkt[0] & 0x80);
-  mType = static_cast<enum LongHeaderType>(pkt[0] & ~0x80);
-  memcpy(&mConnectionID, pkt + 1, 8);
-  mConnectionID = PR_ntohll(mConnectionID);
-  memcpy(&mVersion, pkt + 9, 4);
-  mVersion = ntohl(mVersion);
-  memcpy(&mPacketNumber, pkt + 13, 4);
-  mPacketNumber = ntohl(mPacketNumber);
-}
-
-uint64_t
-ShortHeaderData::DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next)
-{
-  // pkt should point to a variable (as defined by pnSize) amount of data
-  // in network byte order
-  uint64_t candidate1, candidate2;
-  if (pnSize == 1) {
-    candidate1 = (next & ~0xFFUL) | pkt[0];
-    candidate2 = candidate1 + 0x100UL;
-  } else if (pnSize == 2) {
-    uint16_t tmp16;
-    memcpy(&tmp16, pkt, 2);
-    tmp16 = ntohs(tmp16);
-    candidate1 = (next & ~0xFFFFUL) | tmp16;
-    candidate2 = candidate1 + 0x10000UL;
-  } else {
-    assert (pnSize == 4);
-    uint32_t tmp32;
-    memcpy(&tmp32, pkt, 4);
-    tmp32 = ntohl(tmp32);
-    candidate1 = (next & ~0xFFFFFFFFUL) | tmp32;
-    candidate2 = candidate1 + 0x100000000UL;
-  }
-
-  uint64_t distance1 = (next >= candidate1) ? (next - candidate1) : (candidate1 - next);
-  uint64_t distance2 = (next >= candidate2) ? (next - candidate2) : (candidate2 - next);
-  uint64_t rv = (distance1 < distance2) ? candidate1 : candidate2;
-  return rv;
-}
-
 ShortHeaderData::ShortHeaderData(MozQuic *logging,
                                  unsigned char *pkt, uint32_t pktSize,
                                  uint64_t nextPN, bool allowOmitCID,
                                  uint64_t defaultCID)
 {
-  if (!allowOmitCID && (pkt[0] & 0x40)) {
-    Log::sDoLog(Log::CONNECTION, 1, logging,
-                "short header omitted CID but we did not allow that via param %X\n",
-                pkt[0]);
-    return;
-  }
-
-  mHeaderSize = 0xffffffff;
+  mHeaderSize = 0;
   mConnectionID = 0;
-  mPacketNumber = 0;
-  assert(pktSize >= 1);
-  assert(!(pkt[0] & 0x80));
-  uint32_t pnSize = pkt[0] & 0x1f;
-  if (pnSize == SHORT_1) {
-    pnSize = 1;
-  } else if (pnSize == SHORT_2) {
-    pnSize = 2;
-  } else if (pnSize == SHORT_4) {
-    pnSize = 4;
-  } else {
+  mPacketNumber = 0xffffffff;
+  if (pktSize < 11) {
     Log::sDoLog(Log::CONNECTION, 1, logging,
-                "short header failed to parse packet size byte 0 %X\n",
-                pkt[0]);
+                "DTLS HEADER NOT AT LEAST 11\n");
     return;
   }
 
-  uint32_t used;
-  if (((pkt[0] & 0x40)) || (pktSize < (9 + pnSize))) {
-    // missing connection id. without the truncate transport option this cannot happen
-    used = 1;
-    mConnectionID = defaultCID;
-  } else {
-    memcpy(&mConnectionID, pkt + 1, 8);
-    mConnectionID = PR_ntohll(mConnectionID);
-    used = 9;
-  }
+  // pkt[0] is type.. application is 23 handshake is 22
+  // pkt[1] pkt[2] is version.. 254.253 for dtls 1.2. 254.255 is 1.3?
+  // pkt[3] pkt[4] is epoch (3 for quic generated data)
+  // pkt[5] [6] [7] [8] [9] [10] 48 bits is seq no (pkt no)
 
-  mHeaderSize = used + pnSize;
-  mPacketNumber = DecodePacketNumber(pkt + used, pnSize, nextPN);
+  mPacketNumber = 0;
+  memcpy(((unsigned char *)(&mPacketNumber)) + 2, pkt + 5, 6);
+  mPacketNumber = PR_ntohll(mPacketNumber);
 }
 
 }

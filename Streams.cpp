@@ -224,15 +224,12 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                          result->u.mStream.mDataLen,
                          result->u.mStream.mFinBit));
   uint32_t rv = MOZQUIC_OK;
-  if (!result->u.mStream.mStreamID) {
-    mStream0->Supply(tmp);
-  } else {
-    if (fromCleartext) {
-      mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "cleartext non 0 stream id\n");
-      return MOZQUIC_ERR_GENERAL;
-    }
-    rv = FindStream(result->u.mStream.mStreamID, tmp);
+  if (fromCleartext) {
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "cleartext non 0 stream id\n");
+    return MOZQUIC_ERR_GENERAL;
   }
+  rv = FindStream(result->u.mStream.mStreamID, tmp);
+
   _ptr += result->u.mStream.mDataLen;
   return rv;
 }
@@ -744,21 +741,17 @@ StreamState::FlowControlPromotion()
 {
   while (!mStreamsReadyToWrite.empty()) {
     auto streamID = mStreamsReadyToWrite.front();
-    if (!streamID) {
-      FlowControlPromotionForStreamPair(mStream0.get()->mOut.get());
-      if (mStream0->mOut->mStreamUnWritten.empty()) {
-        mStreamsReadyToWrite.pop_front();
-      }
-    } else {
-      assert(IsBidiStream(streamID) || IsLocalStream(streamID)); // We cannot write to a peer's uni stream.
-      auto streamPair = mStreams[streamID];
-      FlowControlPromotionForStreamPair(streamPair.get()->mOut.get());
+    assert(streamID);
 
-      if (MaybeDeleteStream(streamPair->mStreamID) ||
-          streamPair->mOut->mBlocked || streamPair->mOut->mStreamUnWritten.empty()) {
-        mStreamsReadyToWrite.pop_front();
-      }
+    assert(IsBidiStream(streamID) || IsLocalStream(streamID)); // We cannot write to a peer's uni stream.
+    auto streamPair = mStreams[streamID];
+    FlowControlPromotionForStreamPair(streamPair.get()->mOut.get());
+
+    if (MaybeDeleteStream(streamPair->mStreamID) ||
+        streamPair->mOut->mBlocked || streamPair->mOut->mStreamUnWritten.empty()) {
+      mStreamsReadyToWrite.pop_front();
     }
+
     if (mMaxDataBlocked) {
       return MOZQUIC_OK;
     }
@@ -771,9 +764,6 @@ StreamState::MaybeIssueFlowControlCredit()
 {
   // todo something better than polling
   ConnectionReadBytes(0);
-  if (mStream0) {
-    mStream0->mIn->MaybeIssueFlowControlCredit();
-  }
   for (auto iStreamPair = mStreams.begin(); iStreamPair != mStreams.end(); iStreamPair++) {
     if (IsBidiStream(iStreamPair->second->mStreamID) ||
         IsPeerStream(iStreamPair->second->mStreamID)) {
@@ -943,10 +933,6 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
 {
   outWritten = false;
 
-  if (mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) {
-    mMozQuic->FlushStream0(forceAck);
-  }
-
   if (mConnUnWritten.empty() && !forceAck) {
     return MOZQUIC_OK;
   }
@@ -957,7 +943,8 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
   assert(mtu <= kMaxMTU);
 
   if (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT) {
-    mMozQuic->Create0RTTLongPacketHeader(plainPkt, mtu - kTagLen, headerLen);
+    assert(0);
+    // dtls hack
   } else if ((mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) &&
              (mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED)) {
     // if 0RTT data gets rejected, wait for the connected state to send data.
@@ -1002,14 +989,16 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
                                             plainPkt + headerLen, framePtr - (plainPkt + headerLen),
                                             mtu - headerLen - kTagLen, true, !bareAck,
                                             packet->mQueueOnTransmit, 0, &bytesOut);
+
   if (rv != MOZQUIC_OK) {
     return rv;
   }
-
+  packet->mPacketNumber = mMozQuic->mNextTransmitPacketNumber - 1;// dtls hack
   outWritten = true;
   if (!bareAck && bytesOut) {
     packet->mTransmitTime = MozQuic::Timestamp();
     packet->mPacketLen = bytesOut;
+    fprintf(stderr,"transmitted pn %x\n", packet->mPacketNumber);
     mUnAckedPackets.push_back(std::move(packet));
   }
 
