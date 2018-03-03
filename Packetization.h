@@ -8,7 +8,7 @@
 namespace mozquic  {
 
 enum {
-  kMaxMTU = 1472,
+  kMaxMTU = 1440,
   kInitialMTU = 1200,
   kMozQuicMSS = 16384,
   kTagLen = 16,
