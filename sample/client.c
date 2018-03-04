@@ -215,7 +215,7 @@ int main(int argc, char **argv)
   if (has_arg(argc, argv, "-peer", &argVal)) {
     char *tmp = argVal;
     while (*tmp == ':') tmp++;
-    char *c = strchr(tmp, ':');
+    char *c = strrchr(tmp, ':');
     if (c) {
       *c++ = 0;
       config.originPort = atoi(c);
