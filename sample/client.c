@@ -238,7 +238,7 @@ int main(int argc, char **argv)
   assert(mozquic_unstable_api1(&config, "greaseVersionNegotiation", 0, 0) == MOZQUIC_OK);
   assert(mozquic_unstable_api1(&config, "tolerateBadALPN", 1, 0) == MOZQUIC_OK);
   assert(mozquic_unstable_api1(&config, "tolerateNoTransportParams", 1, 0) == MOZQUIC_OK);
-  assert(mozquic_unstable_api1(&config, "maxSizeAllowed", 1470, 0) == MOZQUIC_OK);
+  assert(mozquic_unstable_api1(&config, "maxSizeAllowed", 1452, 0) == MOZQUIC_OK);
 
   int test0rtt = has_arg(argc, argv, "-0rtt", &argVal);
   if (test0rtt) {

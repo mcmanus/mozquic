@@ -612,6 +612,7 @@ MozQuic::EnsureSetupClientTransportParameters()
   ConnectionLog9("setup transport extension (client)\n");
   unsigned char te[2048];
   uint16_t teLength = 0;
+  ConnectionLog5("sending max packet size %d\n", mLocalMaxSizeAllowed);
   TransportExtension::
     EncodeClientTransportParameters(te, teLength, 2048,
                                     mClientOriginalOfferedVersion,
