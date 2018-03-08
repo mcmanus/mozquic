@@ -17,6 +17,7 @@
 namespace mozquic  {
 
 static const uint32_t kMinClientInitial = 1200;
+extern std::unordered_map<std::string, uint32_t> mVNHash;
 
 #define HandshakeLog1(...) Log::sDoLog(Log::HANDSHAKE, 1, this, __VA_ARGS__);
 #define HandshakeLog2(...) Log::sDoLog(Log::HANDSHAKE, 2, this, __VA_ARGS__);
@@ -326,6 +327,14 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
   if (newVersion) {
     mVersion = newVersion;
     HandshakeLog2("negotiated version %X\n", mVersion);
+    
+    std::string key(mOriginName.get());
+    auto iter = mVNHash.find(key);
+    if (iter != mVNHash.end()) {
+      mVNHash.erase(iter);
+    }
+    mVNHash.insert({key, mVersion});
+
     mNSSHelper.reset(new NSSHelper(this, mTolerateBadALPN, mOriginName.get(), true));
     mStreamState->mStream0.reset(new StreamPair(0, this, mStreamState.get(),
                                                 kMaxStreamDataDefault,

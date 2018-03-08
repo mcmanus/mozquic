@@ -32,6 +32,8 @@ const char *MozQuic::kAlpn = MOZQUIC_ALPN;
 static const uint16_t kIdleTimeoutDefault = 600;
 static const int kTargetUDPBuffer = 16 * 1024 * 1024;
 
+std::unordered_map<std::string, uint32_t> mVNHash;
+
 MozQuic::MozQuic(bool handleIO)
   : mFD(MOZQUIC_SOCKET_BAD)
   , mHandleIO(handleIO)
@@ -56,8 +58,8 @@ MozQuic::MozQuic(bool handleIO)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mClientPort(-1)
-//  , mVersion(kMozQuicVersion1)
-  , mVersion(kMozQuicIetfID9)
+  , mVersion(kMozQuicVersion1)
+//  , mVersion(kMozQuicIetfID9)
   , mClientOriginalOfferedVersion(0)
   , mMaxPacketConfig(kDefaultMaxPacketConfig)
   , mMTU(kInitialMTU)
@@ -430,6 +432,14 @@ MozQuic::StartClient()
   assert(!mHandleIO); // todo
   mIsClient = true;
   mLocalOmitCID = true;
+
+  std::string key(mOriginName.get());
+  auto iter = mVNHash.find(key);
+  if (iter != mVNHash.end()) {
+    ConnectionLog5("Due to VN cache will use version %x instead of %x\n",
+                   iter->second, mVersion);
+    mVersion = iter->second;
+  }
 
   mConnectionState = CLIENT_STATE_1RTT;
   for (int i=0; i < 4; i++) {
