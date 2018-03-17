@@ -1664,7 +1664,6 @@ StreamPair::ResetInbound()
 uint32_t
 StreamIn::ResetInbound()
 {
-  assert(Empty());
   mOffset = 0;
   mFinalOffset = 0;
   mFinRecvd = false;

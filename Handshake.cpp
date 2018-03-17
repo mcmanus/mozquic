@@ -103,8 +103,7 @@ MozQuic::FlushStream0(bool forceAck)
   }
 
   if ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL) {
-    assert(mStreamState->mStream0->Empty());
-    // just in case of server stateless reset pollution
+    // stateless retry and 0rtt can send us down this road
     mStreamState->mStream0->ResetInbound();
   }
 
