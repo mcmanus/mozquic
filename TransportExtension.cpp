@@ -416,9 +416,9 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
   }
   uint16_t paramSize;
   Decode2ByteObject(input, offset, inputSize, paramSize); // bytes in transport parameters
-  if (paramSize < 50) { // min size for all required
-    return MOZQUIC_ERR_GENERAL;
-  }
+//  if (paramSize < 50) { // min size for all required disable for dtls
+//    return MOZQUIC_ERR_GENERAL;
+//  }
   if ((offset + paramSize) > inputSize) {
     return MOZQUIC_ERR_GENERAL;
   }

@@ -1059,7 +1059,9 @@ MozQuic::ClientConnected()
     extensionInfoLen = 0;
 
     if (decodeResult == MOZQUIC_OK) {
+      // disable for dtls
       decodeResult = (mVersion == peerNegotiatedVersion) ? MOZQUIC_OK : MOZQUIC_ERR_CRYPTO;
+      decodeResult = MOZQUIC_OK;
       if (decodeResult != MOZQUIC_OK) {
         errorCode = ERROR_VERSION_NEGOTIATION;
         ConnectionLog1("Verify Server Transport Parameters: negotiated_version\n");
@@ -1067,7 +1069,7 @@ MozQuic::ClientConnected()
     }
 
     // need to confirm version negotiation wasn't messed with
-    if (decodeResult == MOZQUIC_OK) {
+    if (0 && decodeResult == MOZQUIC_OK) { // disable for dtls
       // is mVersion in the peerVersionList?
       decodeResult = MOZQUIC_ERR_CRYPTO;
       for (int i = 0; i < versionSize; i++) {
@@ -1140,7 +1142,7 @@ MozQuic::ServerConnected()
   mSendState->Connected();
   unsigned char *extensionInfo = nullptr;
   uint16_t extensionInfoLen = 0;
-  uint32_t  peerInitialVersion;
+  uint32_t peerInitialVersion;
   mNSSHelper->GetRemoteTransportExtensionInfo(extensionInfo, extensionInfoLen);
   uint32_t decodeResult;
   uint32_t errorCode = ERROR_NO_ERROR;
