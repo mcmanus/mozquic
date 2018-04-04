@@ -61,7 +61,7 @@ QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test008.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test009.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test010.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test011.o
-QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test012.o
+# 12 was a pong test
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test013.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test014.o
 QDRIVESERVEROBJS += tests/qdrive/qdrive-server-test015.o
@@ -80,7 +80,7 @@ QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test008.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test009.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test010.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test011.o
-QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test012.o
+# 12 was a pong test
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test013.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test014.o
 QDRIVECLIENTOBJS += tests/qdrive/qdrive-client-test015.o

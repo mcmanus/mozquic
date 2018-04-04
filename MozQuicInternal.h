@@ -68,7 +68,6 @@ enum transportErrorType {
   ERROR_TRANSPORT_PARAMETER = 0x0008,
   ERROR_VERSION_NEGOTIATION = 0x0009,
   PROTOCOL_VIOLATION        = 0x000A,
-  UNSOLICITED_PONG          = 0x000B,
   // FRAME_ERROR 0x01XX
 };
 
@@ -219,7 +218,6 @@ public:
             mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_CONNECTED);
   }
 
-  uint32_t MakePingWithData(uint8_t len, const unsigned char *data);
   bool DecodedOK() { return mDecodedOK; }
   void GetPeerAddressHash(uint64_t cid, unsigned char *out, uint32_t *outLen);
   static uint64_t Timestamp();
@@ -261,12 +259,6 @@ private:
                   const unsigned char *endOfPacket, bool fromCleartext,
                   uint32_t &used);
 
-  uint32_t HandlePingFrame(FrameHeaderData *result, bool fromCleartext,
-                           const unsigned char *pkt, const unsigned char *endpkt,
-                           uint32_t &_ptr);
-  uint32_t HandlePongFrame(FrameHeaderData *result, bool fromCleartext,
-                           const unsigned char *pkt, const unsigned char *endpkt,
-                           uint32_t &_ptr);
   uint32_t HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
                           const unsigned char *pkt, const unsigned char *endpkt,
                           uint32_t &_ptr);
@@ -301,7 +293,6 @@ private:
   void StartPMTUD1();
   void CompletePMTUD1();
   void AbortPMTUD1();
-  void MakePong(uint8_t len, const unsigned char *data);
 
   static uint32_t EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint32_t &used);
   static uint32_t DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result, uint32_t &used);

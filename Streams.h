@@ -167,10 +167,6 @@ public:
                                   ReliableData *chunk);
   uint32_t CreateMaxStreamDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                     ReliableData *chunk);
-  uint32_t CreatePingFrame(unsigned char *&framePtr, const unsigned char *endpkt,
-                           ReliableData *chunk);
-  uint32_t CreatePongFrame(unsigned char *&framePtr, const unsigned char *endpkt,
-                           ReliableData *chunk);
   uint32_t CreateMaxDataFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                               ReliableData *chunk);
   uint32_t CreateMaxStreamIDFrame(unsigned char *&framePtr, const unsigned char *endpkt,
@@ -272,13 +268,11 @@ public:
   void MakeStreamBlocked(uint64_t offset) { mType = kStreamBlocked; mOffset = offset;}
   void MakeBlocked(uint64_t offset) { mType = kBlocked; mOffset = offset;}
   void MakeStreamIDBlocked(uint32_t maxID) { mType = kStreamIDBlocked; mMaxStreamID = maxID; }
-  void MakePing() { mType = kPing; }
-  void MakePong() { mType = kPong; }
 
   enum 
   {
     kStream, kRstStream, kMaxStreamData, kStreamBlocked, kMaxData, kBlocked,
-    kStreamIDBlocked, kMaxStreamID, kStopSending, kPing, kPong
+    kStreamIDBlocked, kMaxStreamID, kStopSending
   } mType;
   
   std::unique_ptr<const unsigned char []>mData;

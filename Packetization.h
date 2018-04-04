@@ -69,8 +69,9 @@ enum FrameType {
   FRAME_TYPE_STREAM_ID_BLOCKED  = 0x0A,
   FRAME_TYPE_NEW_CONNECTION_ID = 0x0B,
   FRAME_TYPE_STOP_SENDING      = 0x0C,
-  FRAME_TYPE_PONG              = 0x0D,
-  FRAME_TYPE_ACK               = 0x0E,
+  FRAME_TYPE_ACK               = 0x0D,
+  FRAME_TYPE_PATH_CHALLENGE    = 0x0E,
+  FRAME_TYPE_PATH_RESPONSE     = 0x0F,
 
   // STREAM                    = 0x10 to 0x17
   FRAME_MASK_STREAM            = 0xf8,
@@ -132,12 +133,6 @@ public:
       uint8_t  mToken[16];
      } mNewConnectionID;
     struct {
-      uint8_t mDataLen;
-    } mPing;
-    struct {
-      uint8_t mDataLen;
-    } mPong;
-    struct {
       uint64_t mOffset;
     } mBlocked;
     struct {
@@ -149,8 +144,7 @@ public:
 
 enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
-  FRAME_TYPE_PING_LENGTH              = 2,
-  FRAME_TYPE_PONG_LENGTH              = 2,
+  FRAME_TYPE_PING_LENGTH              = 1,
 };
 
 }

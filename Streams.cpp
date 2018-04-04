@@ -829,14 +829,6 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
       if (CreateMaxStreamIDFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
-    } else if ((*iter)->mType == ReliableData::kPing) {
-      if (CreatePingFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
-        break;
-      }
-    } else if ((*iter)->mType == ReliableData::kPong) {
-      if (CreatePongFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
-        break;
-      }
     } else if ((*iter)->mType == ReliableData::kStreamBlocked) {
       if (CreateStreamBlockedFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
@@ -1321,48 +1313,6 @@ StreamState::CreateMaxStreamIDFrame(unsigned char *&framePtr, const unsigned cha
     return MOZQUIC_ERR_GENERAL;
   }
   framePtr += used;
-  return MOZQUIC_OK;
-}
-
-uint32_t
-StreamState::CreatePingFrame(unsigned char *&framePtr, const unsigned char *endpkt,
-                             ReliableData *chunk)
-{
-  StreamLog5("generating ping len=%d into pkt=%lx\n", chunk->mLen,
-             mMozQuic->mNextTransmitPacketNumber);
-  assert(chunk->mType == ReliableData::kPing);
-
-  uint32_t room = endpkt - framePtr;
-  if (room < 2 + chunk->mLen) {
-    return MOZQUIC_ERR_GENERAL;
-  }
-  framePtr[0] = FRAME_TYPE_PING;
-  framePtr[1] = chunk->mLen;
-  if (chunk->mLen) {
-    memcpy(framePtr + 2, chunk->mData.get(), chunk->mLen);
-  }
-  framePtr += 2 + chunk->mLen;
-  return MOZQUIC_OK;
-}
-
-uint32_t
-StreamState::CreatePongFrame(unsigned char *&framePtr, const unsigned char *endpkt,
-                             ReliableData *chunk)
-{
-  StreamLog5("generating pong len=%d into pkt=%lx\n", chunk->mLen,
-             mMozQuic->mNextTransmitPacketNumber);
-  assert(chunk->mType == ReliableData::kPong);
-
-  uint32_t room = endpkt - framePtr;
-  if (room < 2 + chunk->mLen) {
-    return MOZQUIC_ERR_GENERAL;
-  }
-  framePtr[0] = FRAME_TYPE_PONG;
-  framePtr[1] = chunk->mLen;
-  if (chunk->mLen) {
-    memcpy(framePtr + 2, chunk->mData.get(), chunk->mLen);
-  }
-  framePtr += 2 + chunk->mLen;
   return MOZQUIC_OK;
 }
 

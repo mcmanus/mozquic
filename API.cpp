@@ -79,11 +79,8 @@ uint32_t mozquic_unstable_api2(mozquic_connection_t *conn, const char *name, uin
   mozquic::MozQuic *self(reinterpret_cast<mozquic::MozQuic *>(conn));
   
   if (!strcasecmp(name, "pingWithData")) {
-    // arg1 is len, arg2 is data
-    if (!arg1 || arg1 > 255) {
-      return MOZQUIC_ERR_GENERAL;
-    }
-    return self->MakePingWithData(arg1, (const unsigned char *)arg2);
+    // no longer implemented
+    return MOZQUIC_ERR_GENERAL;
   } else if (!strcasecmp(name, "recvd0RTT")) {
     ((char *)arg2)[0] = self->Processed0RTT();
   } else {

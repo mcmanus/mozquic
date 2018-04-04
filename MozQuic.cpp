@@ -1622,16 +1622,13 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       
     case FRAME_TYPE_PING:
       ConnectionLog5("recvd ping\n");
+      if (fromCleartext) {
+        ConnectionLog1("ping frames not allowed in cleartext\n");
+        return MOZQUIC_ERR_GENERAL;
+      }
       sendAck = true;
-      HandlePingFrame(&result, fromCleartext, pkt, endpkt, ptr);
       break;
             
-    case FRAME_TYPE_PONG:
-      ConnectionLog5("recvd pong\n");
-      sendAck = true;
-      HandlePongFrame(&result, fromCleartext, pkt, endpkt, ptr);
-      break;
-
     case FRAME_TYPE_BLOCKED:
       sendAck = true;
       rv = mStreamState->HandleBlockedFrame(&result, fromCleartext, pkt, endpkt, ptr);

@@ -51,7 +51,6 @@ static const uint32_t mozquic_library_version = 1;
     MOZQUIC_EVENT_PING_OK                = 11, // nullptr
     MOZQUIC_EVENT_TLS_CLIENT_TPARAMS     = 12, // mozquic_eventdata_tlsinput
     MOZQUIC_EVENT_CLOSE_APPLICATION      = 13, // mozquic_connection_t *
-    MOZQUIC_EVENT_PONG                   = 11, // mozquic_eventdata_raw *
     MOZQUIC_EVENT_0RTT_POSSIBLE          = 14, // mozquic_connection_t *
     MOZQUIC_EVENT_STREAM_NO_REPLAY_ERROR = 15, // mozquic_stream_t *
   };
