@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-#define MOZQUIC_ALPN "hq-09"
+#define MOZQUIC_ALPN "hq-10"
   
 static const uint32_t mozquic_library_version = 1;
 
