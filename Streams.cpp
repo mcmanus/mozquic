@@ -208,7 +208,7 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
 
   if (IsUniStream(result->u.mStream.mStreamID) && IsLocalStream(result->u.mStream.mStreamID)) {
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received data on a local uni-stream.\n");
-    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "ived data on a local uni-stream.\n");
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received data on a local uni-stream.\n");
     return MOZQUIC_ERR_GENERAL;
   }
 
@@ -400,6 +400,12 @@ StreamState::HandleResetStreamFrame(FrameHeaderData *result, bool fromCleartext,
   if (!result->u.mRstStream.mStreamID) {
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "rst_stream frames not allowed on stream 0\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream frames not allowed on stream 0\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  if (IsUniStream(result->u.mStream.mStreamID) && IsLocalStream(result->u.mStream.mStreamID)) {
+    mMozQuic->Shutdown(PROTOCOL_VIOLATION, "rst_stream frames not allowed on send only stream\n");
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream not allowed on send only stream\n");
     return MOZQUIC_ERR_GENERAL;
   }
 
