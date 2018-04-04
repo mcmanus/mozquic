@@ -138,6 +138,12 @@ public:
     struct {
       uint32_t mStreamID;
     } mStreamIDBlocked;
+    struct {
+      uint64_t mData;
+    } mPathChallenge;
+    struct {
+      uint64_t mData;
+    } mPathResponse;
   } u;
 
 };
@@ -145,6 +151,8 @@ public:
 enum FrameTypeLengths {
   FRAME_TYPE_PADDING_LENGTH           = 1,
   FRAME_TYPE_PING_LENGTH              = 1,
+  FRAME_TYPE_PATH_CHALLENGE_LENGTH    = 9,
+  FRAME_TYPE_PATH_RESPONSE_LENGTH     = 9
 };
 
 }

@@ -132,6 +132,7 @@ public:
   uint32_t FlushOnce(bool forceAck, bool forceFrame, bool &outDidWrite);
   uint32_t Flush(bool forceAck);
   void     TrackPacket(uint64_t packetNumber, uint32_t packetSize);
+  uint32_t GeneratePathResponse(uint64_t data);
   uint32_t HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
                              const unsigned char *pkt, const unsigned char *endpkt,
                              uint32_t &_ptr);
@@ -175,6 +176,8 @@ public:
                                     ReliableData *chunk);
   uint32_t CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                               ReliableData *chunk);
+  uint32_t CreatePathResponseFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                   ReliableData *chunk);
   uint32_t CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                       ReliableData *chunk, bool &toRemove);
 
@@ -268,11 +271,12 @@ public:
   void MakeStreamBlocked(uint64_t offset) { mType = kStreamBlocked; mOffset = offset;}
   void MakeBlocked(uint64_t offset) { mType = kBlocked; mOffset = offset;}
   void MakeStreamIDBlocked(uint32_t maxID) { mType = kStreamIDBlocked; mMaxStreamID = maxID; }
+  void MakePathResponse(uint64_t data) { mType = kPathResponse; mPathData = data; }
 
   enum 
   {
     kStream, kRstStream, kMaxStreamData, kStreamBlocked, kMaxData, kBlocked,
-    kStreamIDBlocked, kMaxStreamID, kStopSending
+    kStreamIDBlocked, kMaxStreamID, kStopSending, kPathResponse
   } mType;
   
   std::unique_ptr<const unsigned char []>mData;
@@ -289,6 +293,7 @@ public:
   uint64_t mStreamCreditValue; // for kMaxStreamData
   uint64_t mConnectionCredit; // for kMaxData 
   uint32_t mMaxStreamID; // for kMaxStreamID and kStreamIDBlocked
+  uint64_t mPathData; // pathResponse
   
   // when unacked these are set
   enum keyPhase mTransmitKeyPhase;

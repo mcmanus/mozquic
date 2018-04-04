@@ -1494,6 +1494,14 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
 }
 
 uint32_t
+MozQuic::HandlePathChallengeFrame(FrameHeaderData *meta)
+{
+  ConnectionLog5("Recvd Path Challenge %lx\n",
+                 meta->u.mPathChallenge.mData);
+  return mStreamState->GeneratePathResponse(meta->u.mPathChallenge.mData);
+}
+
+uint32_t
 MozQuic::HandleConnCloseFrame(FrameHeaderData *, bool fromCleartext,
                               const unsigned char *, const unsigned char *,
                               uint32_t &/*_ptr*/)
@@ -1619,7 +1627,21 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
         return rv;
       }
       break;
-      
+
+    case FRAME_TYPE_PATH_CHALLENGE:
+      sendAck = true;
+      rv = HandlePathChallengeFrame(&result);
+      if (rv != MOZQUIC_OK) {
+        return rv;
+      }
+      break;
+
+    case FRAME_TYPE_PATH_RESPONSE:
+      // right now we don't generate path_challenge, so this is an error
+      RaiseError(MOZQUIC_ERR_GENERAL, (char *) "unexpected path response");
+      return MOZQUIC_ERR_GENERAL;
+      break;
+
     case FRAME_TYPE_PING:
       ConnectionLog5("recvd ping\n");
       if (fromCleartext) {

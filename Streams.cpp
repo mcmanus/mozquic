@@ -454,6 +454,15 @@ StreamState::HandleStopSendingFrame(FrameHeaderData *result, bool fromCleartext,
 }
 
 uint32_t
+StreamState::GeneratePathResponse(uint64_t data)
+{
+  std::unique_ptr<ReliableData> tmp(new ReliableData(0, 0, nullptr, 0, 0));
+  tmp->MakePathResponse(data);
+  ConnectionWrite(tmp);
+  return MOZQUIC_OK;
+}
+
+uint32_t
 StreamState::RstStream(uint32_t streamID, uint16_t code)
 {
   auto i = mStreams.find(streamID);
@@ -844,6 +853,10 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
           iter = mConnUnWritten.erase(iter);
           continue;
         }
+        break;
+      }
+    } else if ((*iter)->mType == ReliableData::kPathResponse) {
+      if (CreatePathResponseFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
     } else {
@@ -1413,6 +1426,21 @@ StreamState::CreateBlockedFrame(unsigned char *&framePtr, const unsigned char *e
   return MOZQUIC_OK;
 }
 
+uint32_t
+StreamState::CreatePathResponseFrame(unsigned char *&framePtr, const unsigned char *endpkt,
+                                ReliableData *chunk)
+{
+  StreamLog5("create path response %lx\n", chunk->mPathData);
+  assert(chunk->mType == ReliableData::kPathResponse);
+  assert(!chunk->mLen);
+
+  framePtr[0] = FRAME_TYPE_PATH_RESPONSE;
+  assert(FRAME_TYPE_PATH_RESPONSE_LENGTH == sizeof (chunk->mPathData) + 1);
+  memcpy(framePtr + 1, &(chunk->mPathData), sizeof (chunk->mPathData));
+  framePtr += FRAME_TYPE_PATH_RESPONSE_LENGTH;
+  return MOZQUIC_OK;
+}
+        
 uint32_t
 StreamState::CreateStreamIDBlockedFrame(unsigned char *&framePtr, const unsigned char *endpkt,
                                         ReliableData *chunk, bool &toRemove)

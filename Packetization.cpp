@@ -391,6 +391,42 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       mFrameLen = FRAME_TYPE_PING_LENGTH;
       return;
 
+    case FRAME_TYPE_PATH_CHALLENGE:
+      if (fromCleartext) {
+        session->Shutdown(FRAME_FORMAT_ERROR, "Frame Type not allowed");
+        return;
+      }
+
+      if (pktSize < FRAME_TYPE_PATH_CHALLENGE_LENGTH) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            (char *) "challenge length expected");
+        return;
+      }
+
+      memcpy(&u.mPathChallenge.mData, framePtr, sizeof(u.mPathChallenge.mData));
+      mType = FRAME_TYPE_PATH_CHALLENGE;
+      mValid = MOZQUIC_OK;
+      mFrameLen = FRAME_TYPE_PATH_CHALLENGE_LENGTH;
+      break;
+
+    case FRAME_TYPE_PATH_RESPONSE:
+      if (fromCleartext) {
+        session->Shutdown(FRAME_FORMAT_ERROR, "Frame Type not allowed");
+        return;
+      }
+
+      if (pktSize < FRAME_TYPE_PATH_RESPONSE_LENGTH) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            (char *) "response length expected");
+        return;
+      }
+
+      memcpy(&u.mPathResponse.mData, framePtr, sizeof(u.mPathResponse.mData));
+      mType = FRAME_TYPE_PATH_RESPONSE;
+      mValid = MOZQUIC_OK;
+      mFrameLen = FRAME_TYPE_PATH_RESPONSE_LENGTH;
+      break;
+
     case FRAME_TYPE_BLOCKED:
       mType = FRAME_TYPE_BLOCKED;
       if (MozQuic::DecodeVarint(framePtr, endOfPkt - framePtr, u.mBlocked.mOffset, used) != MOZQUIC_OK) {

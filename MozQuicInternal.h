@@ -259,6 +259,7 @@ private:
                   const unsigned char *endOfPacket, bool fromCleartext,
                   uint32_t &used);
 
+  uint32_t HandlePathChallengeFrame(FrameHeaderData *meta);
   uint32_t HandleAckFrame(FrameHeaderData *result, bool fromCleartext,
                           const unsigned char *pkt, const unsigned char *endpkt,
                           uint32_t &_ptr);
