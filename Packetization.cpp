@@ -29,8 +29,8 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   }
 
   // section 5.2 of transport short form header:
-  // (0, mPeerOmitCID, k=0) | type [2 or 3]
-  pkt[0] = ((mPeerOmitCID) ? 0x40 : 0x00) | pnSizeType;
+  // (0, mPeerOmitCID, k=0, 1, 0) | type 
+  pkt[0] = ((mPeerOmitCID) ? 0x40 : 0x00) | 0x10 | pnSizeType;
   used = 1;
 
   if (!mPeerOmitCID) {
@@ -39,12 +39,12 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
     used += 8;
   }
 
-  if (pnSizeType == 0x1e) { // 2 bytes
+  if (pnSizeType == SHORT_2) { // 2 bytes
     uint16_t tmp16 = htons(mNextTransmitPacketNumber & 0xffff);
     memcpy(pkt + used, &tmp16, 2);
     used += 2;
   } else {
-    assert(pnSizeType == 0x1d);
+    assert(pnSizeType == SHORT_4);
     uint32_t tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
     memcpy(pkt + used, &tmp32, 4);
     used += 4;
@@ -592,6 +592,7 @@ ShortHeaderData::ShortHeaderData(MozQuic *logging,
                                  uint64_t nextPN, bool allowOmitCID,
                                  uint64_t defaultCID)
 {
+  // note that StatlessReset.cpp also hand rolls a special short packet header
   if (!allowOmitCID && (pkt[0] & 0x40)) {
     Log::sDoLog(Log::CONNECTION, 1, logging,
                 "short header omitted CID but we did not allow that via param %X\n",
@@ -604,7 +605,13 @@ ShortHeaderData::ShortHeaderData(MozQuic *logging,
   mPacketNumber = 0;
   assert(pktSize >= 1);
   assert(!(pkt[0] & 0x80));
-  uint32_t pnSize = pkt[0] & 0x1f;
+  if ((pkt[0] & 0x18) != 0x10) {
+    Log::sDoLog(Log::CONNECTION, 1, logging,
+                "short header failed const on bits 5 and 4\n");
+    return;
+  }
+
+  uint32_t pnSize = pkt[0] & 0x07;
   if (pnSize == SHORT_1) {
     pnSize = 1;
   } else if (pnSize == SHORT_2) {

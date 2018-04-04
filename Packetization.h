@@ -26,9 +26,9 @@ enum LongHeaderType {
 };
 
 enum ShortHeaderType {
-  SHORT_1 = 0x1F,
-  SHORT_2 = 0x1E,
-  SHORT_4 = 0x1D,
+  SHORT_1 = 0x00,
+  SHORT_2 = 0x01,
+  SHORT_4 = 0x02,
 };
 
 class LongHeaderData
