@@ -250,8 +250,15 @@ StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartex
   uint32_t streamID = result->u.mMaxStreamData.mStreamID;
 
   if (IsRecvOnlyStream(result->u.mMaxStreamData.mStreamID)) {
-    mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received maxdata on a peer's uni-stream.\n");
-    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received maxdata on a peer's uni-stream.\n");
+    mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received maxstreamdata on a recv only stream.\n");
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received maxstreamdata on a recv only stream.\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  if (IsSendOnlyStream(result->u.mMaxStreamData.mStreamID) &&
+      result->u.mMaxStreamData.mStreamID >= mNextStreamID[1]) {
+    mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received maxstreamdata on unopened sendonly stream.\n");
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received maxstreamdata on unopened sendonly stream.\n");
     return MOZQUIC_ERR_GENERAL;
   }
 
