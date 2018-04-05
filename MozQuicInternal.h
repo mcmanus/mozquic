@@ -59,7 +59,7 @@ enum connectionState
 enum transportErrorType {
   ERROR_NO_ERROR            = 0x0000,
   ERROR_INTERNAL            = 0x0001,
-// missing 0x0002,
+  SERVER_BUSY_ERROR         = 0x0002,
   FLOW_CONTROL_ERROR        = 0x0003,
   STREAM_ID_ERROR           = 0x0004,
   STREAM_STATE_ERROR        = 0x0005,
@@ -68,6 +68,7 @@ enum transportErrorType {
   ERROR_TRANSPORT_PARAMETER = 0x0008,
   ERROR_VERSION_NEGOTIATION = 0x0009,
   PROTOCOL_VIOLATION        = 0x000A,
+  UNSOLICITED_PATH_RESPONSE = 0x000B,
   // FRAME_ERROR 0x01XX
 };
 

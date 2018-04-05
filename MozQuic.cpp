@@ -1638,6 +1638,7 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
 
     case FRAME_TYPE_PATH_RESPONSE:
       // right now we don't generate path_challenge, so this is an error
+      Shutdown(UNSOLICITED_PATH_RESPONSE, "unexpected path response");
       RaiseError(MOZQUIC_ERR_GENERAL, (char *) "unexpected path response");
       return MOZQUIC_ERR_GENERAL;
       break;
