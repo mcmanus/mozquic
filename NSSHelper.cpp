@@ -162,11 +162,11 @@ QHkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
    *  struct QuicHkdfLabel {
    *    uint16 length; = Length
    *    opaque label<6..255>; = "QUIC " + label
-   *    uint8 hashLength = 0;
+   *    uint8 hashLength = 0; // TODO
    *  };
    *
    */
-  infoLen = 2 + 1 + kLabelPrefixLen + labelLen + 1;
+  infoLen = 2 + 1 + kLabelPrefixLen + labelLen;
   if (infoLen > sizeof(info)) {
     PORT_Assert(0);
     goto abort;
@@ -178,7 +178,6 @@ QHkdfExpandLabel(PK11SymKey *prk, SSLHashType baseHash,
   ptr += kLabelPrefixLen;
   PORT_Memcpy(ptr, label, labelLen);
   ptr += labelLen;
-  ptr = ssl_EncodeUintX(0, 1, ptr); // hashLength is always empty for QUIC.
   PORT_Assert((ptr - info) == infoLen);
 
   params.bExtract = CK_FALSE;
