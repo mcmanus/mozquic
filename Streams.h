@@ -202,10 +202,12 @@ private:
   bool IsBidiStream(uint32_t streamID) { return (streamID & 0x2) ? false : true; }
   bool IsUniStream(uint32_t streamID) { return (streamID & 0x2) ? true : false; }
   bool IsLocalStream(uint32_t streamID) { return (!(streamID & 1) && mMozQuic->mIsClient) || // even and you're the client
-                                                 ((streamID & 1) && !mMozQuic->mIsClient); } // odd and you're the server
+                                         ((streamID & 1) && !mMozQuic->mIsClient); } // odd and you're the server
   bool IsPeerStream(uint32_t streamID) {return (!(streamID & 1) && !mMozQuic->mIsClient) ||  // even and you're the server
-                                               ((streamID & 1) && mMozQuic->mIsClient); }    // odd and you're the client
-  
+                                        ((streamID & 1) && mMozQuic->mIsClient); }    // odd and you're the client
+  bool IsSendOnlyStream(uint32_t streamID) { return IsUniStream(streamID) && IsLocalStream(streamID); }
+  bool IsRecvOnlyStream(uint32_t streamID) { return IsUniStream(streamID) && IsPeerStream(streamID); }
+
   MozQuic *mMozQuic;
   uint32_t mNextStreamID[2]; // [0]->bidirectional [1]->unidirectional
 
@@ -398,6 +400,8 @@ public:
                                 ((mStreamID & 1) && !mMozQuic->mIsClient); } // odd and you're the server
   bool IsPeerStream() {return (!(mStreamID & 1) && !mMozQuic->mIsClient) ||  // even and you're the server
                               ((mStreamID & 1) && mMozQuic->mIsClient); }    // odd and you're the client
+  bool IsSendOnlyStream() { return IsUniStream() && IsLocalStream(); }
+  bool IsRecvOnlyStream() { return IsUniStream() && IsPeerStream(); }
 
   uint32_t mStreamID;
   bool mNoReplay;

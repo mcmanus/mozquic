@@ -206,7 +206,7 @@ StreamState::HandleStreamFrame(FrameHeaderData *result, bool fromCleartext,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  if (IsUniStream(result->u.mStream.mStreamID) && IsLocalStream(result->u.mStream.mStreamID)) {
+  if (IsSendOnlyStream(result->u.mStream.mStreamID)) {
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received data on a local uni-stream.\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received data on a local uni-stream.\n");
     return MOZQUIC_ERR_GENERAL;
@@ -249,7 +249,7 @@ StreamState::HandleMaxStreamDataFrame(FrameHeaderData *result, bool fromCleartex
 
   uint32_t streamID = result->u.mMaxStreamData.mStreamID;
 
-  if (IsUniStream(result->u.mMaxStreamData.mStreamID) && IsPeerStream(result->u.mMaxStreamData.mStreamID)) {
+  if (IsRecvOnlyStream(result->u.mMaxStreamData.mStreamID)) {
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received maxdata on a peer's uni-stream.\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received maxdata on a peer's uni-stream.\n");
     return MOZQUIC_ERR_GENERAL;
@@ -346,7 +346,7 @@ StreamState::HandleStreamBlockedFrame(FrameHeaderData *result, bool fromCleartex
 
   uint32_t streamID = result->u.mStreamBlocked.mStreamID;
 
-  if (IsUniStream(result->u.mStreamBlocked.mStreamID) && IsLocalStream(result->u.mStreamBlocked.mStreamID)) {
+  if (IsSendOnlyStream(result->u.mStreamBlocked.mStreamID)) {
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received streamblocked on a local uni-stream.\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received streamblocked on a local uni-stream.\n");
     return MOZQUIC_ERR_GENERAL;
@@ -403,7 +403,7 @@ StreamState::HandleResetStreamFrame(FrameHeaderData *result, bool fromCleartext,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  if (IsUniStream(result->u.mStream.mStreamID) && IsLocalStream(result->u.mStream.mStreamID)) {
+  if (IsSendOnlyStream(result->u.mStream.mStreamID)) {
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "rst_stream frames not allowed on send only stream\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream not allowed on send only stream\n");
     return MOZQUIC_ERR_GENERAL;
@@ -509,7 +509,7 @@ StreamState::ScrubUnWritten(uint32_t streamID)
     }
   }
 
-  if (IsUniStream(streamID) && IsPeerStream(streamID)) {
+  if (IsRecvOnlyStream(streamID)) {
     assert(!foundDataPkt);
   }
   mStreamsReadyToWrite.remove(streamID);
@@ -1553,7 +1553,7 @@ StreamPair::Write(const unsigned char *data, uint32_t len, bool fin)
     return MOZQUIC_ERR_IO;
   }
   if (!mOut) {
-    assert(IsPeerStream() && IsUniStream());
+    assert(IsRecvOnlyStream());
     return MOZQUIC_ERR_IO;
   }
   return mOut->Write(data, len, fin);
@@ -1563,7 +1563,7 @@ uint32_t
 StreamPair::Read(unsigned char *buffer, uint32_t avail, uint32_t &amt, bool &fin)
 {
   if (!mIn) {
-    assert(IsLocalStream() && IsUniStream());
+    assert(IsSendOnlyStream());
     return MOZQUIC_ERR_IO;
   }
   return mIn->Read(buffer, avail, amt, fin);
@@ -1573,7 +1573,7 @@ bool
 StreamPair::Empty()
 {
   if (!mIn) {
-    assert(IsLocalStream() && IsUniStream());
+    assert(IsSendOnlyStream());
     return true;
   }
 
@@ -1596,7 +1596,7 @@ int
 StreamPair::EndStream()
 {
   if (!mOut) {
-    assert(IsPeerStream() && IsUniStream());
+    assert(IsRecvOnlyStream());
     return MOZQUIC_ERR_IO;
   }
   return mOut->EndStream();
@@ -1605,7 +1605,7 @@ StreamPair::EndStream()
 uint32_t
 StreamPair::NewFlowControlLimit(uint64_t limit) {
   if (!mOut) {
-    assert(IsPeerStream() && IsUniStream());
+    assert(IsRecvOnlyStream());
     return MOZQUIC_ERR_IO;
   }
   mOut->NewFlowControlLimit(limit);
