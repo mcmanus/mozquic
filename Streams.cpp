@@ -410,7 +410,7 @@ StreamState::HandleResetStreamFrame(FrameHeaderData *result, bool fromCleartext,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  if (IsSendOnlyStream(result->u.mStream.mStreamID)) {
+  if (IsSendOnlyStream(result->u.mRstStream.mStreamID)) {
     mMozQuic->Shutdown(PROTOCOL_VIOLATION, "rst_stream frames not allowed on send only stream\n");
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "rst_stream not allowed on send only stream\n");
     return MOZQUIC_ERR_GENERAL;
@@ -457,6 +457,12 @@ StreamState::HandleStopSendingFrame(FrameHeaderData *result, bool fromCleartext,
 {
   if (fromCleartext) {
     mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "stop_sending frames not allowed in cleartext\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  if (IsRecvOnlyStream(result->u.mStopSending.mStreamID)) {
+    mMozQuic->Shutdown(PROTOCOL_VIOLATION, "received stopSending on wrong uni-stream.\n");
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "received stopSending on wrong uni-stream.\n");
     return MOZQUIC_ERR_GENERAL;
   }
 
