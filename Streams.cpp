@@ -862,6 +862,11 @@ StreamState::CreateFrames(unsigned char *&aFramePtr, const unsigned char *endpkt
         break;
       }
     } else if ((*iter)->mType == ReliableData::kPathResponse) {
+      if ((*iter)->mCloned) {
+        // don't retransmit path response
+        iter = mConnUnWritten.erase(iter);
+        continue;
+      }
       if (CreatePathResponseFrame(framePtr, endpkt, (*iter).get()) != MOZQUIC_OK) {
         break;
       }
@@ -1993,6 +1998,7 @@ ReliableData::ReliableData(uint32_t id, uint64_t offset,
   , mStreamCreditValue(0)
   , mConnectionCredit(0)
   , mTransmitKeyPhase(keyPhaseUnknown)
+  , mCloned(false)
 {
   if ((0xfffffffffffffffe - offset) < len) {
     // todo should not silently truncate like this
@@ -2012,9 +2018,13 @@ ReliableData::ReliableData(ReliableData &orig)
   , mSendUnblocked(false)
   , mQueueOnTransmit(false)
   , mRstCode(orig.mRstCode)
+  , mStopSendingCode (orig.mStopSendingCode)
   , mStreamCreditValue(orig.mStreamCreditValue)
   , mConnectionCredit(orig.mConnectionCredit)
+  , mMaxStreamID(orig.mMaxStreamID)
+  , mPathData(orig.mPathData)
   , mTransmitKeyPhase(keyPhaseUnknown)
+  , mCloned(true)
 {
   mData = std::move(orig.mData);
 }

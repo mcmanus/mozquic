@@ -297,6 +297,7 @@ public:
   
   // when unacked these are set
   enum keyPhase mTransmitKeyPhase;
+  bool mCloned; // i.e. retransmit
 };
 
 class TransmittedPacket
