@@ -513,7 +513,7 @@ ShortHeaderData::ShortHeaderData(MozQuic *logging,
   // pkt[5] [6] [7] [8] [9] [10] 48 bits is seq no (pkt no)
 
   mPacketNumber = 0;
-  memcpy(((unsigned char *)(&mPacketNumber)) + 2, pkt + 5, 6);
+  memcpy(((unsigned char *)(&mPacketNumber)), pkt + 3, 8);
   mPacketNumber = PR_ntohll(mPacketNumber);
 }
 

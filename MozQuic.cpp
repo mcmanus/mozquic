@@ -249,7 +249,7 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     MTU = mMTU;
   }
 
-  if (mNextTransmitPacketNumber >= ((1ULL << 48) - 1)) {
+  if (mNextTransmitPacketNumber >= ((1ULL << 62) - 1)) {
     ConnectionLog1("Connection Packet Number Exhausted\n");
     RaiseError(MOZQUIC_ERR_GENERAL, "Connection Packet Number Exhausted\n");
     return MOZQUIC_ERR_GENERAL;
@@ -307,7 +307,7 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
     return MOZQUIC_ERR_CRYPTO;
   }
   mNextTransmitPacketNumber = 0;
-  memcpy(((unsigned char *)(&mNextTransmitPacketNumber)) + 2, cipherPkt + 5, 6);
+  memcpy(((unsigned char *)(&mNextTransmitPacketNumber)), cipherPkt + 3, 8);
   mNextTransmitPacketNumber = PR_ntohll(mNextTransmitPacketNumber);
   
   ConnectionLog6("encrypt[%lX] rv=%d inputlen=%d (+%d of aead) outputlen=%d\n",
@@ -1032,6 +1032,7 @@ MozQuic::ClientConnected()
     assert(sizeof(mStatelessResetToken) == 16);
     uint32_t peerNegotiatedVersion;
     uint32_t peerMaxData;
+    mStreamState->mPeerMaxStreamID[BIDI_STREAM] = 8;
     decodeResult =
       TransportExtension::
       DecodeServerTransportParameters(extensionInfo, extensionInfoLen,

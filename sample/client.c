@@ -262,7 +262,7 @@ int main(int argc, char **argv)
       fprintf(stderr,"IO reported failure\n");
       break;
     }
-    if (_getCount == -1) {
+    if (_getCount == -1 && 0) {
       break;
     }
   } while (++i < 2000 || _getCount);
