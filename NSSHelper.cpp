@@ -329,11 +329,14 @@ NSSHelper::SharedInit()
   assert(strlen(MozQuic::kAlpn) < 256);
   buffer[0] = strlen(MozQuic::kAlpn);
   memcpy(buffer + 1, MozQuic::kAlpn, strlen(MozQuic::kAlpn));
+#if 0
+// dtls
   if (SSL_SetNextProtoNego(mFD,
                            buffer, strlen(MozQuic::kAlpn) + 1) != SECSuccess) {
     mNSSReady = false;
   }
-
+#endif
+  
   SSLExtensionSupport supportTransportParameters;
   if (SSL_GetExtensionSupport(kTransportParametersID, &supportTransportParameters) == SECSuccess &&
       supportTransportParameters != ssl_ext_native_only &&

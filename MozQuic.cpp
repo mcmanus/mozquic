@@ -827,7 +827,10 @@ MozQuic::Intake(bool *partialResult)
         StatelessResetSend(tmpShortHeader.mConnectionID, (const sockaddr *) &peer);
       }
       rv = MOZQUIC_ERR_GENERAL;
-      continue;
+      tmpSession = FindSession(&peer);
+      if (!tmpSession) {
+        continue;
+      }
     }
 
     session = tmpSession->mAlive;
