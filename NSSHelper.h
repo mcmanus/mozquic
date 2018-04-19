@@ -54,13 +54,13 @@ public:
 
   uint32_t EncryptHandshake(const unsigned char *aeadData, uint32_t aeadLen,
                             const unsigned char *plaintext, uint32_t plaintextLen,
-                            uint64_t packetNumber, uint64_t cid,
+                            uint64_t packetNumber, CID cid,
                             unsigned char *out, uint32_t outAvail,
                             uint32_t &written);
 
   uint32_t DecryptHandshake(const unsigned char *aeadData, uint32_t aeadLen,
                             const unsigned char *ciphertext, uint32_t ciphertextLen,
-                            uint64_t packetNumber, uint64_t cid,
+                            uint64_t packetNumber, CID cid,
                             unsigned char *out, uint32_t outAvail,
                             uint32_t &written);
 
@@ -128,8 +128,11 @@ public:
                           unsigned char *outIV, PK11SymKey **outKey);
   static uint32_t staticDecryptHandshake(const unsigned char *aadData, uint32_t aadLen,
                                          const unsigned char *data, uint32_t dataLen,
-                                         uint64_t packetNumber, uint64_t connectionID,
+                                         uint64_t packetNumber, CID connectionID,
                                          unsigned char *out, uint32_t outAvail, uint32_t &written);
+
+  static uint64_t SockAddrHasher(const struct sockaddr *);
+
 private:
   static void GetKeyParamsFromCipherSuite(uint16_t cipherSuite,
                                           unsigned int &secretSize,
@@ -138,7 +141,7 @@ private:
                                           CK_MECHANISM_TYPE &packetMechanism,
                                           CK_MECHANISM_TYPE &importMechanism1,
                                           CK_MECHANISM_TYPE &importMechanism2);
-  void MakeHandshakeKeys(uint64_t cid);
+  void MakeHandshakeKeys(CID cid);
   
   MozQuic             *mMozQuic;
   PRFileDesc          *mFD;
@@ -169,7 +172,7 @@ private:
   PK11SymKey         *mPacketProtectionKey0RTT;
   unsigned char       mPacketProtectionIV0RTT[12];
 
-  uint64_t            mPacketProtectionHandshakeCID;
+  CID                 mPacketProtectionHandshakeCID;
   PK11SymKey         *mPacketProtectionHandshakeSenderKey;
   unsigned char       mPacketProtectionHandshakeSenderIV[12];
   PK11SymKey         *mPacketProtectionHandshakeReceiverKey;

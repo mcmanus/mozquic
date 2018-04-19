@@ -31,49 +31,31 @@ extern std::unordered_map<std::string, uint32_t> mVNHash;
 #define HandshakeLog10(...) Log::sDoLog(Log::HANDSHAKE, 10, this, __VA_ARGS__);
 
 bool
-MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize,
-                        uint64_t pktNum, uint64_t connID,
-                        unsigned char *outbuf, uint32_t &outSize)
+MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
+                        CID handshakeCID, uint64_t pktNum, unsigned char *outbuf, uint32_t &outSize)
 {
   assert (pkt[0] & 0x80); // long form
   assert (((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL) ||
           ((pkt[0] & 0x7f) == PACKET_TYPE_RETRY) ||
           ((pkt[0] & 0x7f) == PACKET_TYPE_HANDSHAKE));
-  assert (pktSize >= 17);
-
-  if (!mNSSHelper) {
-    MozQuic *tmpSession = FindSession(connID);
-    if (tmpSession) {
-      assert (tmpSession->mNSSHelper);
-      return tmpSession->IntegrityCheck(pkt, pktSize, pktNum, connID, outbuf, outSize);
-    }
-  }
-
-  assert(mOriginalClientCID || ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL));
-  if ((pkt[0] & 0x7f) != PACKET_TYPE_INITIAL) {
-    if (!mOriginalClientCID) {
-      ConnectionLog1("Decrypt handshake failed %lX not initial and unknown connid\n", pktNum);
-      return false;
-    }
-    connID = mOriginalClientCID;
-  }
 
   uint32_t rv;
   if (mNSSHelper) {
-    rv = mNSSHelper->DecryptHandshake(pkt, 17, pkt + 17, pktSize - 17, pktNum, connID,
-                                      outbuf + 17, kMozQuicMSS - 17, outSize);
+    rv = mNSSHelper->DecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize, pktNum, handshakeCID,
+                                      outbuf + headerSize, kMozQuicMSS - headerSize, outSize);
   } else {
+    // need longheader.mdestcid
     assert ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL || (pkt[0] & 0x7f) == PACKET_TYPE_RETRY);
-    rv = NSSHelper::staticDecryptHandshake(pkt, 17, pkt + 17, pktSize - 17, pktNum, connID,
-                                           outbuf + 17, kMozQuicMSS - 17, outSize);
+    rv = NSSHelper::staticDecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize, pktNum, handshakeCID,
+                                           outbuf + headerSize, kMozQuicMSS - headerSize, outSize);
   }
     
   if (rv != MOZQUIC_OK) {
     ConnectionLog1("Decrypt handshake failed packet %lX integrity error\n", pktNum);
     return false;
   }
-  memcpy(outbuf, pkt, 17);
-  outSize += 17;
+  memcpy(outbuf, pkt, headerSize);
+  outSize += headerSize;
   ConnectionLog5("Decrypt handshake (pktnum=%lX) ok sz=%d\n", pktNum, outSize);
   return true;
 }
@@ -90,11 +72,14 @@ MozQuic::FlushStream0(bool forceAck)
   assert(mMTU <= kMaxMTU);
   unsigned char pkt[kMaxMTU];
   unsigned char *endpkt = pkt + mMTU;
+  unsigned char *framePtr = pkt;
   uint32_t tmp32;
+  uint32_t rv;
+  uint32_t used;
 
-  // section 5.4.1 of transport
-  // long form header 17 bytes
+  // section 4.1 of transport
   pkt[0] = 0x80;
+  framePtr++;
   if (ServerState()) {
     pkt[0] |=
       (mConnectionState == SERVER_STATE_SSR) ? PACKET_TYPE_RETRY : PACKET_TYPE_HANDSHAKE;
@@ -107,28 +92,38 @@ MozQuic::FlushStream0(bool forceAck)
     mStreamState->mStream0->ResetInbound();
   }
 
-  // todo store a network order version of this
-  uint64_t connID = PR_htonll(mConnectionID);
   if (mConnectionState == SERVER_STATE_SSR) {
     HandshakeLog4("Generating Server Stateless Retry.\n");
     assert(mStreamState->mUnAckedPackets.empty());
   }
-  memcpy(pkt + 1, &connID, 8);
-  connID = PR_ntohll(connID);
 
   tmp32 = htonl(mVersion);
-  memcpy(pkt + 9, &tmp32, 4);
+  memcpy(framePtr, &tmp32, 4);
+  framePtr += 4;
+
+  rv = CID::FormatLongHeader(mPeerCID, mLocalCID, mLocalOmitCID,
+                             framePtr, endpkt - framePtr, used);
+  if (rv != MOZQUIC_OK) return rv;
+  framePtr += used;
+
+  unsigned char *payloadLenPtr = framePtr;
+  if ((endpkt - framePtr) < 2) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr += 2;
+
   tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
   if (mConnectionState == SERVER_STATE_SSR) {
     tmp32 = htonl(mClientInitialPacketNumber & 0xffffffff);
   }
   uint32_t usedPacketNumber = ntohl(tmp32);
-  memcpy(pkt + 13, &tmp32, 4);
+  memcpy(framePtr, &tmp32, 4);
+  framePtr += 4;
 
   std::unique_ptr<TransmittedPacket> packet(new TransmittedPacket(mNextTransmitPacketNumber));
-  unsigned char *framePtr = pkt + 17;
+  unsigned char *emptyFramePtr = framePtr;
   mStreamState->CreateFrames(framePtr, endpkt - 16, true, packet.get()); // last 16 are aead tag
-  bool sentStream = (framePtr != (pkt + 17));
+  bool sentStream = (framePtr != emptyFramePtr);
 
   // then padding as needed up to mtu on client_initial
   uint32_t paddingNeeded = 0;
@@ -147,8 +142,7 @@ MozQuic::FlushStream0(bool forceAck)
     }
   } else {
     uint32_t room = endpkt - framePtr - 16; // the last 16 are for aead tag
-    uint32_t used;
-    bareAck = framePtr == (pkt + 17);
+    bareAck = framePtr == emptyFramePtr;
     if (AckPiggyBack(framePtr, mNextTransmitPacketNumber, room, keyPhaseUnprotected,
                      bareAck, used) == MOZQUIC_OK) {
       if (used) {
@@ -158,35 +152,44 @@ MozQuic::FlushStream0(bool forceAck)
     }
   }
 
-  if (framePtr != (pkt + 17)) {
-    assert(framePtr > (pkt + 17));
+  if (framePtr != emptyFramePtr) {
+    assert(framePtr > emptyFramePtr);
     memset (framePtr, 0, paddingNeeded);
     framePtr += paddingNeeded;
 
     unsigned char cipherPkt[kMozQuicMSS];
     uint32_t cipherLen = 0;
-    memcpy(cipherPkt, pkt, 17);
+    uint32_t headerLen = emptyFramePtr - pkt;
 
-    assert(mOriginalClientCID);
-    uint32_t rv = mNSSHelper->EncryptHandshake(pkt, 17, pkt + 17, framePtr - (pkt + 17),
-                                               usedPacketNumber, mOriginalClientCID,
-                                               cipherPkt + 17, kMozQuicMSS - 17, cipherLen);
+    // fill in payload length with expected cipherLen
+    uint16_t payloadLen = (uint16_t)(framePtr - emptyFramePtr) + 16;;
+    payloadLen |= 0x4000;
+    payloadLen = htons(payloadLen);
+    memcpy(payloadLenPtr, &payloadLen, 2);
+    memcpy(cipherPkt, pkt, headerLen);
+
+    assert(mHandshakeCID);
+    uint32_t rv = mNSSHelper->EncryptHandshake(pkt, headerLen, pkt + headerLen, framePtr - emptyFramePtr,
+                                               usedPacketNumber, mHandshakeCID,
+                                               cipherPkt + headerLen, kMozQuicMSS - headerLen, cipherLen);
     if (rv != MOZQUIC_OK) {
       HandshakeLog1("TRANSMIT0[%lX] this=%p Encrypt Fail %x\n",
                     usedPacketNumber, this, rv);
       return rv;
     }
-    assert (cipherLen == (framePtr - (pkt + 17)) + 16);
+    assert (cipherLen == (framePtr - emptyFramePtr) + 16);
+    assert(cipherLen < 16383);
+
     uint32_t code = mSendState->Transmit(mNextTransmitPacketNumber, bareAck, false,
                                          packet->mQueueOnTransmit,
-                                         cipherPkt, cipherLen + 17, nullptr);
+                                         cipherPkt, cipherLen + headerLen, nullptr);
     if (code != MOZQUIC_OK) {
       HandshakeLog1("TRANSMIT0[%lX] this=%p Transmit Fail %x\n",
                     usedPacketNumber, this, rv);
       return code;
     }
     packet->mTransmitTime = MozQuic::Timestamp();
-    packet->mPacketLen = cipherLen + 17;
+    packet->mPacketLen = cipherLen + headerLen;
     mStreamState->mUnAckedPackets.push_back(std::move(packet));
 
     if (!bareAck) {
@@ -194,11 +197,11 @@ MozQuic::FlushStream0(bool forceAck)
       mHighestTransmittedAckable = mNextTransmitPacketNumber;
     }
 
-    Log::sDoLogCID(Log::HANDSHAKE, 5, this, connID,
-                   "TRANSMIT0[%lX] this=%p len=%d total0=%d byte0=%x\n",
-                   usedPacketNumber, this, cipherLen + 17,
-                   mNextTransmitPacketNumber - mOriginalTransmitPacketNumber,
-                   cipherPkt[0]);
+    Log::sDoLog(Log::HANDSHAKE, 5, this,
+                "TRANSMIT0[%lX] this=%p len=%d total0=%d byte0=%x\n",
+                usedPacketNumber, this, cipherLen + headerLen,
+                mNextTransmitPacketNumber - mOriginalTransmitPacketNumber,
+                cipherPkt[0]);
 
     mNextTransmitPacketNumber++;
 
@@ -214,7 +217,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
   // check packet num and version
   assert(pkt[0] & 0x80);
   assert((pkt[0] & ~0x80) == PACKET_TYPE_RETRY);
-  assert(pktSize >= 17);
+  assert(mIsClient);
 
   if (!mIsClient) {
     HandshakeLog1("SSR should only arrive at client. Ignore.\n");
@@ -232,11 +235,11 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
     return MOZQUIC_ERR_VERSION;
   }
 
-  if (header.mConnectionID != mConnectionID) {
-    HandshakeLog4("server RETRY changed connID to %lx\n",
-                  header.mConnectionID);
-    mConnectionID = header.mConnectionID;
-    mOriginalClientCID = mConnectionID; // because its stateless
+  if (header.mSourceCID != ServerCID()) {
+    HandshakeLog4("server RETRY sets server connID to %s\n",
+                  header.mSourceCID.Text());
+    mPeerCID = header.mSourceCID;
+    mHandshakeCID = header.mSourceCID; // because its stateless
   }
 
   // essentially this is an ack of client_initial using the packet #
@@ -268,7 +271,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
   SetInitialPacketNumber();
 
   bool sendack = false;
-  return ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendack, true);
+  return ProcessGeneralDecoded(pkt + header.mHeaderSize, pktSize - header.mHeaderSize, sendack, true);
 }
 
 uint32_t
@@ -277,8 +280,8 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
   // check packet num and version
   assert(pkt[0] & 0x80);
   assert(header.mVersion == 0);
-  assert(pktSize >= 17);
-  unsigned char *framePtr = pkt + 13;
+
+  unsigned char *framePtr = pkt + header.mHeaderSize;
 
   if (!mIsClient) {
     HandshakeLog1("VN should only arrive at client. Ignore.\n");
@@ -296,13 +299,13 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
   }
 
   if ((header.mVersion != 0) ||
-      (header.mConnectionID != mConnectionID)) {
+      (header.mSourceCID != ClientCID())) {
     // this was supposedly copied from client - so this isn't a match
     return MOZQUIC_ERR_VERSION;
   }
 
-  uint32_t numVersions = ((pktSize) - 13) / 4;
-  if ((numVersions << 2) != (pktSize - 13)) {
+  uint32_t numVersions = ((pktSize) - header.mHeaderSize) / 4;
+  if ((numVersions << 2) != (pktSize - header.mHeaderSize)) {
     RaiseError(MOZQUIC_ERR_VERSION, (char *)"negotiate version packet format incorrect\n");
     return MOZQUIC_ERR_VERSION;
   }
@@ -358,7 +361,6 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
   // cleartext is always in long form
   assert(pkt[0] & 0x80);
   assert((pkt[0] & 0x7f) == PACKET_TYPE_HANDSHAKE);
-  assert(pktSize >= 17);
 
   if (!mIsClient) {
     HandshakeLog1("server cleartext arrived at server. ignored.\n");
@@ -377,20 +379,22 @@ MozQuic::ProcessServerCleartext(unsigned char *pkt, uint32_t pktSize,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  if (mConnectionID != header.mConnectionID) {
-    if (mReceivedServerClearText) {
-      HandshakeLog1("wrong connection id\n");
-      Shutdown(PROTOCOL_VIOLATION, "wrong connection id\n");
-      return MOZQUIC_ERR_GENERAL;
-    }
+  assert(mLocalCID == ClientCID());
 
-    HandshakeLog4("server HANDSHAKE changed connID to %lx\n",
-                  header.mConnectionID);
-    mConnectionID = header.mConnectionID;
+  if ((mLocalCID != header.mDestCID) &&
+      (!mLocalOmitCID || header.mDestCID.Len())) {
+    HandshakeLog1("wrong connection id\n");
+    Shutdown(PROTOCOL_VIOLATION, "wrong connection id\n");
+    return MOZQUIC_ERR_GENERAL;
   }
-  mReceivedServerClearText = true;
 
-  uint32_t rv = ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
+  if (!mReceivedServerClearText) {
+    HandshakeLog4("server HANDSHAKE set connID to %s\n", header.mSourceCID.Text());
+    mPeerCID = header.mSourceCID;
+    mReceivedServerClearText = true;
+  }
+
+  uint32_t rv = ProcessGeneralDecoded(pkt + header.mHeaderSize, pktSize - header.mHeaderSize, sendAck, true);
   if (rv != MOZQUIC_OK) {
     Shutdown(PROTOCOL_VIOLATION, "handshake decode issue\n");
   }
@@ -407,8 +411,8 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
   // this is always in long header form
   assert(pkt[0] & 0x80);
   assert((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL);
-  assert(pktSize >= 17);
-  assert(!mIsChild);
+  assert(header.mType == PACKET_TYPE_INITIAL);
+  assert(!mIsChild && !mIsClient);
 
   *childSession = nullptr;
   if (mConnectionState != SERVER_STATE_LISTEN) {
@@ -418,20 +422,16 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
     return MOZQUIC_ERR_GENERAL;
   }
 
-  if (pktSize < (kMinClientInitial - 16)) {
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"client initial packet too small\n");
-    // do not send close for this one because of ddos concerns
-    return MOZQUIC_ERR_GENERAL;
-  }
-
   mVersion = header.mVersion;
 
+  // TODO PRM what if the client is sending a 0 byte CID (5 tuple sorter)
   // Check whether this is an dup.
-  auto i = mConnectionHashOriginalNew.find(header.mConnectionID);
-  if (i != mConnectionHashOriginalNew.end()) {
+  uint64_t key = NSSHelper::SockAddrHasher(clientAddr);
+  auto i = mInitialHash.find(key);
+  if (i != mInitialHash.end()) {
     if ((*i).second->mTimestamp <= (Timestamp() - kForgetInitialConnectionIDsThresh)) {
       // This connectionId is too old, just remove it.
-      mConnectionHashOriginalNew.erase(i);
+      mInitialHash.erase(i);
     } else {
       auto j = mConnectionHash.find((*i).second->mServerConnectionID);
       if (j != mConnectionHash.end()) {
@@ -442,15 +442,16 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
         // TODO maybe do not accept this: we received a dup of connectionId
         // during kForgetInitialConnectionIDsThresh but we do not have a
         // session, i.e. session is terminated.
-        mConnectionHashOriginalNew.erase(i);
+        mInitialHash.erase(i);
       }
     }
   }
-  MozQuic *child = Accept(clientAddr, header.mConnectionID, header.mPacketNumber);
+  MozQuic *child = Accept(clientAddr, header.mSourceCID, header.mDestCID,
+                          header.mPacketNumber);
   assert(!mIsChild);
   assert(!mIsClient);
   mChildren.emplace_back(child->mAlive);
-  child->ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
+  child->ProcessGeneralDecoded(pkt + header.mHeaderSize, pktSize - header.mHeaderSize, sendAck, true);
   child->mConnectionState = SERVER_STATE_1RTT;
 
   if (mConnEventCB) {
@@ -468,7 +469,6 @@ MozQuic::ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
   // this is always with a long header
   assert(pkt[0] & 0x80);
   assert((pkt[0] & 0x7f) == PACKET_TYPE_HANDSHAKE);
-  assert(pktSize >= 17);
   assert(mIsChild);
 
   assert(!mIsClient);
@@ -480,7 +480,8 @@ MozQuic::ProcessClientCleartext(unsigned char *pkt, uint32_t pktSize, LongHeader
     return MOZQUIC_ERR_GENERAL;
   }
 
-  uint32_t rv = ProcessGeneralDecoded(pkt + 17, pktSize - 17, sendAck, true);
+  uint32_t rv = ProcessGeneralDecoded(pkt + header.mHeaderSize,
+                                      pktSize - header.mHeaderSize, sendAck, true);
   if (rv != MOZQUIC_OK) {
     Shutdown(PROTOCOL_VIOLATION, "handshake decode issue\n");
   }
@@ -495,31 +496,30 @@ MozQuic::GenerateVersionNegotiation(LongHeaderData &clientHeader, const struct s
   assert(mMTU <= kMaxMTU);
   unsigned char pkt[kMaxMTU];
   uint32_t tmp32;
-  uint64_t tmp64;
 
-  pkt[0] = 0x80 | (random() & 0xff);
+  unsigned char *framePtr = pkt;
+  framePtr[0] = 0x80 | (random() & 0xff);
+  framePtr++;
   HandshakeLog5("sending a version negotiation packet type =%X\n", pkt[0]);
-  // client connID echo'd from client
-  tmp64 = PR_htonll(clientHeader.mConnectionID);
-  memcpy(pkt + 1, &tmp64, 8);
-
   // version is 0 to signal VN
-  memset(pkt + 9, 0, 4);
+  memset(framePtr, 0, 4);
+  framePtr += 4;
 
-  // list of versions
-  unsigned char *framePtr = pkt + 13;
-  assert (sizeof(VersionNegotiationList) <= mMTU - 13);
-  for (uint32_t i = 0; i < sizeof(VersionNegotiationList) / sizeof(uint32_t); i++) {
-    tmp32 = htonl(VersionNegotiationList[i]);
-    memcpy (framePtr, &tmp32, sizeof(uint32_t));
-    framePtr += sizeof(uint32_t);
-  }
+  CID::FormatLongHeader(clientHeader.mSourceCID, clientHeader.mDestCID, false,
+                        framePtr, (pkt + mMTU - sizeof(VersionNegotiationList)) - framePtr, tmp32);
+  framePtr += tmp32;
 
   if (mSabotageVN) {
     // redo the list of version backwards as a test
-    framePtr = pkt + 13;
     HandshakeLog6("Warning generating incorrect version negotation list for testing\n");
     for (int i = (sizeof(VersionNegotiationList) / sizeof(uint32_t)) - 1; i >= 0; i--) {
+      tmp32 = htonl(VersionNegotiationList[i]);
+      memcpy (framePtr, &tmp32, sizeof(uint32_t));
+      framePtr += sizeof(uint32_t);
+    }
+  } else {
+    // normal list of versions
+    for (uint32_t i = 0; i < sizeof(VersionNegotiationList) / sizeof(uint32_t); i++) {
       tmp32 = htonl(VersionNegotiationList[i]);
       memcpy (framePtr, &tmp32, sizeof(uint32_t));
       framePtr += sizeof(uint32_t);

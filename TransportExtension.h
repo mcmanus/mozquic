@@ -48,7 +48,6 @@ public:
                                               uint32_t initialMaxStreamIDBidi,
                                               uint32_t initialMaxStreamIDUni,
                                               uint16_t idleTimeout,
-                                              bool     omitCID,
                                               uint16_t maxPacket,
                                               uint8_t ackDelayExponent);
   static uint32_t DecodeClientTransportParameters(unsigned char *input, uint16_t inputSize,
@@ -58,7 +57,6 @@ public:
                                                   uint32_t &_initialMaxStreamIDBidi,
                                                   uint32_t &_initialMaxStreamIDUni,
                                                   uint16_t &_idleTimeout,
-                                                  bool     &_omitCID,
                                                   uint16_t &_maxPacket,
                                                   uint8_t  &_ackDelayExponent,
                                                   MozQuic *forLogging);
@@ -71,7 +69,6 @@ public:
                                               uint32_t initialMaxStreamIDBidi,
                                               uint32_t initialMaxStreamIUni,
                                               uint16_t idleTimeout,
-                                              bool     omitCID,
                                               uint16_t maxPacket,
                                               uint8_t ackDelayExponent,
                                               unsigned char *statelessResetToken /* 16 bytes */);
@@ -83,7 +80,6 @@ public:
                                                   uint32_t &_initialMaxStreamIDBidi,
                                                   uint32_t &_initialMaxStreamIDUni,
                                                   uint16_t &_idleTimeout,
-                                                  bool     &_omitCID,
                                                   uint16_t &_maxPacket,
                                                   uint8_t  &_ackDelayExponent,
                                                   unsigned char *_statelessResetToken /* 16 bytes */,

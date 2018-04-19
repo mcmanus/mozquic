@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <assert.h>
+
 namespace mozquic  {
 
 enum {
@@ -23,6 +25,7 @@ enum LongHeaderType {
   PACKET_TYPE_RETRY                  = 0x7E,
   PACKET_TYPE_HANDSHAKE              = 0x7D,
   PACKET_TYPE_0RTT_PROTECTED         = 0x7C,
+  PACKET_TYPE_ERR                    = 0xFF
 };
 
 enum ShortHeaderType {
@@ -31,14 +34,62 @@ enum ShortHeaderType {
   SHORT_4 = 0x02,
 };
 
+class CID
+{
+public:
+CID() : mNull(true) { mText[0] = '-'; mText[1] = 0;}
+  void Parse(uint8_t cil, const unsigned char *cidptr);
+  void Randomize();
+  char *Text();
+
+  operator uint64_t() const{
+    assert(0);
+    return 0;
+  }
+  
+  operator bool() const {
+    return !Null();
+  }
+
+  bool operator !() const {
+    return Null();
+  }
+
+  bool operator ==(const CID &b) const {
+    return (mLen == b.mLen) && !memcmp(mID, b.mID, mLen);
+  }
+
+  bool operator !=(const CID &b) const {
+    return !((mLen == b.mLen) && !memcmp(mID, b.mID, mLen));
+  }
+
+  size_t Hash() const;
+  uint32_t Len() const { return mLen; }
+  const unsigned char *Data() const { return &mID[0]; }
+
+  static uint32_t FormatLongHeader(const CID &destCID, const CID &srcCID, bool omitLocal,
+                                   unsigned char *output, uint32_t avail, uint32_t &used);
+private:
+  bool Null() const { return mNull; }
+  void BuildText();
+
+  unsigned char mID[18];
+  uint32_t mLen;
+  bool         mNull;
+  char mText[37]; // todo make this lazy allocated for logging
+};
+
 class LongHeaderData
 {
 public:
   LongHeaderData(unsigned char *, uint32_t);
   enum LongHeaderType mType;
-  uint64_t mConnectionID;
+  CID mDestCID;
+  CID mSourceCID;
+  uint32_t mPayloadLen;
   uint64_t mPacketNumber;
   uint32_t mVersion;
+  uint32_t mHeaderSize;
 };
 
 class MozQuic;
@@ -49,9 +100,10 @@ private:
   static uint64_t DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next);
 
 public:
-  ShortHeaderData(MozQuic *logging, unsigned char *, uint32_t, uint64_t, bool, uint64_t);
+  ShortHeaderData(MozQuic *logging, unsigned char *, uint32_t, uint64_t, bool,
+                  CID &defaultCID);
   uint32_t mHeaderSize;
-  uint64_t mConnectionID;
+  CID mDestCID;
   uint64_t mPacketNumber;
 };
 

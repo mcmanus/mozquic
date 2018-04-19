@@ -23,21 +23,23 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   // always too short as it doesn't allow a useful window
   // if (nextNumber - lowestUnacked) > 16000 then use 4.
   uint8_t pnSizeType = SHORT_2;
+  uint32_t needed = 3 + mPeerCID.Len();
   if (!mStreamState->mUnAckedPackets.empty() &&
       ((mNextTransmitPacketNumber - mStreamState->mUnAckedPackets.front()->mPacketNumber) > 16000)) {
     pnSizeType = SHORT_4; // 4 bytes
+    needed += 2;
   }
 
-  // section 5.2 of transport short form header:
-  // (0, mPeerOmitCID, k=0, 1, 0) | type 
-  pkt[0] = ((mPeerOmitCID) ? 0x40 : 0x00) | 0x10 | pnSizeType;
+  if (needed > pktSize) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  // section 4.2 of transport short form header:
+  // 0k11 0rtt .. k=0 r=0 tt=type 
+  pkt[0] = 0x30 | pnSizeType;
   used = 1;
-
-  if (!mPeerOmitCID) {
-    uint64_t tmp64 = PR_htonll(mConnectionID);
-    memcpy(pkt + used, &tmp64, 8);
-    used += 8;
-  }
+  memcpy (pkt + used, mPeerCID.Data(), mPeerCID.Len());
+  used += mPeerCID.Len();
 
   if (pnSizeType == SHORT_2) { // 2 bytes
     uint16_t tmp16 = htons(mNextTransmitPacketNumber & 0xffff);
@@ -188,21 +190,44 @@ MozQuic::EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint3
 
 uint32_t
 MozQuic::Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
-                                    uint32_t &used)
+                                    uint32_t &used, unsigned char **payloadLenPtr)
 {
-  pkt[0] = 0x80 | PACKET_TYPE_0RTT_PROTECTED;
-
-  uint64_t tmp64 = PR_htonll(mOriginalClientCID);
-  memcpy(pkt + 1, &tmp64, 8);
+  unsigned char *framePtr = pkt;
+  if (pktSize < 5) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+  framePtr[0] = 0x80 | PACKET_TYPE_0RTT_PROTECTED;
+  framePtr++;
 
   uint32_t tmp32 = htonl(mVersion);
-  memcpy(pkt + 9, &tmp32, 4);
+  memcpy(framePtr, &tmp32, 4);
+  framePtr += 4;
+
+  uint32_t rv = CID::FormatLongHeader(mPeerCID, mLocalCID, mLocalOmitCID, framePtr,
+                                      (pkt + pktSize) - framePtr, used);
+  if (rv != MOZQUIC_OK) {
+    return rv;
+  }
+  framePtr += used;
+
+  if (((pkt + pktSize) - framePtr) < 6) {
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  // This is the pointer to the payloadLen varint that
+  // the caller will need to fill in (we don't yet know the
+  // payload len). always make it 2 bytes to accomodate the
+  // full possible range.
+  *payloadLenPtr = framePtr;
+  *payloadLenPtr[0] = 0x40;
+  *payloadLenPtr[1] = 0x00;  
+  framePtr += 2;
 
   tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
-  memcpy(pkt + 13, &tmp32, 4);
+  memcpy(framePtr, &tmp32, 4);
+  framePtr += 4;
 
-  used = 17;
-
+  used = framePtr - pkt;
   return MOZQUIC_OK;
 }
 
@@ -552,17 +577,47 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
 
 LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize)
 {
+  assert(pkt[0] & 0x80);
+  mType = PACKET_TYPE_ERR; // signal parse error
+  mVersion = 0;
+  mHeaderSize = 0;
+
   // these fields are all version independent - though the interpretation
   // of type is not.
-  assert(pktSize >= 17);
-  assert(pkt[0] & 0x80);
-  mType = static_cast<enum LongHeaderType>(pkt[0] & ~0x80);
-  memcpy(&mConnectionID, pkt + 1, 8);
-  mConnectionID = PR_ntohll(mConnectionID);
-  memcpy(&mVersion, pkt + 9, 4);
-  mVersion = ntohl(mVersion);
-  memcpy(&mPacketNumber, pkt + 13, 4);
-  mPacketNumber = ntohl(mPacketNumber);
+
+  do {
+    if (pktSize < 6) break;
+    memcpy(&mVersion, pkt + 1, 4);
+    mVersion = ntohl(mVersion);
+    uint8_t dcil = (pkt[5] & 0xf0) >> 4;
+    uint8_t scil = (pkt[5] & 0x0f);
+    uint32_t offset = 6;
+    if (pktSize < offset + dcil) break;
+    mDestCID.Parse(dcil, pkt + offset);
+    offset += mDestCID.Len();
+    if (pktSize < offset + scil) break;
+    mSourceCID.Parse(scil, pkt + offset);
+    offset += mSourceCID.Len();
+
+    if (mVersion) {
+      uint32_t used;
+      if (MozQuic::DecodeVarintMax32(pkt + offset,
+                                     pktSize - offset, mPayloadLen, used) != MOZQUIC_OK) {
+        break;
+      }
+      offset += used;
+
+      if (pktSize < offset + 4) break;
+      memcpy(&mPacketNumber, pkt + offset, 4);
+      offset += 4;
+      mPacketNumber = ntohl(mPacketNumber);
+    }
+        
+    mHeaderSize = offset;
+
+    // Assigning the type makes it OK
+    mType = static_cast<enum LongHeaderType>(pkt[0] & ~0x80);
+  } while (0);
 }
 
 uint64_t
@@ -595,31 +650,26 @@ ShortHeaderData::DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t nex
   return rv;
 }
 
+// must be even and <= 18
+static const uint32_t localCIDSize = 10; // 4 ought to be plenty. but stress test
+
 ShortHeaderData::ShortHeaderData(MozQuic *logging,
                                  unsigned char *pkt, uint32_t pktSize,
                                  uint64_t nextPN, bool allowOmitCID,
-                                 uint64_t defaultCID)
+                                 CID &defaultCID)
 {
   // note that StatlessReset.cpp also hand rolls a special short packet header
-  if (!allowOmitCID && (pkt[0] & 0x40)) {
-    Log::sDoLog(Log::CONNECTION, 1, logging,
-                "short header omitted CID but we did not allow that via param %X\n",
-                pkt[0]);
-    return;
-  }
 
   mHeaderSize = 0xffffffff;
-  mConnectionID = 0;
   mPacketNumber = 0;
   assert(pktSize >= 1);
-  assert(!(pkt[0] & 0x80));
-  if ((pkt[0] & 0x18) != 0x10) {
+  if ((pkt[0] & 0xB8) != 0x30) {
     Log::sDoLog(Log::CONNECTION, 1, logging,
-                "short header failed const on bits 5 and 4\n");
+                "short header failed const bits\n");
     return;
   }
 
-  uint32_t pnSize = pkt[0] & 0x07;
+  uint32_t pnSize = pkt[0] & 0x03;
   if (pnSize == SHORT_1) {
     pnSize = 1;
   } else if (pnSize == SHORT_2) {
@@ -633,19 +683,112 @@ ShortHeaderData::ShortHeaderData(MozQuic *logging,
     return;
   }
 
-  uint32_t used;
-  if (((pkt[0] & 0x40)) || (pktSize < (9 + pnSize))) {
-    // missing connection id. without the truncate transport option this cannot happen
-    used = 1;
-    mConnectionID = defaultCID;
+  uint32_t used = 1;
+  if (allowOmitCID) {
+    mDestCID = defaultCID;
   } else {
-    memcpy(&mConnectionID, pkt + 1, 8);
-    mConnectionID = PR_ntohll(mConnectionID);
-    used = 9;
+    // parse.. to do so we need to know how long the cid is supposed to be
+    if (pktSize < used + localCIDSize) {
+      return;
+    }
+    assert(localCIDSize >= 4);
+    mDestCID.Parse(localCIDSize - 3, pkt + used);
+    used += mDestCID.Len();
   }
-
+  
   mHeaderSize = used + pnSize;
   mPacketNumber = DecodePacketNumber(pkt + used, pnSize, nextPN);
+}
+
+void
+CID::Randomize()
+{
+  assert(!(localCIDSize & 1));
+  assert(localCIDSize <= 18);
+  for (unsigned int i=0; i < (localCIDSize / 2); i++) {
+    uint16_t rd = random() & 0xffff;
+    memcpy(mID + (i * 2), &rd, 2);
+  }
+  mLen = localCIDSize;
+  mNull = false;
+  BuildText();
+}
+
+void
+CID::BuildText()
+{
+  assert(!mNull);
+  if (!mLen) {
+    mText[0] = '-';
+    mText[1] = 0;
+    return;
+  }
+  mText[mLen * 2] = 0;
+  auto o = &mText[0];
+  for (uint32_t i = 0; i < mLen; i++ ) {
+    sprintf(o, "%02x", mID[i]);
+    o += 2;
+  }
+}
+
+void
+CID::Parse(uint8_t cil, const unsigned char *p)
+{
+  mLen = 0;
+  if (cil) {
+    mLen = cil + 3;
+    memcpy(mID, p, mLen);
+  }
+  mNull = false;
+  BuildText();
+}
+
+uint32_t
+CID::FormatLongHeader(const CID &destCID, const CID &srcCID, bool omitLocal,
+                      unsigned char *output, uint32_t avail, uint32_t &used)
+{
+  uint8_t dcil = destCID.Len() ? (destCID.Len() - 3) : 0;
+  uint8_t scil;
+  if (omitLocal) {
+    scil = 0;
+    used = destCID.Len() + 1;
+  } else {
+    scil = srcCID.Len() ? (srcCID.Len() - 3) : 0;
+    used = destCID.Len() + srcCID.Len() + 1;
+  }
+
+  if (avail < used) {
+    used = 0;
+    return MOZQUIC_ERR_GENERAL;
+  }
+  memcpy(output + 1, destCID.Data(), destCID.Len());
+  if (!omitLocal) {
+    memcpy(output + 1 + destCID.Len(), srcCID.Data(), srcCID.Len());
+  }
+
+  output[0] = (dcil << 4) | scil;
+  return MOZQUIC_OK;
+}
+
+char *CID::Text()
+{
+  return &(mText[0]);
+}
+
+size_t
+CID::Hash() const
+{
+  size_t rv = 0;
+  int offset = 0;
+  int len = mLen;
+  while (len > 0) {
+    size_t t = ~0;
+    memcpy(&t, mID + offset, len < (int)sizeof (size_t) ? len : sizeof(size_t));
+    rv ^= t;
+    len -= sizeof(size_t);
+    offset += sizeof(size_t);
+  }
+  return rv;
 }
 
 }

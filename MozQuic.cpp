@@ -61,11 +61,9 @@ MozQuic::MozQuic(bool handleIO)
   , mVersion(kMozQuicVersion1)
 //  , mVersion(kMozQuicIetfID10)
   , mClientOriginalOfferedVersion(0)
-  , mOriginalClientCID(0)
   , mMaxPacketConfig(kDefaultMaxPacketConfig)
   , mMTU(kInitialMTU)
   , mDropRate(0)
-  , mConnectionID(0)
   , mNextTransmitPacketNumber(0)
   , mOriginalTransmitPacketNumber(0)
   , mNextRecvPacketNumber(0)
@@ -85,7 +83,6 @@ MozQuic::MozQuic(bool handleIO)
   , mIdleDeadline(new Timer(this))
   , mDecodedOK(false)
   , mLocalOmitCID(false)
-  , mPeerOmitCID(false)
   , mPeerIdleTimeout(kIdleTimeoutDefault)
   , mPeerAckDelayExponent(kDefaultAckDelayExponent)
   , mLocalAckDelayExponent(10)
@@ -244,8 +241,6 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                            unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
                            bool addAcks, bool ackable, bool queueOnly, uint32_t MTU, uint32_t *bytesOut)
 {
-  assert(((headerLen >= 3) && (headerLen <= 13) && mConnectionState != CLIENT_STATE_0RTT) ||
-         ((headerLen == 17) && (mConnectionState == CLIENT_STATE_0RTT)));
   bool bareAck = dataLen == 0;
   if (bytesOut) {
     *bytesOut = 0;
@@ -348,7 +343,7 @@ MozQuic::Shutdown(uint16_t code, const char *reason)
       }
     }
     assert(mIsChild);
-    mParent->RemoveSession(mConnectionID);
+    mParent->RemoveSession(mLocalCID);
   }
 
   if ((mConnectionState != CLIENT_STATE_CONNECTED) &&
@@ -442,11 +437,9 @@ MozQuic::StartClient()
   }
 
   mConnectionState = CLIENT_STATE_1RTT;
-  for (int i=0; i < 4; i++) {
-    mConnectionID = mConnectionID << 16;
-    mConnectionID = mConnectionID | (random() & 0xffff);
-  }
-  mOriginalClientCID = mConnectionID;
+  mLocalCID.Randomize();
+  mPeerCID.Randomize();
+  mHandshakeCID = mPeerCID;
   SetInitialPacketNumber();
 
   mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindow));
@@ -512,7 +505,8 @@ MozQuic::StartServer()
   mIsClient = false;
   mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindow));
   mStreamState->InitIDs(1, 3, 4, 2, kMaxStreamIDClientDefaultBidi, kMaxStreamIDClientDefaultUni);
-
+  mLocalCID.Randomize();
+  
   StatelessResetEnsureKey();
 
   assert((sizeof(mValidationKey) % sizeof(uint16_t)) == 0);
@@ -579,21 +573,34 @@ MozQuic::Bind(int portno)
 }
 
 MozQuic *
-MozQuic::FindSession(uint64_t cid, bool isClientOriginal)
+MozQuic::FindSession(const sockaddr *peer)
+{
+  assert (!mIsChild);
+  assert (!mIsClient); // clients do this by cid
+
+  uint64_t key = NSSHelper::SockAddrHasher(peer);
+  auto i = mInitialHash.find(key);
+  if (i == mInitialHash.end()) {
+    return nullptr;
+  }
+
+  CID cid = (*i).second->mServerConnectionID;
+
+  auto i2 = mConnectionHash.find(cid);
+  if (i2 == mConnectionHash.end()) {
+    return nullptr;
+  }
+  return (*i2).second;
+}
+  
+MozQuic *
+MozQuic::FindSession(CID &cid)
 {
   assert (!mIsChild);
   if (mIsClient) {
-    return mConnectionID == cid ? this : nullptr;
+    return mLocalCID == cid ? this : nullptr;
   }
 
-  if (isClientOriginal) {
-    auto i = mConnectionHashOriginalNew.find(cid);
-    if (i != mConnectionHashOriginalNew.end()) {
-      cid = (*i).second->mServerConnectionID;
-    } else {
-      return nullptr;
-    }
-  }
   auto i = mConnectionHash.find(cid);
   if (i == mConnectionHash.end()) {
     return nullptr;
@@ -602,13 +609,13 @@ MozQuic::FindSession(uint64_t cid, bool isClientOriginal)
 }
 
 void
-MozQuic::RemoveSession(uint64_t cid)
+MozQuic::RemoveSession(CID &localCID)
 {
   assert (!mIsChild);
   if (mIsClient) {
     return;
   }
-  mConnectionHash.erase(cid);
+  mConnectionHash.erase(localCID);
 }
 
 void
@@ -630,7 +637,7 @@ MozQuic::EnsureSetupClientTransportParameters()
                                     mStreamState->mLocalMaxData,
                                     mStreamState->mLocalMaxStreamID[BIDI_STREAM],
                                     mStreamState->mLocalMaxStreamID[UNI_STREAM],
-                                    kIdleTimeoutDefault, mLocalOmitCID,
+                                    kIdleTimeoutDefault,
                                     mLocalMaxSizeAllowed,
                                     mLocalAckDelayExponent);
   if (mAppHandlesSendRecv) {
@@ -749,7 +756,7 @@ MozQuic::Server1RTT()
     ConnectionLog9("setup transport extension (server)\n");
     unsigned char resetToken[16];
     StatelessResetCalculateToken(mParent->mStatelessResetKey,
-                                 mConnectionID, resetToken); // from key and CID
+                                 mLocalCID, resetToken); // from key and CID
   
     unsigned char te[2048];
     uint16_t teLength = 0;
@@ -761,7 +768,7 @@ MozQuic::Server1RTT()
                                       mStreamState->mLocalMaxData,
                                       mStreamState->mLocalMaxStreamID[BIDI_STREAM],
                                       mStreamState->mLocalMaxStreamID[UNI_STREAM],
-                                      kIdleTimeoutDefault, mLocalOmitCID,
+                                      kIdleTimeoutDefault,
                                       mLocalMaxSizeAllowed,
                                       mLocalAckDelayExponent,
                                       resetToken);
@@ -778,8 +785,9 @@ MozQuic::Server1RTT()
 
     if (mNSSHelper->DoHRR()) {
       mNSSHelper.reset(new NSSHelper(this, mParent->mTolerateBadALPN, mParent->mOriginName.get()));
-      mParent->mConnectionHash.erase(mConnectionID);
-      mParent->mConnectionHashOriginalNew.erase(mOriginalClientCID);
+      mParent->mConnectionHash.erase(mLocalCID);
+      uint64_t key = NSSHelper::SockAddrHasher((const sockaddr *)&mPeer);
+      mParent->mInitialHash.erase(key);
       mConnectionState = SERVER_STATE_SSR;
       return MOZQUIC_OK;
     } else {
@@ -813,7 +821,6 @@ MozQuic::Intake(bool *partialResult)
   assert (mConnectionState == SERVER_STATE_LISTEN ||
           mConnectionState == SERVER_STATE_1RTT ||
           mConnectionState == SERVER_STATE_0RTT ||
-          mConnectionState == SERVER_STATE_CLOSED ||
           mConnectionState == CLIENT_STATE_CONNECTED ||
           mConnectionState == CLIENT_STATE_1RTT ||
           mConnectionState == CLIENT_STATE_0RTT ||
@@ -838,28 +845,27 @@ MozQuic::Intake(bool *partialResult)
     // dispatch to the right MozQuic class.
     std::shared_ptr<MozQuic> session(mAlive); // default
     MozQuic *tmpSession = nullptr;
-      
+
     if (!(pkt[0] & 0x80)) { // short form protected packets
-      ShortHeaderData tmpShortHeader(this, pkt, pktSize, 0, mLocalOmitCID,
-                                     mLocalOmitCID ? mConnectionID : 0);
+      ShortHeaderData tmpShortHeader(this, pkt, pktSize, 0, mLocalOmitCID, mLocalCID);
       if (pktSize < tmpShortHeader.mHeaderSize) {
         return rv;
       }
-      tmpSession = FindSession(tmpShortHeader.mConnectionID);
+      CID temp;
+      tmpSession = FindSession(tmpShortHeader.mDestCID);
       if (!tmpSession) {
-        ConnectionLogCID1(tmpShortHeader.mConnectionID,
+        ConnectionLogCID1(&tmpShortHeader.mDestCID, &temp,
                           "no session found for encoded packet pn=%lX size=%d\n",
                           tmpShortHeader.mPacketNumber, pktSize);
-        StatelessResetSend(tmpShortHeader.mConnectionID, (const sockaddr *) &peer);
+        StatelessResetSend(tmpShortHeader.mDestCID, (const sockaddr *) &peer);
         rv = MOZQUIC_ERR_GENERAL;
         continue;
       }
       session = tmpSession->mAlive;
       ShortHeaderData shortHeader(this, pkt, pktSize, session->mNextRecvPacketNumber,
-                                  mLocalOmitCID,
-                                  mLocalOmitCID ? mConnectionID : 0);
-      assert(shortHeader.mConnectionID == tmpShortHeader.mConnectionID);
-      ConnectionLogCID5(shortHeader.mConnectionID,
+                                  mLocalOmitCID, mLocalCID);
+      assert(shortHeader.mDestCID == tmpShortHeader.mDestCID);
+      ConnectionLogCID5(&tmpShortHeader.mDestCID, &temp,
                         "SHORTFORM PACKET[%d] pkt# %lX hdrsize=%d explicitcid=%d\n",
                         pktSize, shortHeader.mPacketNumber, shortHeader.mHeaderSize,
                         (pkt[0] & 0x40));
@@ -870,12 +876,13 @@ MozQuic::Intake(bool *partialResult)
       }
 
     } else {
-      if (pktSize < 17) {
-        return rv;
-      }
       LongHeaderData longHeader(pkt, pktSize);
 
-      ConnectionLogCID5(longHeader.mConnectionID,
+      if (longHeader.mType == PACKET_TYPE_ERR) {
+        return MOZQUIC_ERR_GENERAL;
+      }
+
+      ConnectionLogCID5(&longHeader.mDestCID, &longHeader.mSourceCID,
                         "LONGFORM PACKET[%d] pkt# %lX type %X version %X\n",
                         pktSize, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
 
@@ -904,9 +911,24 @@ MozQuic::Intake(bool *partialResult)
       switch (longHeader.mType) {
 
       case PACKET_TYPE_INITIAL:
+        if (mIsClient) {
+          rv = MOZQUIC_ERR_GENERAL;
+          break;
+        } else if (!IntegrityCheck(pkt, pktSize, longHeader.mHeaderSize,
+                                   longHeader.mDestCID, longHeader.mPacketNumber,
+                                   pktReal2, decodedSize)) {
+          rv = MOZQUIC_ERR_GENERAL;
+        }
+        pkt = pktReal2;
+        pktSize = decodedSize;
+        break;
+
       case PACKET_TYPE_RETRY:
-        if (!IntegrityCheck(pkt, pktSize, longHeader.mPacketNumber, longHeader.mConnectionID,
-                            pktReal2, decodedSize)) {
+        if (!mIsClient) {
+          rv = MOZQUIC_ERR_GENERAL;
+          break;
+        } else if (!IntegrityCheck(pkt, pktSize, longHeader.mHeaderSize, mHandshakeCID, longHeader.mPacketNumber,
+                                   pktReal2, decodedSize)) {
           rv = MOZQUIC_ERR_GENERAL;
         }
         pkt = pktReal2;
@@ -914,24 +936,29 @@ MozQuic::Intake(bool *partialResult)
         break;
 
       case PACKET_TYPE_HANDSHAKE:
-        if (!IntegrityCheck(pkt, pktSize, longHeader.mPacketNumber, longHeader.mConnectionID,
-                            pktReal2, decodedSize)) {
+        if (!mIsClient) {
+          tmpSession = FindSession(longHeader.mDestCID);
+          if (!tmpSession) {
+            ConnectionLog1("FindSession() could not find id in hash %s\n",
+                           longHeader.mDestCID.Text());
+            rv = MOZQUIC_ERR_GENERAL;
+            break;
+          } else {
+            session = tmpSession->mAlive;
+          }
+        } else {
+          tmpSession = this;
+        }
+
+        if (!tmpSession->IntegrityCheck(pkt, pktSize, longHeader.mHeaderSize,
+                                        tmpSession->mHandshakeCID, longHeader.mPacketNumber,
+                                        pktReal2, decodedSize)) {
           rv = MOZQUIC_ERR_GENERAL;
           break;
         }
         pkt = pktReal2;
         pktSize = decodedSize;
 
-        if (!mIsClient) {
-          tmpSession = FindSession(longHeader.mConnectionID);
-          if (!tmpSession) {
-            ConnectionLog1("FindSession() could not find id in hash %lX\n",
-                           longHeader.mConnectionID);
-            rv = MOZQUIC_ERR_GENERAL;
-          } else {
-            session = tmpSession->mAlive;
-          }
-        }
         break;
 
       case PACKET_TYPE_0RTT_PROTECTED:
@@ -941,11 +968,11 @@ MozQuic::Intake(bool *partialResult)
           rv = MOZQUIC_ERR_GENERAL;
           break;
         }
-
-        tmpSession = FindSession(longHeader.mConnectionID, true);
+        
+        tmpSession = FindSession((const sockaddr *)&peer);
 
         if (!tmpSession) {
-          ConnectionLogCID1(longHeader.mConnectionID,
+          ConnectionLogCID1(&longHeader.mDestCID, &longHeader.mSourceCID,
                             "no session found for encoded packet size=%d\n",
                             pktSize);
           // This can happened if we have reordering in the network. We are
@@ -1000,7 +1027,7 @@ MozQuic::Intake(bool *partialResult)
         break;
 
       case PACKET_TYPE_0RTT_PROTECTED:
-        rv = session->Process0RTTProtectedPacket(pkt, pktSize, 17,
+        rv = session->Process0RTTProtectedPacket(pkt, pktSize, longHeader.mHeaderSize,
                                                  longHeader.mPacketNumber, sendAck);
         if (rv == MOZQUIC_OK) {
           session->Acknowledge(longHeader.mPacketNumber, keyPhase1Rtt);
@@ -1133,7 +1160,7 @@ MozQuic::RaiseError(uint32_t e, const char *fmt, ...)
 
   va_list a;
   va_start(a, fmt);
-  Log::sDoLog(Log::CONNECTION, 1, this, mConnectionID, fmt, a);
+  Log::sDoLog(Log::CONNECTION, 1, this, &mLocalCID, &mPeerCID, fmt, a);
   va_end(a);
   
   if (mConnEventCB && (mIsClient || mIsChild)) {
@@ -1227,7 +1254,7 @@ MozQuic::ClientConnected()
                                       mStreamState->mPeerMaxStreamID[BIDI_STREAM],
                                       mStreamState->mPeerMaxStreamID[UNI_STREAM],
                                       mPeerIdleTimeout,
-                                      mPeerOmitCID, mMaxPacketConfig, mPeerAckDelayExponent,
+                                      mMaxPacketConfig, mPeerAckDelayExponent,
                                       mStatelessResetToken, this);
     mStreamState->mPeerMaxData = peerMaxData;
     if (decodeResult != MOZQUIC_OK) {
@@ -1343,7 +1370,7 @@ MozQuic::ServerConnected()
                                       mStreamState->mPeerMaxStreamID[BIDI_STREAM],
                                       mStreamState->mPeerMaxStreamID[UNI_STREAM],
                                       mPeerIdleTimeout,
-                                      mPeerOmitCID, mMaxPacketConfig, mPeerAckDelayExponent, this);
+                                      mMaxPacketConfig, mPeerAckDelayExponent, this);
     mStreamState->mPeerMaxData = peerMaxData;
     ConnectionLog6(
             "decode client parameters: "
@@ -1352,13 +1379,12 @@ MozQuic::ServerConnected()
             "maxstreamidbidi %u "
             "maxstreamiduni %u "
             "idle %u "
-            "omitCID %d "
             "maxpacket %u\n",
             mStreamState->mPeerMaxStreamData,
             mStreamState->mPeerMaxData,
             mStreamState->mPeerMaxStreamID[BIDI_STREAM],
             mStreamState->mPeerMaxStreamID[UNI_STREAM],
-            mPeerIdleTimeout, mPeerOmitCID, mMaxPacketConfig);
+            mPeerIdleTimeout, mMaxPacketConfig);
     mPeerIdleTimeout = std::min(mPeerIdleTimeout, (uint16_t)600); // 7.4.1
     mIdleDeadline->Arm(mPeerIdleTimeout * 1000);
 
@@ -1431,7 +1457,7 @@ MozQuic::Process0RTTProtectedPacket(const unsigned char *pkt, uint32_t pktSize, 
       return MOZQUIC_ERR_GENERAL;
     }
   }
-  return ProcessGeneral(pkt, pktSize, 17, packetNum, sendAck);
+  return ProcessGeneral(pkt, pktSize, headerSize, packetNum, sendAck);
 }
 
 uint32_t
@@ -1476,7 +1502,7 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
   ConnectionLog6("decrypt (pktnum=%lX) rv=%d sz=%d\n", packetNum, rv, written);
   if (rv != MOZQUIC_OK) {
     ConnectionLog1("decrypt failed\n");
-    if (StatelessResetCheckForReceipt(pkt, pktSize)) {
+    if (mIsClient && StatelessResetCheckForReceipt(pkt, pktSize)) {
       return MOZQUIC_OK;
     }
     return rv;
@@ -1734,7 +1760,7 @@ MozQuic::GetPeerAddressHash(uint64_t cid, unsigned char *out, uint32_t *outLen)
 }
 
 MozQuic *
-MozQuic::Accept(const struct sockaddr *clientAddr, uint64_t aConnectionID, uint64_t aCIPacketNumber)
+MozQuic::Accept(const struct sockaddr *clientAddr, CID clientCID, CID handshakeCID, uint64_t aCIPacketNumber)
 {
   MozQuic *child = new MozQuic(mHandleIO);
   child->mStreamState.reset(new StreamState(child, mAdvertiseStreamWindow, mAdvertiseConnectionWindow));
@@ -1760,36 +1786,33 @@ MozQuic::Accept(const struct sockaddr *clientAddr, uint64_t aConnectionID, uint6
                                                      kMaxStreamDataDefault,
                                                      child->mStreamState->mLocalMaxStreamData,
                                                      false));
-  
-  do {
-    for (int i=0; i < 4; i++) {
-      child->mConnectionID = child->mConnectionID << 16;
-      child->mConnectionID = child->mConnectionID | (random() & 0xffff);
-    }
-  } while (mConnectionHash.count(child->mConnectionID) != 0);
-  
+
+  child->mPeerCID = clientCID;
+  child->mLocalCID.Randomize();
+  child->mHandshakeCID = handshakeCID;
   child->SetInitialPacketNumber();
 
   child->mNSSHelper.reset(new NSSHelper(child, mTolerateBadALPN, mOriginName.get()));
   child->mVersion = mVersion;
   child->mDropRate = mDropRate;
   child->mTimestampConnBegin = Timestamp();
-  child->mOriginalClientCID = aConnectionID;
   child->mAppHandlesSendRecv = mAppHandlesSendRecv;
   child->mAppHandlesLogging = mAppHandlesLogging;
-  mConnectionHash.insert( { child->mConnectionID, child });
+  mConnectionHash.insert( { child->mLocalCID, child });
 
   // the struct can hold the unique ptr to the timer
   // the hash has to be a hash of unique pointers to structs
 
   std::unique_ptr<InitialClientPacketInfo> t(new InitialClientPacketInfo());
-  t->mServerConnectionID = child->mConnectionID;
-  t->mHashKey = aConnectionID;
+  uint64_t key = NSSHelper::SockAddrHasher(clientAddr);
+  t->mServerConnectionID = child->mLocalCID;
+  t->mHashKey = key;
   t->mTimestamp = Timestamp();
   t->mTimer.reset(new Timer(&mConnIDTimeout));
   t->mTimer->SetData(t.get());
   t->mTimer->Arm(kForgetInitialConnectionIDsThresh);
-  mConnectionHashOriginalNew.insert(std::make_pair(aConnectionID, std::move(t)));
+  
+    mInitialHash.insert(std::make_pair(key, std::move(t)));
   
   return child;
 }
@@ -1874,12 +1897,13 @@ ConnIDTimeout::Alarm(Timer *timer)
 {
   InitialClientPacketInfo *ci = (InitialClientPacketInfo *)timer->Data();
   
-  auto i = mSession->mConnectionHashOriginalNew.find(ci->mHashKey);
-  assert(i != mSession->mConnectionHashOriginalNew.end());
+  auto i = mSession->mInitialHash.find(ci->mHashKey);
+  assert(i != mSession->mInitialHash.end());
   assert((*i).second->mTimestamp <= (MozQuic::Timestamp() - MozQuic::kForgetInitialConnectionIDsThresh));
   Log::sDoLog(Log::CONNECTION, 7, mSession,
               "Forget an old client initial connectionID: %lX\n", ci->mHashKey);
-  mSession->mConnectionHashOriginalNew.erase(i);
+  mSession->mInitialHash.erase(i);
 }
+
 }
 
