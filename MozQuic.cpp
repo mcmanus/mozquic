@@ -59,13 +59,13 @@ MozQuic::MozQuic(bool handleIO)
   , mOriginPort(-1)
   , mClientPort(-1)
   , mVersion(kMozQuicVersion1)
-//  , mVersion(kMozQuicIetfID9)
+//  , mVersion(kMozQuicIetfID10)
   , mClientOriginalOfferedVersion(0)
+  , mOriginalClientCID(0)
   , mMaxPacketConfig(kDefaultMaxPacketConfig)
   , mMTU(kInitialMTU)
   , mDropRate(0)
   , mConnectionID(0)
-  , mOriginalConnectionID(0)
   , mNextTransmitPacketNumber(0)
   , mOriginalTransmitPacketNumber(0)
   , mNextRecvPacketNumber(0)
@@ -446,7 +446,7 @@ MozQuic::StartClient()
     mConnectionID = mConnectionID << 16;
     mConnectionID = mConnectionID | (random() & 0xffff);
   }
-  mOriginalConnectionID = mConnectionID;
+  mOriginalClientCID = mConnectionID;
   SetInitialPacketNumber();
 
   mStreamState.reset(new StreamState(this, mAdvertiseStreamWindow, mAdvertiseConnectionWindow));
@@ -779,7 +779,7 @@ MozQuic::Server1RTT()
     if (mNSSHelper->DoHRR()) {
       mNSSHelper.reset(new NSSHelper(this, mParent->mTolerateBadALPN, mParent->mOriginName.get()));
       mParent->mConnectionHash.erase(mConnectionID);
-      mParent->mConnectionHashOriginalNew.erase(mOriginalConnectionID);
+      mParent->mConnectionHashOriginalNew.erase(mOriginalClientCID);
       mConnectionState = SERVER_STATE_SSR;
       return MOZQUIC_OK;
     } else {
@@ -1774,7 +1774,7 @@ MozQuic::Accept(const struct sockaddr *clientAddr, uint64_t aConnectionID, uint6
   child->mVersion = mVersion;
   child->mDropRate = mDropRate;
   child->mTimestampConnBegin = Timestamp();
-  child->mOriginalConnectionID = aConnectionID;
+  child->mOriginalClientCID = aConnectionID;
   child->mAppHandlesSendRecv = mAppHandlesSendRecv;
   child->mAppHandlesLogging = mAppHandlesLogging;
   mConnectionHash.insert( { child->mConnectionID, child });

@@ -167,7 +167,7 @@ public:
   void HandshakeTParamOutput(const unsigned char *, uint32_t amt);
   uint32_t HandshakeComplete(uint32_t errCode, struct mozquic_handshake_info *keyInfo);
   uint64_t ConnectionID() const { return mConnectionID;}
-  uint64_t OriginalConnectionID() const { return mOriginalConnectionID;}
+  uint64_t OriginalClientCID() const { return mOriginalClientCID;}
   void SetOriginPort(int port) { mOriginPort = port; }
   void SetOriginName(const char *name);
   void SetStatelessResetKey(const unsigned char *key) { memcpy(mStatelessResetKey, key, 128); }
@@ -365,11 +365,14 @@ private:
   // The elemets are going to be removed using a timer.
   std::unordered_map<uint64_t, std::unique_ptr<InitialClientPacketInfo>> mConnectionHashOriginalNew;
 
+  uint64_t mLocalCID;
+  uint64_t mPeerCID;
+  uint64_t mOriginalClientCID;
+
   uint16_t mMaxPacketConfig;
   uint16_t mMTU;
   uint16_t mDropRate;
   uint64_t mConnectionID;
-  uint64_t mOriginalConnectionID;
   uint64_t mNextTransmitPacketNumber;
   uint64_t mOriginalTransmitPacketNumber;
   uint64_t mNextRecvPacketNumber; // expected

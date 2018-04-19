@@ -192,7 +192,7 @@ MozQuic::Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
 {
   pkt[0] = 0x80 | PACKET_TYPE_0RTT_PROTECTED;
 
-  uint64_t tmp64 = PR_htonll(mOriginalConnectionID);
+  uint64_t tmp64 = PR_htonll(mOriginalClientCID);
   memcpy(pkt + 1, &tmp64, 8);
 
   uint32_t tmp32 = htonl(mVersion);

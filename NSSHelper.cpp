@@ -490,7 +490,7 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
   // on the token generation (first pass) we want to place the server specified retry cid
   // on the token validation (second pass) we want to confirm the initial had that retry cid
   self->mMozQuic->GetPeerAddressHash(
-    firstHello? self->mMozQuic->ConnectionID() : self->mMozQuic->OriginalConnectionID(),
+    firstHello? self->mMozQuic->ConnectionID() : self->mMozQuic->OriginalClientCID(),
     sourceAddressInfo, &sourceAddressLen);
 
   HASHContext *hcontext = HASH_Create(HASH_AlgSHA256);

@@ -49,13 +49,13 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize,
     }
   }
 
-  assert(mOriginalConnectionID || ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL));
+  assert(mOriginalClientCID || ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL));
   if ((pkt[0] & 0x7f) != PACKET_TYPE_INITIAL) {
-    if (!mOriginalConnectionID) {
+    if (!mOriginalClientCID) {
       ConnectionLog1("Decrypt handshake failed %lX not initial and unknown connid\n", pktNum);
       return false;
     }
-    connID = mOriginalConnectionID;
+    connID = mOriginalClientCID;
   }
 
   uint32_t rv;
@@ -167,9 +167,9 @@ MozQuic::FlushStream0(bool forceAck)
     uint32_t cipherLen = 0;
     memcpy(cipherPkt, pkt, 17);
 
-    assert(mOriginalConnectionID);
+    assert(mOriginalClientCID);
     uint32_t rv = mNSSHelper->EncryptHandshake(pkt, 17, pkt + 17, framePtr - (pkt + 17),
-                                               usedPacketNumber, mOriginalConnectionID,
+                                               usedPacketNumber, mOriginalClientCID,
                                                cipherPkt + 17, kMozQuicMSS - 17, cipherLen);
     if (rv != MOZQUIC_OK) {
       HandshakeLog1("TRANSMIT0[%lX] this=%p Encrypt Fail %x\n",
@@ -236,7 +236,7 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
     HandshakeLog4("server RETRY changed connID to %lx\n",
                   header.mConnectionID);
     mConnectionID = header.mConnectionID;
-    mOriginalConnectionID = mConnectionID; // because its stateless
+    mOriginalClientCID = mConnectionID; // because its stateless
   }
 
   // essentially this is an ack of client_initial using the packet #
