@@ -828,6 +828,9 @@ MozQuic::Intake(bool *partialResult)
   uint32_t rv = MOZQUIC_OK;
 
   bool sendAck;
+  unsigned char *coalescingLeftoverPtr = nullptr;
+  uint32_t coalescingLeftoverSize = 0;
+
   do {
     unsigned char pktReal1[kMozQuicMSS];
     unsigned char pktReal2[kMozQuicMSS];
@@ -837,9 +840,17 @@ MozQuic::Intake(bool *partialResult)
     sendAck = false;
     struct sockaddr_in6 peer;
 
-    rv = Recv(pkt, kMozQuicMSS, pktSize, (const sockaddr *)&peer);
-    if (rv != MOZQUIC_OK || !pktSize) {
-      return rv;
+    if (coalescingLeftoverPtr) {
+      pkt = coalescingLeftoverPtr;
+      pktSize = coalescingLeftoverSize;
+      coalescingLeftoverPtr = nullptr;
+      rv = MOZQUIC_OK;
+      assert(pktSize);
+    } else {
+      rv = Recv(pkt, kMozQuicMSS, pktSize, (const sockaddr *)&peer);
+      if (rv != MOZQUIC_OK || !pktSize) {
+        return rv;
+      }
     }
 
     // dispatch to the right MozQuic class.
@@ -849,7 +860,8 @@ MozQuic::Intake(bool *partialResult)
     if (!(pkt[0] & 0x80)) { // short form protected packets
       ShortHeaderData tmpShortHeader(this, pkt, pktSize, 0, mLocalOmitCID, mLocalCID);
       if (pktSize < tmpShortHeader.mHeaderSize) {
-        return rv;
+        rv = MOZQUIC_ERR_GENERAL;
+        continue;
       }
       CID temp;
       tmpSession = FindSession(tmpShortHeader.mDestCID);
@@ -879,7 +891,20 @@ MozQuic::Intake(bool *partialResult)
       LongHeaderData longHeader(pkt, pktSize);
 
       if (longHeader.mType == PACKET_TYPE_ERR) {
-        return MOZQUIC_ERR_GENERAL;
+        rv = MOZQUIC_ERR_GENERAL;
+        continue;
+      }
+
+      if (longHeader.mHeaderSize + longHeader.mPayloadLen > pktSize) {
+        rv = MOZQUIC_ERR_GENERAL;
+        continue;
+      }
+      
+      if (longHeader.mHeaderSize + longHeader.mPayloadLen != pktSize) {
+        coalescingLeftoverPtr =
+          pkt + longHeader.mHeaderSize + longHeader.mPayloadLen;
+        coalescingLeftoverSize =
+          pktSize - longHeader.mHeaderSize - longHeader.mPayloadLen;
       }
 
       ConnectionLogCID5(&longHeader.mDestCID, &longHeader.mSourceCID,
@@ -1042,8 +1067,8 @@ MozQuic::Intake(bool *partialResult)
     if ((rv == MOZQUIC_OK) && sendAck) {
       rv = session->MaybeSendAck(true);
     }
-  } while (rv == MOZQUIC_OK && !(*partialResult));
-
+  } while (coalescingLeftoverPtr || (rv == MOZQUIC_OK && !(*partialResult)));
+        
   return rv;
 }
 
