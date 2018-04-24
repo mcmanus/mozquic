@@ -364,6 +364,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
                                                     uint16_t &_maxPacket,
                                                     uint8_t  &_ackDelayExponent,
                                                     unsigned char *_statelessResetToken /* 16 bytes */,
+                                                    bool     &_validStatelessResetToken,
                                                     MozQuic *forLogging)
 {
   if (inputSize < 6) {
@@ -465,6 +466,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
         if (len != 16) { return MOZQUIC_ERR_GENERAL; }
         Decode16ByteObject(input, offset, inputSize, _statelessResetToken);
         TP_ENSURE_PARAM(statelessReset);
+        _validStatelessResetToken = true;
         break;
       case kAckDelayExponent:
         if (len != 1) { return MOZQUIC_ERR_GENERAL; }
@@ -483,7 +485,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
       }
   } while (offset < inputSize);
   
-  return (maxStreamData && maxData && idleTimeout && statelessReset) ? MOZQUIC_OK : MOZQUIC_ERR_GENERAL;
+  return (maxStreamData && maxData && idleTimeout) ? MOZQUIC_OK : MOZQUIC_ERR_GENERAL;
 }
 
 #undef TP_ENSURE_PARAM

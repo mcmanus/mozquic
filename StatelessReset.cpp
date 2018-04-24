@@ -96,7 +96,8 @@ MozQuic::StatelessResetCheckForReceipt(const unsigned char *pkt, uint32_t pktSiz
     return false;
   }
 
-  if (memcmp(mStatelessResetToken, pkt + pktSize - 16, 16)) {
+  if (mValidStatelessResetToken &&
+      memcmp(mStatelessResetToken, pkt + pktSize - 16, 16)) {
     return false;
   }
 

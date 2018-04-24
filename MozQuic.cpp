@@ -58,6 +58,7 @@ MozQuic::MozQuic(bool handleIO)
   , mConnectionState(STATE_UNINITIALIZED)
   , mOriginPort(-1)
   , mClientPort(-1)
+  , mValidStatelessResetToken(false)
   , mVersion(kMozQuicVersion1)
 //  , mVersion(kMozQuicIetfID10)
   , mClientOriginalOfferedVersion(0)
@@ -1280,7 +1281,7 @@ MozQuic::ClientConnected()
                                       mStreamState->mPeerMaxStreamID[UNI_STREAM],
                                       mPeerIdleTimeout,
                                       mMaxPacketConfig, mPeerAckDelayExponent,
-                                      mStatelessResetToken, this);
+                                      mStatelessResetToken, mValidStatelessResetToken, this);
     mStreamState->mPeerMaxData = peerMaxData;
     if (decodeResult != MOZQUIC_OK) {
       ConnectionLog1("Decoding Server Transport Parameters: failed\n");

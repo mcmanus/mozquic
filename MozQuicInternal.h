@@ -373,6 +373,7 @@ private:
   unsigned char mValidationKey[32];
 
   // only set in client after exchange of transport params
+  bool          mValidStatelessResetToken;
   unsigned char mStatelessResetToken[16];
 
   uint32_t mVersion;

@@ -83,6 +83,7 @@ public:
                                                   uint16_t &_maxPacket,
                                                   uint8_t  &_ackDelayExponent,
                                                   unsigned char *_statelessResetToken /* 16 bytes */,
+                                                  bool     &_validStatelessResetToken,
                                                   MozQuic *forLogging);
 
 private:
