@@ -1728,6 +1728,14 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
       }
       break;
 
+    case FRAME_TYPE_NEW_CONNECTION_ID:
+      if (mPeerCID.Len() == 0) {
+        Shutdown(PROTOCOL_VIOLATION, "unexpected new cid");
+        RaiseError(MOZQUIC_ERR_GENERAL, (char *) "unexpected new cid");
+        return MOZQUIC_ERR_GENERAL;
+      }
+      break;
+
     case FRAME_TYPE_STOP_SENDING:
       sendAck = true;
       rv = mStreamState->HandleStopSendingFrame(&result, fromCleartext, pkt, endpkt, ptr);

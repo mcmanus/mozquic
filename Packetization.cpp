@@ -496,6 +496,7 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       return;
 
     case FRAME_TYPE_NEW_CONNECTION_ID:
+    {
       mType = FRAME_TYPE_NEW_CONNECTION_ID;
       if (MozQuic::DecodeVarint(framePtr, endOfPkt - framePtr, u.mNewConnectionID.mSequence, used) != MOZQUIC_OK) {
         session->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "parse err");
@@ -503,22 +504,50 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
       }
       framePtr += used;
 
-      if ((endOfPkt - framePtr) < 24) {
+      if ((endOfPkt - framePtr) < 1) {
         session->RaiseError(MOZQUIC_ERR_GENERAL,
-                            (char *) "NEW_CONNECTION_ID frame length expected");
+                            (char *) "NEW_CONNECTION_ID too short");
         return;
       }
 
-      memcpy(&u.mNewConnectionID.mConnectionID, framePtr, 8);
-      u.mNewConnectionID.mConnectionID = PR_ntohll(u.mNewConnectionID.mConnectionID);
-      framePtr += 8;
+      // 1 byte cidLen
+      uint8_t cidLen = *framePtr;
+      framePtr += 1;
+
+      // range check this in 4-18 range then -3
+      if ((cidLen < 4) || (cidLen > 18)) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            (char *) "NEW_CONNECTION_ID CID len out of range");
+        return;
+      }
+
+      if ((endOfPkt - framePtr) < cidLen) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            (char *) "NEW_CONNECTION_ID too short cid");
+        return;
+      }
+
+      cidLen -= 3;
+      mForNewConnectionID.Parse(cidLen - 3, framePtr);
+      framePtr += cidLen;
+      
+      // if sending to peercid.len()==0 then recpt of this is an err
+
+      // 16 of token
+      if ((endOfPkt - framePtr) < 16) {
+        session->RaiseError(MOZQUIC_ERR_GENERAL,
+                            (char *) "NEW_CONNECTION_ID frame length expected token");
+        return;
+      }
+
       memcpy(u.mNewConnectionID.mToken, framePtr, 16);
       framePtr += 16;
              
       mValid = MOZQUIC_OK;
       mFrameLen = framePtr - pkt;
       return;
-
+    }
+    
     case FRAME_TYPE_STOP_SENDING:
       mType = FRAME_TYPE_STOP_SENDING;
       if (MozQuic::DecodeVarintMax32(framePtr, endOfPkt - framePtr, u.mStopSending.mStreamID, used) != MOZQUIC_OK) {

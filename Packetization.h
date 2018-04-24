@@ -181,7 +181,6 @@ public:
     } mStreamBlocked;
     struct {
       uint64_t mSequence;
-      uint64_t mConnectionID;
       uint8_t  mToken[16];
      } mNewConnectionID;
     struct {
@@ -198,6 +197,7 @@ public:
     } mPathResponse;
   } u;
 
+  CID  mForNewConnectionID;
 };
 
 enum FrameTypeLengths {
