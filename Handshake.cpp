@@ -298,12 +298,16 @@ MozQuic::ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHea
     return MOZQUIC_OK;
   }
 
-  if ((header.mVersion != 0) ||
-      (header.mSourceCID != ClientCID())) {
-    // this was supposedly copied from client - so this isn't a match
+  if (header.mVersion != 0) {
     return MOZQUIC_ERR_VERSION;
   }
 
+  if ((header.mDestCID != mLocalCID) &&
+      (!mLocalOmitCID || header.mDestCID.Len())) {
+    // this was supposedly copied from client - so this isn't a match
+    return MOZQUIC_ERR_VERSION;
+  }
+  
   uint32_t numVersions = ((pktSize) - header.mHeaderSize) / 4;
   if ((numVersions << 2) != (pktSize - header.mHeaderSize)) {
     RaiseError(MOZQUIC_ERR_VERSION, (char *)"negotiate version packet format incorrect\n");
