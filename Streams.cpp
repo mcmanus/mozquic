@@ -1028,7 +1028,7 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
   }
 
   if (payloadLenPtr) {
-    uint16_t payloadLen = (framePtr - (plainPkt + headerLen)) + 16;
+    uint16_t payloadLen = headerLen + (framePtr - (plainPkt + headerLen)) + 16;
     if (payloadLen > 16383) {
       return MOZQUIC_ERR_GENERAL;
     }
@@ -1046,7 +1046,7 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
   if (rv != MOZQUIC_OK) {
     return rv;
   }
-  assert(!payloadLenPtr || (bytesOut == (framePtr - (plainPkt + headerLen)) + 16));
+  assert(!payloadLenPtr || (bytesOut == headerLen + (framePtr - (plainPkt + headerLen)) + 16));
 
   outWritten = true;
   if (!bareAck && bytesOut) {

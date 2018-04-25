@@ -219,8 +219,8 @@ MozQuic::Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
   // payload len). always make it 2 bytes to accomodate the
   // full possible range.
   *payloadLenPtr = framePtr;
-  *payloadLenPtr[0] = 0x40;
-  *payloadLenPtr[1] = 0x00;  
+  (*payloadLenPtr)[0] = 0x40;
+  (*payloadLenPtr)[1] = 0x00;  
   framePtr += 2;
 
   tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
