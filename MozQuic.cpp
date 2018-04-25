@@ -1759,10 +1759,14 @@ MozQuic::ProcessGeneralDecoded(const unsigned char *pkt, uint32_t pktSize,
 }
 
 void
-MozQuic::GetPeerAddressHash(uint64_t cid, unsigned char *out, uint32_t *outLen)
+MozQuic::GetPeerAddressHash(CID cid, unsigned char *out, uint32_t *outLen)
 {
   assert(mIsChild && !mIsClient);
-  assert(*outLen >= 14 + sizeof(mParent->mValidationKey));
+  assert(*outLen >= 18 + sizeof(mParent->mValidationKey) + cid.Len());
+
+  if (*outLen < 18 + sizeof(mParent->mValidationKey) + cid.Len()) {
+    return;
+  }
 
   *outLen = 0;
   unsigned char *ptr = out;
@@ -1783,9 +1787,9 @@ MozQuic::GetPeerAddressHash(uint64_t cid, unsigned char *out, uint32_t *outLen)
   }
 
   // server chosen when generating retry, but client supplied when validating
-  uint64_t connID = PR_htonll(cid);
-  memcpy(ptr, &connID, sizeof (uint64_t));
-  ptr += sizeof(uint64_t);
+  memcpy(ptr, cid.Data(), cid.Len());
+  ptr += cid.Len();
+
   memcpy(ptr, &mParent->mValidationKey, sizeof(mValidationKey));
   ptr += sizeof(mValidationKey);
 

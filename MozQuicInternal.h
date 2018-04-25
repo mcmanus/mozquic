@@ -235,7 +235,7 @@ public:
   }
 
   bool DecodedOK() { return mDecodedOK; }
-  void GetPeerAddressHash(uint64_t cid, unsigned char *out, uint32_t *outLen);
+  void GetPeerAddressHash(CID cid, unsigned char *out, uint32_t *outLen);
   static uint64_t Timestamp();
   void Shutdown(uint16_t code, const char *);
 

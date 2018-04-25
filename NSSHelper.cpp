@@ -485,7 +485,7 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
 
   NSSHelper *self = reinterpret_cast<NSSHelper *>(arg);
 
-  unsigned char sourceAddressInfo[128];
+  unsigned char sourceAddressInfo[1024];
   uint32_t sourceAddressLen = sizeof(sourceAddressInfo);
   // on the token generation (first pass) we want to place the server specified retry cid
   // on the token validation (second pass) we want to confirm the initial had that retry cid
