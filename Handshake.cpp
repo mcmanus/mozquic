@@ -133,14 +133,16 @@ MozQuic::FlushStream0(bool forceAck)
     if (((framePtr - pkt) + 16) < kMinClientInitial) {
       paddingNeeded = kMinClientInitial - ((framePtr - pkt) + 16);
     }
-  } else if (mConnectionState == SERVER_STATE_SSR) {
-    mConnectionState = SERVER_STATE_1RTT;
-    mStreamState->mUnAckedPackets.clear();
-    assert(mStreamState->mConnUnWritten.empty());
-    if (mConnEventCB) {
-      mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
-    }
   } else {
+    if (mConnectionState == SERVER_STATE_SSR) {
+      mConnectionState = SERVER_STATE_1RTT;
+      mStreamState->mUnAckedPackets.clear();
+      assert(mStreamState->mConnUnWritten.empty());
+      if (mConnEventCB) {
+        mConnEventCB(mClosure, MOZQUIC_EVENT_ERROR, this);
+      }
+    }
+
     uint32_t room = endpkt - framePtr - 16; // the last 16 are for aead tag
     bareAck = framePtr == emptyFramePtr;
     if (AckPiggyBack(framePtr, mNextTransmitPacketNumber, room, keyPhaseUnprotected,
