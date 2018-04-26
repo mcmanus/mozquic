@@ -428,7 +428,6 @@ MozQuic::ProcessClientInitial(unsigned char *pkt, uint32_t pktSize,
 
   mVersion = header.mVersion;
 
-  // TODO PRM what if the client is sending a 0 byte CID (5 tuple sorter)
   // Check whether this is an dup.
   uint64_t key = NSSHelper::SockAddrHasher(clientAddr);
   auto i = mInitialHash.find(key);
