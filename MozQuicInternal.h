@@ -32,10 +32,10 @@ namespace mozquic {
 //
 // sync with versionOK() and GenerateVersionNegotiation()
 static const uint32_t kMozQuicVersion1 = 0xf123f0c5; // 0xf123f0c* reserved for mozquic
-static const uint32_t kMozQuicIetfID9 = 0xff00000a;
+static const uint32_t kMozQuicIetfID11 = 0xff00000b;
 static const uint32_t kMozQuicVersionGreaseS = 0xea0a6a2a;
 static const uint32_t VersionNegotiationList[] = {
-  kMozQuicVersionGreaseS, kMozQuicIetfID9, kMozQuicVersion1,
+  kMozQuicVersionGreaseS, kMozQuicIetfID11, kMozQuicVersion1,
 };
 
 enum connectionState
@@ -129,14 +129,26 @@ private:
   MozQuic *mSession;
 };
 
+// used by mInitialHash
 class InitialClientPacketInfo {
 public:
   InitialClientPacketInfo() {}
   virtual ~InitialClientPacketInfo() {}
-  uint64_t mServerConnectionID;
-  uint64_t mHashKey;
+  CID mServerConnectionID; // source cid in server handshake resp
+  uint64_t mHashKey; // source cid from client initial
   uint64_t mTimestamp;
   std::unique_ptr<Timer> mTimer;
+
+  bool operator ==(const InitialClientPacketInfo &b) const {
+    return b.mHashKey == mHashKey;
+  }
+
+};
+
+struct CIDHasher {
+  size_t operator()(const CID&x)const{
+    return x.Hash();
+  }
 };
 
 class MozQuic
@@ -166,8 +178,11 @@ public:
   void HandshakeOutput(const unsigned char *, uint32_t amt);
   void HandshakeTParamOutput(const unsigned char *, uint32_t amt);
   uint32_t HandshakeComplete(uint32_t errCode, struct mozquic_handshake_info *keyInfo);
-  uint64_t ConnectionID() const { return mConnectionID;}
-  uint64_t OriginalConnectionID() const { return mOriginalConnectionID;}
+
+  CID HandshakeCID() const { return mHandshakeCID;}
+  CID ServerCID() { return mIsClient ? mPeerCID : mLocalCID; }
+  CID ClientCID() { return (!mIsClient) ? mPeerCID : mLocalCID; }
+  
   void SetOriginPort(int port) { mOriginPort = port; }
   void SetOriginName(const char *name);
   void SetStatelessResetKey(const unsigned char *key) { memcpy(mStatelessResetKey, key, 128); }
@@ -220,7 +235,7 @@ public:
   }
 
   bool DecodedOK() { return mDecodedOK; }
-  void GetPeerAddressHash(uint64_t cid, unsigned char *out, uint32_t *outLen);
+  void GetPeerAddressHash(CID cid, unsigned char *out, uint32_t *outLen);
   static uint64_t Timestamp();
   void Shutdown(uint16_t code, const char *);
 
@@ -240,8 +255,8 @@ private:
   void AckScoreboard(uint64_t num, enum keyPhase kp);
   int MaybeSendAck(bool delackOK = false);
 
-  void Acknowledge(uint64_t packetNum, keyPhase kp);
-  uint32_t AckPiggyBack(unsigned char *pkt, uint64_t pktNumber, uint32_t avail, keyPhase kp,
+  void Acknowledge(uint64_t packetNumber, keyPhase kp);
+  uint32_t AckPiggyBack(unsigned char *pkt, uint64_t packetNumber, uint32_t avail, keyPhase kp,
                         bool bareAck, uint32_t &used);
   uint32_t Recv(unsigned char *, uint32_t len, uint32_t &outLen, const struct sockaddr *peer);
   int ProcessServerCleartext(unsigned char *, uint32_t size, LongHeaderData &, bool &);
@@ -252,9 +267,9 @@ private:
   uint32_t ProcessGeneral(const unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   uint32_t Process0RTTProtectedPacket(const unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   uint32_t BufferForLater(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
-                          uint64_t packetNum);
+                          uint64_t packetNumber);
   uint32_t ReleaseProtectedPackets();
-  bool IntegrityCheck(unsigned char *, uint32_t size, uint64_t pktNum, uint64_t connID,
+  bool IntegrityCheck(unsigned char *, uint32_t pktsize, uint32_t headersize, CID handhakeCID, uint64_t packetNumber,
                       unsigned char *outbuf, uint32_t &outSize);
   void ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
                   const unsigned char *endOfPacket, bool fromCleartext,
@@ -272,8 +287,9 @@ private:
                                        uint32_t &_ptr);
   
   bool ServerState() { return mConnectionState > SERVER_STATE_BREAK; }
-  MozQuic *FindSession(uint64_t cid, bool isClientOriginal = false);
-  void RemoveSession(uint64_t cid);
+  MozQuic *FindSession(const sockaddr *peer);
+  MozQuic *FindSession(CID &cid);
+  void RemoveSession(CID &cid);
   uint32_t ClientConnected();
   uint32_t ServerConnected();
 
@@ -290,12 +306,14 @@ private:
   uint32_t ProcessVersionNegotiation(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
   uint32_t ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongHeaderData &header);
 
-  MozQuic *Accept(const struct sockaddr *peer, uint64_t aConnectionID, uint64_t ciNumber);
+  MozQuic *Accept(const struct sockaddr *clientAddr,
+                  CID clientCID, CID handshakeCID, uint64_t aCIPacketNumber);
 
   void StartPMTUD1();
   void CompletePMTUD1();
   void AbortPMTUD1();
 
+public:
   static uint32_t EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint32_t &used);
   static uint32_t DecodeVarint(const unsigned char *ptr, uint32_t avail, uint64_t &result, uint32_t &used);
   static uint32_t DecodeVarintMax32(const unsigned char *ptr, uint32_t avail, uint32_t &result, uint32_t &used);
@@ -305,8 +323,10 @@ private:
   static void EncodeVarintAs4(uint64_t input, unsigned char *dest);
   static void EncodeVarintAs8(uint64_t input, unsigned char *dest);
 
+private:
   uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
-  uint32_t Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used);
+  uint32_t Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used,
+                                      unsigned char **payloadLenPtr);
   uint32_t ProtectedTransmit(unsigned char *header, uint32_t headerLen,
                              unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
                              bool addAcks, bool ackable, bool queueOnly = false,
@@ -314,9 +334,9 @@ private:
 
   // Stateless Reset
   bool     StatelessResetCheckForReceipt(const unsigned char *pkt, uint32_t pktSize);
-  uint32_t StatelessResetSend(uint64_t connID, const struct sockaddr *peer);
+  uint32_t StatelessResetSend(CID &connID, const struct sockaddr *peer);
   static uint32_t StatelessResetCalculateToken(const unsigned char *key128,
-                                               uint64_t connID, unsigned char *out);
+                                               CID &connID, unsigned char *out);
   uint32_t StatelessResetEnsureKey();
   void EnsureSetupClientTransportParameters();
   mozquic_socket_t mFD;
@@ -353,23 +373,27 @@ private:
   unsigned char mValidationKey[32];
 
   // only set in client after exchange of transport params
+  bool          mValidStatelessResetToken;
   unsigned char mStatelessResetToken[16];
 
   uint32_t mVersion;
   uint32_t mClientOriginalOfferedVersion;
 
-  std::unordered_map<uint64_t, MozQuic *> mConnectionHash;
-
+  std::unordered_map<CID, MozQuic *, CIDHasher> mConnectionHash;
+    
   // This maps connectionId sent by a client and connectionId chosen by the
   // server. This is used to detect dup client initial packets.
   // The elemets are going to be removed using a timer.
-  std::unordered_map<uint64_t, std::unique_ptr<InitialClientPacketInfo>> mConnectionHashOriginalNew;
+  std::unordered_map<uint64_t,
+    std::unique_ptr<InitialClientPacketInfo>> mInitialHash;
+
+  CID mLocalCID;
+  CID mPeerCID;
+  CID mHandshakeCID;
 
   uint16_t mMaxPacketConfig;
   uint16_t mMTU;
   uint16_t mDropRate;
-  uint64_t mConnectionID;
-  uint64_t mOriginalConnectionID;
   uint64_t mNextTransmitPacketNumber;
   uint64_t mOriginalTransmitPacketNumber;
   uint64_t mNextRecvPacketNumber; // expected
@@ -406,7 +430,6 @@ private:
 
   bool     mDecodedOK;
   bool     mLocalOmitCID;
-  bool     mPeerOmitCID;
 
   uint16_t mPeerIdleTimeout;
 

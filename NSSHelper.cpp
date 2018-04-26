@@ -18,11 +18,11 @@
 #include "assert.h"
 #include "sechash.h"
 
-#if NSS_VMAJOR < 3 || (NSS_VMINOR < 36 && NSS_VMAJOR == 3)
+#if NSS_VMAJOR < 3 || (NSS_VMINOR < 38 && NSS_VMAJOR == 3)
 fail compile due to nss version;
 #endif
 
-// relies on tls1.3 draft 23 NSS_3_36_BRANCH
+// relies on tls1.3 draft 28
 
 #define sTlsLog1(...) Log::sDoLog(Log::TLS, 1, self->mMozQuic, __VA_ARGS__);
 #define sTlsLog2(...) Log::sDoLog(Log::TLS, 2, self->mMozQuic, __VA_ARGS__);
@@ -485,12 +485,12 @@ NSSHelper::HRRCallback(PRBool firstHello, const unsigned char *clientToken,
 
   NSSHelper *self = reinterpret_cast<NSSHelper *>(arg);
 
-  unsigned char sourceAddressInfo[128];
+  unsigned char sourceAddressInfo[1024];
   uint32_t sourceAddressLen = sizeof(sourceAddressInfo);
   // on the token generation (first pass) we want to place the server specified retry cid
   // on the token validation (second pass) we want to confirm the initial had that retry cid
   self->mMozQuic->GetPeerAddressHash(
-    firstHello? self->mMozQuic->ConnectionID() : self->mMozQuic->OriginalConnectionID(),
+    firstHello ? self->mMozQuic->ServerCID() : self->mMozQuic->HandshakeCID(),
     sourceAddressInfo, &sourceAddressLen);
 
   HASHContext *hcontext = HASH_Create(HASH_AlgSHA256);
@@ -555,15 +555,14 @@ public:
     return rv;
   }
 
-  ServerHandshakeReceiverKeys(uint64_t cid)
+  ServerHandshakeReceiverKeys(CID cid)
   {
     PK11SlotInfo *slot = nullptr;
     PK11SymKey *cidKey = nullptr;
     PK11SymKey *handshakeSecret = nullptr;
     unsigned char expandOut[32];
     
-    uint64_t tmp64 = PR_htonll(cid);
-    SECItem cidItem = { siBuffer, (unsigned char *)&tmp64, 8 };
+    SECItem cidItem = { siBuffer, (unsigned char *)cid.Data(), cid.Len() };
 
     if (!(slot = PK11_GetInternalSlot())) {
       goto cleanup;
@@ -610,7 +609,7 @@ public:
 };
 
 void
-NSSHelper::MakeHandshakeKeys(uint64_t cid)
+NSSHelper::MakeHandshakeKeys(CID cid)
 {
   PK11SlotInfo *slot = nullptr;
   PK11SymKey *cidKey = nullptr;
@@ -619,10 +618,10 @@ NSSHelper::MakeHandshakeKeys(uint64_t cid)
     
   mPacketProtectionHandshakeCID = cid;
 
-  TlsLog5("MakeHandshakeKeys for ConnID %lX\n", mPacketProtectionHandshakeCID);
-  uint64_t tmp64 = PR_htonll(mPacketProtectionHandshakeCID);
-  SECItem cidItem = { siBuffer, (unsigned char *)&tmp64, 8 };
-
+  TlsLog5("MakeHandshakeKeys for ConnID %s\n", mPacketProtectionHandshakeCID.Text());
+  SECItem cidItem = { siBuffer, (unsigned char *)mPacketProtectionHandshakeCID.Data(),
+                      mPacketProtectionHandshakeCID.Len() };
+      
   if (!(slot = PK11_GetInternalSlot())) {
     goto cleanup;
   }
@@ -872,7 +871,7 @@ NSSHelper::BlockOperation(enum operationType mode,
 uint32_t
 NSSHelper::staticDecryptHandshake(const unsigned char *aadData, uint32_t aadLen,
                                   const unsigned char *data, uint32_t dataLen,
-                                  uint64_t packetNumber, uint64_t connectionID,
+                                  uint64_t packetNumber, CID connectionID,
                                   unsigned char *out, uint32_t outAvail, uint32_t &written)
 // out should be at least dataLen - 16 (for tag removal)
 {
@@ -936,7 +935,7 @@ NSSHelper::DecryptBlock(const unsigned char *aadData, uint32_t aadLen,
 uint32_t
 NSSHelper::EncryptHandshake(const unsigned char *aadData, uint32_t aadLen,
                             const unsigned char *plaintext, uint32_t plaintextLen,
-                            uint64_t packetNumber, uint64_t cid, unsigned char *out,
+                            uint64_t packetNumber, CID cid, unsigned char *out,
                             uint32_t outAvail, uint32_t &written)
 {
   if (cid != mPacketProtectionHandshakeCID) {
@@ -950,7 +949,7 @@ NSSHelper::EncryptHandshake(const unsigned char *aadData, uint32_t aadLen,
 uint32_t
 NSSHelper::DecryptHandshake(const unsigned char *aadData, uint32_t aadLen,
                             const unsigned char *ciphertext, uint32_t ciphertextLen,
-                            uint64_t packetNumber, uint64_t cid, unsigned char *out, uint32_t outAvail,
+                            uint64_t packetNumber, CID cid, unsigned char *out, uint32_t outAvail,
                             uint32_t &written)
 { 
   if (cid != mPacketProtectionHandshakeCID) {
@@ -1058,7 +1057,7 @@ NSSHelper::SharedInit()
     mNSSReady = false;
   }
 
-  MakeHandshakeKeys(mMozQuic->ConnectionID());
+  MakeHandshakeKeys(mMozQuic->HandshakeCID());
 }
 
 // server version
@@ -1075,7 +1074,6 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   , mRemoteTransportExtensionLen(0)
   , mPacketProtectionSenderKey0(nullptr)
   , mPacketProtectionReceiverKey0(nullptr)
-  , mPacketProtectionHandshakeCID(0)
   , mPacketProtectionHandshakeSenderKey(nullptr)
   , mPacketProtectionHandshakeReceiverKey(nullptr)
 {
@@ -1113,7 +1111,6 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
   , mRemoteTransportExtensionLen(0)
   , mPacketProtectionSenderKey0(nullptr)
   , mPacketProtectionReceiverKey0(nullptr)
-  , mPacketProtectionHandshakeCID(0)
   , mPacketProtectionHandshakeSenderKey(nullptr)
   , mPacketProtectionHandshakeReceiverKey(nullptr)
 {
@@ -1391,6 +1388,42 @@ NSSHelper::IsEarlyDataAcceptedClient()
   }
 
   return info.earlyDataAccepted;
+}
+
+uint64_t
+NSSHelper::SockAddrHasher(const struct sockaddr *sock)
+{
+  bool ipv4;
+
+  {
+    const struct sockaddr_in *s = (const struct sockaddr_in *) sock;
+    ipv4 = (s->sin_family == AF_INET);
+  }
+
+  if (ipv4) {
+    const struct sockaddr_in *s = (const struct sockaddr_in *) sock;
+    assert(s->sin_family == AF_INET);
+    uint64_t rv = 0;
+    memcpy(&rv,(unsigned char *)&s->sin_port, 2);
+    memcpy((&rv) + 2, (unsigned char *)&s->sin_addr, 4);
+    return rv;
+  }
+  
+  unsigned char digest[SHA1_LENGTH];
+  HASHContext *hcontext = HASH_Create(HASH_AlgSHA1);
+  HASH_Begin(hcontext);
+  const struct sockaddr_in6 *s = (const struct sockaddr_in6 *) sock;
+  assert(s->sin6_family == AF_INET6);
+  HASH_Update(hcontext, (unsigned char *)&s->sin6_port, sizeof(uint16_t));
+  HASH_Update(hcontext, (unsigned char *)&s->sin6_addr, sizeof(struct in6_addr));
+
+  unsigned int digestLen;
+  HASH_End(hcontext, digest, &digestLen, sizeof(digest));
+  assert(digestLen == sizeof(digest));
+  
+  uint64_t rv = 0;
+  memcpy(&rv, digest, sizeof(digest) < sizeof(rv) ? sizeof(digest) : sizeof(rv));
+  return rv;
 }
 
 NSSHelper::~NSSHelper()

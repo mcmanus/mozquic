@@ -27,31 +27,35 @@ Log::sDoLog(unsigned int cat, unsigned int level, MozQuic *m, const char *fmt, .
 {
   va_list a;
   va_start(a, fmt);
-  uint32_t rv = gLogger.DoLog(cat, level, m, 0, fmt, a);
+  uint32_t rv = gLogger.DoLog(cat, level, m, nullptr, nullptr, fmt, a);
   va_end(a);
   return rv;
 }
 
 uint32_t
-Log::sDoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
+Log::sDoLog(unsigned int cat, unsigned int level, MozQuic *m,
+            CID *localCID, CID *peerCID,
             const char *fmt, va_list paramList)
 {
-  return gLogger.DoLog(cat, level, m, cid, fmt, paramList);
+  return gLogger.DoLog(cat, level, m, localCID, peerCID, fmt, paramList);
 }
 
 uint32_t
-Log::sDoLogCID(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
+Log::sDoLogCID(unsigned int cat, unsigned int level, MozQuic *m,
+               CID *localCID, CID *peerCID,
                const char *fmt, ...)
 {
   va_list a;
   va_start(a, fmt);
-  uint32_t rv = gLogger.DoLog(cat, level, m, cid, fmt, a);
+  uint32_t rv = gLogger.DoLog(cat, level, m, localCID, peerCID, fmt, a);
   va_end(a);
   return rv;
 }
 
 uint32_t
-Log::DoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid, const char *fmt, va_list paramList)
+Log::DoLog(unsigned int cat, unsigned int level, MozQuic *m,
+           CID *localCID, CID *peerCID,
+           const char *fmt, va_list paramList)
 {
   bool quiet = false;
   if (level > 10) {
@@ -64,16 +68,19 @@ Log::DoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid, const
     return MOZQUIC_OK;
   }
 
-  uint64_t useCid = 0;
-  if (cid) {
-    useCid = cid;
-  } else if (m) {
-    useCid = m->mConnectionID;
+  CID nullCID;
+  if (!localCID) {
+    localCID = (m && m->mLocalCID) ? &(m->mLocalCID) : & nullCID;
   }
-
+  if (!peerCID) {
+    peerCID = (m && m->mPeerCID) ? &(m->mPeerCID) : & nullCID;
+  }
+  
   if (!m || !m->mAppHandlesLogging) {
     if (!quiet) {
-      fprintf(stderr,"%06lld:%016llx ", MozQuic::Timestamp() % 1000000, useCid);
+      fprintf(stderr,"%06lld:{%s,%s} ",
+              MozQuic::Timestamp() % 1000000,
+              localCID->Text(), peerCID->Text());
     }
     vfprintf(stderr, fmt, paramList);
   } else if (m && m->mConnEventCB && m->mClosure) {

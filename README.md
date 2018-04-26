@@ -2,12 +2,12 @@ This is really to test the spec process, its a long way from usable
 code and the interface is the least thought out bit (MozQuic.h). It
 will set your machine afire if you have the nerve to run it there.
 
-Right now it is capable of both ff000008 and 0xf123f0c5 and some
-greasing. (hq-08 alpn)
+Right now it is capable of both ff00000B and 0xf123f0c5 and some
+greasing. (hq-11 alpn)
 
 See https://github.com/quicwg/base-drafts/wiki/Third-Implementation-Draft
 
-based on tls -23
+based on tls -28
 
 Useful to increase UDP buffering on the host:
 sudo sysctl -w net.core.rmem_max=16000000
@@ -32,8 +32,6 @@ git clone git@github.com:mcmanus/mozquic.git
 git clone git@github.com:nss-dev/nss.git
 hg clone https://hg.mozilla.org/projects/nspr
 cd nss
-# get the -23 branch
-git checkout origin/NSS_3_36_BRANCH
 nss/build.sh
 cd mozquic
 make

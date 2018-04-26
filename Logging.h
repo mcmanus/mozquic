@@ -11,15 +11,18 @@
 namespace mozquic  {
 
 class MozQuic;
-  
+class CID;
+
 class Log 
 {
 public:
   Log();
   static uint32_t sDoLog(unsigned int cat, unsigned int level, MozQuic *m, const char *fmt, ...);
-  static uint32_t sDoLogCID(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
+  static uint32_t sDoLogCID(unsigned int cat, unsigned int level, MozQuic *m,
+                            CID *localCID, CID *peerCID,
                             const char *fmt, ...);
-  static uint32_t sDoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
+  static uint32_t sDoLog(unsigned int cat, unsigned int level, MozQuic *m,
+                         CID *localCID, CID *peerCID,
                          const char *fmt, va_list paramList);
   static void sParseSubscriptions(char *envStr);
   enum 
@@ -29,7 +32,8 @@ public:
   };
 
 private:
-  uint32_t DoLog(unsigned int cat, unsigned int level, MozQuic *m, uint64_t cid,
+  uint32_t DoLog(unsigned int cat, unsigned int level, MozQuic *m,
+                 CID *localCID, CID *peerCID,
                  const char *fmt, va_list paramList);
   void ParseSubscriptions(char *envStr);
                             
@@ -52,12 +56,12 @@ private:
 #define AckLog10(...) Log::sDoLog(Log::ACK, 10, this, __VA_ARGS__);
 
 #define ConnectionLog1(...) Log::sDoLog(Log::CONNECTION, 1, this, __VA_ARGS__);
-#define ConnectionLogCID1(cid, ...) Log::sDoLogCID(Log::CONNECTION, 1, this, cid, __VA_ARGS__);
+#define ConnectionLogCID1(local, remote, ...) Log::sDoLogCID(Log::CONNECTION, 1, this, local, remote, __VA_ARGS__);
 #define ConnectionLog2(...) Log::sDoLog(Log::CONNECTION, 2, this, __VA_ARGS__);
 #define ConnectionLog3(...) Log::sDoLog(Log::CONNECTION, 3, this, __VA_ARGS__);
 #define ConnectionLog4(...) Log::sDoLog(Log::CONNECTION, 4, this, __VA_ARGS__);
 #define ConnectionLog5(...) Log::sDoLog(Log::CONNECTION, 5, this, __VA_ARGS__);
-#define ConnectionLogCID5(cid, ...) Log::sDoLogCID(Log::CONNECTION, 5, this, cid, __VA_ARGS__);
+#define ConnectionLogCID5(local, remote, ...) Log::sDoLogCID(Log::CONNECTION, 5, this, local, remote, __VA_ARGS__);
 #define ConnectionLog6(...) Log::sDoLog(Log::CONNECTION, 6, this, __VA_ARGS__);
 #define ConnectionLog7(...) Log::sDoLog(Log::CONNECTION, 7, this, __VA_ARGS__);
 #define ConnectionLog8(...) Log::sDoLog(Log::CONNECTION, 8, this, __VA_ARGS__);
