@@ -32,7 +32,7 @@ extern std::unordered_map<std::string, uint32_t> mVNHash;
 
 bool
 MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
-                        CID handshakeCID, uint64_t pktNum, unsigned char *outbuf, uint32_t &outSize)
+                        CID handshakeCID, uint64_t packetNumber, unsigned char *outbuf, uint32_t &outSize)
 {
   assert (pkt[0] & 0x80); // long form
   assert (((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL) ||
@@ -41,22 +41,22 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
 
   uint32_t rv;
   if (mNSSHelper) {
-    rv = mNSSHelper->DecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize, pktNum, handshakeCID,
+    rv = mNSSHelper->DecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize, packetNumber, handshakeCID,
                                       outbuf + headerSize, kMozQuicMSS - headerSize, outSize);
   } else {
     // need longheader.mdestcid
     assert ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL || (pkt[0] & 0x7f) == PACKET_TYPE_RETRY);
-    rv = NSSHelper::staticDecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize, pktNum, handshakeCID,
+    rv = NSSHelper::staticDecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize, packetNumber, handshakeCID,
                                            outbuf + headerSize, kMozQuicMSS - headerSize, outSize);
   }
     
   if (rv != MOZQUIC_OK) {
-    ConnectionLog1("Decrypt handshake failed packet %lX integrity error\n", pktNum);
+    ConnectionLog1("Decrypt handshake failed packet %lX integrity error\n", packetNumber);
     return false;
   }
   memcpy(outbuf, pkt, headerSize);
   outSize += headerSize;
-  ConnectionLog5("Decrypt handshake (pktnum=%lX) ok sz=%d\n", pktNum, outSize);
+  ConnectionLog5("Decrypt handshake (packetNumber=%lX) ok sz=%d\n", packetNumber, outSize);
   return true;
 }
 

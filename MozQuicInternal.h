@@ -255,8 +255,8 @@ private:
   void AckScoreboard(uint64_t num, enum keyPhase kp);
   int MaybeSendAck(bool delackOK = false);
 
-  void Acknowledge(uint64_t packetNum, keyPhase kp);
-  uint32_t AckPiggyBack(unsigned char *pkt, uint64_t pktNumber, uint32_t avail, keyPhase kp,
+  void Acknowledge(uint64_t packetNumber, keyPhase kp);
+  uint32_t AckPiggyBack(unsigned char *pkt, uint64_t packetNumber, uint32_t avail, keyPhase kp,
                         bool bareAck, uint32_t &used);
   uint32_t Recv(unsigned char *, uint32_t len, uint32_t &outLen, const struct sockaddr *peer);
   int ProcessServerCleartext(unsigned char *, uint32_t size, LongHeaderData &, bool &);
@@ -267,9 +267,9 @@ private:
   uint32_t ProcessGeneral(const unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   uint32_t Process0RTTProtectedPacket(const unsigned char *, uint32_t size, uint32_t headerSize, uint64_t packetNumber, bool &);
   uint32_t BufferForLater(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
-                          uint64_t packetNum);
+                          uint64_t packetNumber);
   uint32_t ReleaseProtectedPackets();
-  bool IntegrityCheck(unsigned char *, uint32_t pktsize, uint32_t headersize, CID handhakeCID, uint64_t pktNum,
+  bool IntegrityCheck(unsigned char *, uint32_t pktsize, uint32_t headersize, CID handhakeCID, uint64_t packetNumber,
                       unsigned char *outbuf, uint32_t &outSize);
   void ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
                   const unsigned char *endOfPacket, bool fromCleartext,

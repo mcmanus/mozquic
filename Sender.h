@@ -16,11 +16,11 @@ class BufferedPacket
 public:
 
   BufferedPacket(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
-                 uint64_t packetNum)
+                 uint64_t packetNumber)
     : mData(new unsigned char[pktSize])
     , mLen(pktSize)
     , mHeaderSize(headerSize)
-    , mPacketNum(packetNum)
+    , mPacketNumber(packetNumber)
     , mExplicitPeer(false)
     , mBareAck(false)
   {
@@ -29,7 +29,7 @@ public:
 
   BufferedPacket(const unsigned char *pkt, uint32_t pktSize,
                  const struct sockaddr *sin, size_t soSin,
-                 uint64_t packetNum, bool bareAck);
+                 uint64_t packetNumber, bool bareAck);
 
   ~BufferedPacket()
   {
@@ -38,7 +38,7 @@ public:
   std::unique_ptr<const unsigned char []>mData;
   uint32_t mLen;
   uint32_t mHeaderSize;
-  uint32_t mPacketNum;
+  uint32_t mPacketNumber;
   bool     mExplicitPeer;
   bool     mBareAck;
   struct sockaddr_in6 mSockAddr;

@@ -217,7 +217,7 @@ Sender::SendOne(bool fromRTO)
     mUnPacedPacketCredits--;
   }
   SenderLog6("Packet Sent from Queue Tick #%lX %ld (now %ld/%ld)\n",
-             mQueue.front()->mPacketNum,
+             mQueue.front()->mPacketNumber,
              mQueue.front()->mBareAck ? 0 : mQueue.front()->mLen,
              mWindowUsed, mWindow);
   mMozQuic->RealTransmit(mQueue.front()->mData.get(),
@@ -249,11 +249,11 @@ Sender::Flush()
 
 BufferedPacket::BufferedPacket(const unsigned char *pkt, uint32_t pktSize,
                                const struct sockaddr *sin, size_t soSin,
-                               uint64_t packetNum, bool bareAck)
+                               uint64_t packetNumber, bool bareAck)
   : mData(new unsigned char[pktSize])
   , mLen(pktSize)
   , mHeaderSize(0)
-  , mPacketNum(packetNum)
+  , mPacketNumber(packetNumber)
   , mExplicitPeer(false)
   , mBareAck(bareAck)
 {
@@ -298,7 +298,7 @@ Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOn
       mUnPacedPacketCredits--;
     }
     SenderLog6("Packet Sent from Queue #%lX %d now (%ld/%ld)\n",
-               mQueue.front()->mPacketNum,
+               mQueue.front()->mPacketNumber,
                bareAck ? 0 : mQueue.front()->mLen,
                mWindowUsed, mWindow);
     mMozQuic->RealTransmit(mQueue.front()->mData.get(),

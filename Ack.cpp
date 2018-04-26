@@ -105,7 +105,7 @@ MozQuic::MaybeSendAck(bool delAckOK)
 // #3 gap=4, additional ack block=1 // 2, 1
 
 uint32_t
-MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, keyPhase kp,
+MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t packetNumberOfAck, uint32_t avail, keyPhase kp,
                       bool bareAck, uint32_t &used)
 {
   used = 0;
@@ -242,8 +242,8 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
     }
 
     AckLog6("created ack of %lX (%d extra) into pn=%lX @ block %d [%d prev transmits]\n",
-            iter->mPacketNumber, iter->mExtra, pktNumOfAck, ackBlockCounter, iter->mTransmits.size());
-    iter->mTransmits.push_back(std::pair<uint64_t, uint64_t>(pktNumOfAck, Timestamp()));
+            iter->mPacketNumber, iter->mExtra, packetNumberOfAck, ackBlockCounter, iter->mTransmits.size());
+    iter->mTransmits.push_back(std::pair<uint64_t, uint64_t>(packetNumberOfAck, Timestamp()));
   }
   
   if (ackBlockLocation) {
@@ -255,17 +255,17 @@ MozQuic::AckPiggyBack(unsigned char *pkt, uint64_t pktNumOfAck, uint32_t avail, 
 }
 
 void
-MozQuic::Acknowledge(uint64_t packetNum, keyPhase kp)
+MozQuic::Acknowledge(uint64_t packetNumber, keyPhase kp)
 {
   assert(mIsChild || mIsClient);
 
-  if (packetNum >= mNextRecvPacketNumber) {
-    mNextRecvPacketNumber = packetNum + 1;
+  if (packetNumber >= mNextRecvPacketNumber) {
+    mNextRecvPacketNumber = packetNumber + 1;
   }
 
-  AckLog6("%p REQUEST TO GEN ACK FOR %lX kp=%d\n", this, packetNum, kp);
+  AckLog6("%p REQUEST TO GEN ACK FOR %lX kp=%d\n", this, packetNumber, kp);
 
-  AckScoreboard(packetNum, kp);
+  AckScoreboard(packetNumber, kp);
 }
 
 void

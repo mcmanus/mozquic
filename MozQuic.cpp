@@ -1443,10 +1443,10 @@ MozQuic::ServerConnected()
 
 uint32_t
 MozQuic::BufferForLater(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
-                        uint64_t packetNum)
+                        uint64_t packetNumber)
 {
   
-  mBufferedProtectedPackets.emplace_back(pkt, pktSize, headerSize, packetNum);
+  mBufferedProtectedPackets.emplace_back(pkt, pktSize, headerSize, packetNumber);
   return MOZQUIC_ERR_DEFERRED;
 }
 
@@ -1457,7 +1457,7 @@ MozQuic::ReleaseProtectedPackets()
        iter != mBufferedProtectedPackets.end(); ++iter) {
     bool unused;
     ProcessGeneral(iter->mData.get(),
-                   iter->mLen, iter->mHeaderSize, iter->mPacketNum, unused);
+                   iter->mLen, iter->mHeaderSize, iter->mPacketNumber, unused);
   }
   mBufferedProtectedPackets.clear();
   return MOZQUIC_OK;
@@ -1465,7 +1465,7 @@ MozQuic::ReleaseProtectedPackets()
 
 uint32_t
 MozQuic::Process0RTTProtectedPacket(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
-                                    uint64_t packetNum, bool &sendAck)
+                                    uint64_t packetNumber, bool &sendAck)
 {
   if ((mConnectionState == SERVER_STATE_SSR) ||
       (mConnectionState == SERVER_STATE_CLOSED) ||
@@ -1477,18 +1477,18 @@ MozQuic::Process0RTTProtectedPacket(const unsigned char *pkt, uint32_t pktSize, 
     return MOZQUIC_ERR_GENERAL;
   } else if (mConnectionState == SERVER_STATE_CONNECTED) {
     assert (mEarlyDataState == EARLY_DATA_ACCEPTED);
-    if (packetNum > mEarlyDataLastPacketNumber) {
+    if (packetNumber > mEarlyDataLastPacketNumber) {
       ConnectionLog1("0RTT protected packet - 0RTT packet with a high packet number\n");
       RaiseError(MOZQUIC_ERR_GENERAL, (char *)"A 0RTT encrypted packet after handshake.\n");
       return MOZQUIC_ERR_GENERAL;
     }
   }
-  return ProcessGeneral(pkt, pktSize, headerSize, packetNum, sendAck);
+  return ProcessGeneral(pkt, pktSize, headerSize, packetNumber, sendAck);
 }
 
 uint32_t
 MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t headerSize,
-                        uint64_t packetNum, bool &sendAck)
+                        uint64_t packetNumber, bool &sendAck)
 {
   assert(pktSize >= headerSize);
   assert(pktSize <= kMozQuicMSS);
@@ -1496,7 +1496,7 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
 
   if (mConnectionState == CLIENT_STATE_CLOSED ||
       mConnectionState == SERVER_STATE_CLOSED) {
-    ConnectionLog4("processgeneral discarding %lX as closed\n", packetNum);
+    ConnectionLog4("processgeneral discarding %lX as closed\n", packetNumber);
     return MOZQUIC_ERR_GENERAL;
   }
 
@@ -1505,9 +1505,9 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
        mConnectionState == CLIENT_STATE_0RTT ||
        mConnectionState == SERVER_STATE_1RTT ||
        mConnectionState == SERVER_STATE_0RTT)) {
-    ConnectionLog4("processgeneral buffering for later reassembly %lX\n", packetNum);
+    ConnectionLog4("processgeneral buffering for later reassembly %lX\n", packetNumber);
     sendAck = false;
-    return BufferForLater(pkt, pktSize, headerSize, packetNum);
+    return BufferForLater(pkt, pktSize, headerSize, packetNumber);
   }
 
   uint32_t written;
@@ -1516,16 +1516,16 @@ MozQuic::ProcessGeneral(const unsigned char *pkt, uint32_t pktSize, uint32_t hea
   if (pkt[0] & 0x80) {
     assert (pkt[0] == (0x80 | PACKET_TYPE_0RTT_PROTECTED));
     rv = mNSSHelper->DecryptBlock0RTT(pkt, headerSize, pkt + headerSize,
-                                      pktSize - headerSize, packetNum, out,
+                                      pktSize - headerSize, packetNumber, out,
                                       kMozQuicMSS, written);
     mProcessed0RTT = true;
   } else {
     rv = mNSSHelper->DecryptBlock(pkt, headerSize, pkt + headerSize,
-                                  pktSize - headerSize, packetNum, out,
+                                  pktSize - headerSize, packetNumber, out,
                                   kMozQuicMSS, written);
   }
 
-  ConnectionLog6("decrypt (pktnum=%lX) rv=%d sz=%d\n", packetNum, rv, written);
+  ConnectionLog6("decrypt (packetNumber=%lX) rv=%d sz=%d\n", packetNumber, rv, written);
   if (rv != MOZQUIC_OK) {
     ConnectionLog1("decrypt failed\n");
     if (mIsClient && StatelessResetCheckForReceipt(pkt, pktSize)) {
