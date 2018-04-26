@@ -40,6 +40,9 @@ make
 ls client server
 ```
 
+MOZQUIC_LOG=all:9 LD_LIBRARY_PATH=/home/mcmanus/src/mozquic/dtls/dist/Debug/lib/ ./client -peer localhost:4433 -ignorePKI -get /
+MOZQUIC_LOG=all:9 LD_LIBRARY_PATH=/home/mcmanus/src/mozquic/dtls/dist/Debug/lib/ ./server 
+
 # This is useful for running the regression tests
 ```
 MOZQUIC_LOG=all:5 go run qdrive/main.go -shims mozquic/tests/qdrive/mozquic.json -cases mozquic/tests/qdrive/mozquic.cases.json -verbose
