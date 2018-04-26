@@ -18,11 +18,11 @@
 #include "assert.h"
 #include "sechash.h"
 
-#if NSS_VMAJOR < 3 || (NSS_VMINOR < 36 && NSS_VMAJOR == 3)
+#if NSS_VMAJOR < 3 || (NSS_VMINOR < 38 && NSS_VMAJOR == 3)
 fail compile due to nss version;
 #endif
 
-// relies on tls1.3 draft 23 NSS_3_36_BRANCH
+// relies on tls1.3 draft 28
 
 #define sTlsLog1(...) Log::sDoLog(Log::TLS, 1, self->mMozQuic, __VA_ARGS__);
 #define sTlsLog2(...) Log::sDoLog(Log::TLS, 2, self->mMozQuic, __VA_ARGS__);
