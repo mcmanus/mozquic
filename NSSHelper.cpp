@@ -304,7 +304,9 @@ NSSHelper::SharedInit()
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, mIsClient);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, !mIsClient);
   SSL_OptionSet(mFD, SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_NEVER);
-  SSL_OptionSet(mFD, SSL_NO_CACHE, false);
+
+  SSL_OptionSet(mFD, SSL_NO_CACHE, true);
+
   SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, true);
   if (mMozQuic->Enabled0RTT()) {
     SSL_OptionSet(mFD, SSL_ENABLE_0RTT_DATA, true);
