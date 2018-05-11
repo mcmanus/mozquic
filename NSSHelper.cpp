@@ -1013,7 +1013,7 @@ NSSHelper::SharedInit()
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_SERVER, !mIsClient);
   SSL_OptionSet(mFD, SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_NEVER);
 
-  SSL_OptionSet(mFD, SSL_NO_CACHE, true);
+  SSL_OptionSet(mFD, SSL_NO_CACHE, false);
 
   SSL_OptionSet(mFD, SSL_ENABLE_SESSION_TICKETS, true);
   if (mMozQuic->Enabled0RTT()) {
@@ -1081,6 +1081,7 @@ NSSHelper::NSSHelper(MozQuic *quicSession, bool tolerateBadALPN, const char *ori
 {
   SharedInit();
 
+  SSL_ConfigServerSessionIDCache(25000, 60, 43200, NULL);
   SSL_SetMaxEarlyDataSize(mFD, 0xffffffff); // 0rtt nst requires
   if (mMozQuic->GetForceAddressValidation()) {
     SSL_HelloRetryRequestCallback(mFD, HRRCallback, this);
