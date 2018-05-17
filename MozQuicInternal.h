@@ -6,6 +6,7 @@
 #pragma once
 
 #include <netinet/ip.h>
+#include <string>
 #include <list>
 #include <stdint.h>
 #include <unistd.h>
