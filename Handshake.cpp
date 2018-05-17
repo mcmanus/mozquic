@@ -145,7 +145,7 @@ MozQuic::FlushStream0(bool forceAck)
 
     uint32_t room = endpkt - framePtr - 16; // the last 16 are for aead tag
     bareAck = framePtr == emptyFramePtr;
-    if (AckPiggyBack(framePtr, mNextTransmitPacketNumber, room, keyPhase0Rtt,
+    if (AckPiggyBack(framePtr, mNextTransmitPacketNumber, room, keyPhaseUnprotected,
                      bareAck, used) == MOZQUIC_OK) {
       if (used) {
         AckLog6("Handy-Ack FlushStream0 packet %lX frame-len=%d\n", mNextTransmitPacketNumber, used);
