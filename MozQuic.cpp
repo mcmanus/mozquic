@@ -1056,7 +1056,7 @@ MozQuic::Intake(bool *partialResult)
         rv = session->Process0RTTProtectedPacket(pkt, pktSize, longHeader.mHeaderSize,
                                                  longHeader.mPacketNumber, sendAck);
         if (rv == MOZQUIC_OK) {
-          session->Acknowledge(longHeader.mPacketNumber, keyPhase1Rtt);
+          session->Acknowledge(longHeader.mPacketNumber, keyPhase0Rtt);
         }
         break;
 
