@@ -1387,6 +1387,7 @@ NSSHelper::IsEarlyDataAcceptedServer()
     TlsLog6("IsEarlyDataAccepted fail 3\n");
     return false;
   }
+  mPacketProtectionMech = mPacketProtectionMech0RTT; // this seems redundant
   
   TlsLog6("IsEarlyDataAccepted pass\n");
   return true;
