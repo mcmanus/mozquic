@@ -265,14 +265,14 @@ BufferedPacket::BufferedPacket(const unsigned char *pkt, uint32_t pktSize,
 }
 
 uint32_t
-Sender::Transmit(uint64_t packetNumber, bool bareAck, bool zeroRTT, bool queueOnly,
+Sender::Transmit(uint64_t packetNumber, bool bareAck, bool clientZeroRTT, bool queueOnly,
                  const unsigned char *pkt, uint32_t len, const struct sockaddr *explicitPeer)
 {
   // in order to queue we need to copy the packet, as its probably on the stack of
   // the caller. So avoid that if possible.
   SenderLog8("Sender::Transmit %ld %d\n", len, bareAck);
   bool canSendNow =
-    (!queueOnly) && (zeroRTT || CanSendNow(len, zeroRTT) || bareAck); // Do not queue zeroRTT packets.
+    (!queueOnly) && (clientZeroRTT || CanSendNow(len, clientZeroRTT) || bareAck); // Do not queue clientZeroRTT packets.
   if (mQueue.empty() && canSendNow) {
     mLastSend = MozQuic::Timestamp();
     mWindowUsed += bareAck ? 0 : len;

@@ -105,7 +105,7 @@ private:
                                                 unsigned int clientTokenLen, unsigned char *retryToken,
                                                 unsigned int *retryTokenLen, unsigned int retryTokMax,
                                                 void *arg);
-  static void HandshakeCallback(PRFileDesc *fd, void *client_data);
+  static void HandshakeCallback(PRFileDesc *fd, void *);
   static SECStatus BadCertificate(void *client_data, PRFileDesc *fd);
 
   static PRBool TransportExtensionWriter(PRFileDesc *fd, SSLHandshakeType m, PRUint8 *data,

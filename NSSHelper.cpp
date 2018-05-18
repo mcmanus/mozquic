@@ -688,7 +688,7 @@ cleanup:
 }
 
 void
-NSSHelper::HandshakeCallback(PRFileDesc *fd, void *client_data)
+NSSHelper::HandshakeCallback(PRFileDesc *fd, void *)
 {
   unsigned int bufLen = 0;
   unsigned char buf[MAX_ALPN_LENGTH];
@@ -776,8 +776,13 @@ NSSHelper::BlockOperation(enum operationType mode,
   
   if ((mode != kEncryptHandshake) && (mode != kDecryptHandshake) &&
       (mode != kEncrypt0RTT) && (mode != kDecrypt0RTT)) {
-    if (!mHandshakeComplete || mHandshakeFailed ||
-        !mPacketProtectionSenderKey0 || !mPacketProtectionReceiverKey0) {
+    if (mHandshakeFailed) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    if (mode == kEncrypt0 && !mPacketProtectionSenderKey0) {
+      return MOZQUIC_ERR_GENERAL;
+    }
+    if (mode == kDecrypt0 && !mPacketProtectionReceiverKey0) {
       return MOZQUIC_ERR_GENERAL;
     }
   }
@@ -1375,6 +1380,14 @@ NSSHelper::IsEarlyDataAcceptedServer()
     TlsLog6("IsEarlyDataAccepted fail 2\n");
     return false;
   }
+
+  if (MakeKeyFromNSS(mFD, false, k1RTTServerLabel,
+                     secretSize, keySize, hashType, importMechanism1, importMechanism2,
+                     mPacketProtectionSenderIV0, &mPacketProtectionSenderKey0) != MOZQUIC_OK) {
+    TlsLog6("IsEarlyDataAccepted fail 3\n");
+    return false;
+  }
+  
   TlsLog6("IsEarlyDataAccepted pass\n");
   return true;
 }

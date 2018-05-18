@@ -990,6 +990,7 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
     mMozQuic->Create0RTTLongPacketHeader(plainPkt, mtu - kTagLen, headerLen,
                                          &payloadLenPtr);
   } else if ((mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) &&
+             (mMozQuic->GetConnectionState() != SERVER_STATE_0RTT) &&
              (mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED)) {
     // if 0RTT data gets rejected, wait for the connected state to send data.
     return MOZQUIC_OK;
@@ -1010,7 +1011,9 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
       // this is the normal congestion control test.. make a frame if there is cwnd room and
       // nothing is buffered in sender right now
       makeFrames = mMozQuic->mSendState->EmptyQueue() &&
-        mMozQuic->mSendState->CanSendNow(kInitialMTU, mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT);
+        mMozQuic->mSendState->CanSendNow(kInitialMTU,
+                                         (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT) ||
+                                         (mMozQuic->GetConnectionState() == SERVER_STATE_0RTT));
     }
     
     // if that didn't work but the first bit of data is probe data (to be unblocked) ignore
