@@ -896,22 +896,6 @@ MozQuic::Intake(bool *partialResult)
         continue;
       }
 
-      if (longHeader.mHeaderSize + longHeader.mPayloadLen > pktSize) {
-        rv = MOZQUIC_ERR_GENERAL;
-        continue;
-      }
-      
-      if (longHeader.mHeaderSize + longHeader.mPayloadLen != pktSize) {
-        coalescingLeftoverPtr =
-          pkt + longHeader.mHeaderSize + longHeader.mPayloadLen;
-        coalescingLeftoverSize =
-          pktSize - longHeader.mHeaderSize - longHeader.mPayloadLen;
-      }
-
-      ConnectionLogCID5(&longHeader.mDestCID, &longHeader.mSourceCID,
-                        "LONGFORM PACKET[%d] pkt# %lX type %X version %X\n",
-                        pktSize, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
-
       if (!VersionOK(longHeader.mVersion)) { // version negotiation
         if (!mIsClient) {
           ConnectionLog1("unacceptable version recvd on server %lX.\n", longHeader.mVersion);
@@ -929,6 +913,22 @@ MozQuic::Intake(bool *partialResult)
         }
         continue;
       }
+
+      if (longHeader.mHeaderSize + longHeader.mPayloadLen > pktSize) {
+        rv = MOZQUIC_ERR_GENERAL;
+        continue;
+      }
+      
+      if (longHeader.mHeaderSize + longHeader.mPayloadLen != pktSize) {
+        coalescingLeftoverPtr =
+          pkt + longHeader.mHeaderSize + longHeader.mPayloadLen;
+        coalescingLeftoverSize =
+          pktSize - longHeader.mHeaderSize - longHeader.mPayloadLen;
+      }
+
+      ConnectionLogCID5(&longHeader.mDestCID, &longHeader.mSourceCID,
+                        "LONGFORM PACKET[%d] pkt# %lX type %X version %X\n",
+                        pktSize, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
 
       if (longHeader.mType != PACKET_TYPE_0RTT_PROTECTED) {
         *partialResult = true;
