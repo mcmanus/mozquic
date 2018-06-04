@@ -71,6 +71,7 @@ enum transportErrorType {
   PROTOCOL_VIOLATION        = 0x000A,
   UNSOLICITED_PATH_RESPONSE = 0x000B,
   // FRAME_ERROR 0x01XX
+  FRAME_ERROR_MASK          = 0x0100
 };
 
 enum httpErrorType {

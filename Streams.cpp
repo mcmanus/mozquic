@@ -333,7 +333,13 @@ StreamState::HandleMaxStreamIDFrame(FrameHeaderData *result, bool fromCleartext,
              (streamType == BIDI_STREAM) ? "bidi" : "uni",
              mPeerMaxStreamID[streamType],
              result->u.mMaxStreamID.mMaximumStreamID);
-  assert(IsLocalStream(result->u.mMaxStreamID.mMaximumStreamID));
+
+  if (!IsLocalStream(result->u.mMaxStreamID.mMaximumStreamID)) {
+    mMozQuic->Shutdown(FRAME_ERROR_MASK | FRAME_TYPE_MAX_STREAM_ID, "remote max stream id\n");
+    mMozQuic->RaiseError(MOZQUIC_ERR_GENERAL, (char *) "remote max stream id\n");
+    return MOZQUIC_ERR_GENERAL;
+  }
+  
   if (result->u.mMaxStreamID.mMaximumStreamID > mPeerMaxStreamID[streamType]) {
     mPeerMaxStreamID[streamType] = result->u.mMaxStreamID.mMaximumStreamID;
     mMaxStreamIDBlocked[streamType] = false;
