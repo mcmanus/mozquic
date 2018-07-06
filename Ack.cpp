@@ -74,6 +74,8 @@ MozQuic::MaybeSendAck(bool delAckOK)
 
   if (delAckOK && !mDelAckTimer->Armed()) {
     uint64_t timerVal = mSendState->SmoothedRTT() >> 2;
+    // todo min and max filters
+    // todo consider how 1/4 addition to measured rtt loop impacts srtt based things
     AckLog5("bare ack arm and delay delAckTimer %d\n", timerVal);
     mDelAckTimer->Arm(timerVal);
     return MOZQUIC_OK;
