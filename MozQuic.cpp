@@ -66,7 +66,6 @@ MozQuic::MozQuic(bool handleIO)
   , mMTU(kInitialMTU)
   , mDropRate(0)
   , mNextTransmitPacketNumber(0)
-  , mOriginalTransmitPacketNumber(0)
   , mNextRecvPacketNumber(0)
   , mClientInitialPacketNumber(0)
   , mGenAckFor(0)
@@ -410,16 +409,6 @@ MozQuic::SetInitialPacketNumber()
 {
   mHighestTransmittedAckable = 0;
   mNextTransmitPacketNumber = 0;
-  for (int i=0; i < 2; i++) {
-    mNextTransmitPacketNumber = mNextTransmitPacketNumber << 16;
-    mNextTransmitPacketNumber |= random() & 0xffff;
-  }
-  mNextTransmitPacketNumber &= 0xffffffff; // 32 bits
-  mOriginalTransmitPacketNumber = mNextTransmitPacketNumber;
-  if (mNextTransmitPacketNumber > (0x100000000ULL - 1025)) {
-    // small range of unacceptable values - redo
-    SetInitialPacketNumber();
-  }
 }
 
 int
@@ -1135,7 +1124,7 @@ MozQuic::IO()
   
   if ((mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_0RTT ||
        mConnectionState == CLIENT_STATE_1RTT || mConnectionState == CLIENT_STATE_0RTT) &&
-      (mNextTransmitPacketNumber - mOriginalTransmitPacketNumber) > 14) {
+      mNextTransmitPacketNumber > 14) {
     RaiseError(MOZQUIC_ERR_GENERAL, (char *)"TimedOut Client In Handshake");
     return MOZQUIC_ERR_GENERAL;
   }

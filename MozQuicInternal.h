@@ -397,7 +397,6 @@ private:
   uint16_t mMTU;
   uint16_t mDropRate;
   uint64_t mNextTransmitPacketNumber;
-  uint64_t mOriginalTransmitPacketNumber;
   uint64_t mNextRecvPacketNumber; // expected
   uint64_t mClientInitialPacketNumber; // only set on child in server
 

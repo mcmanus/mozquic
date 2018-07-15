@@ -202,7 +202,7 @@ MozQuic::FlushStream0(bool forceAck)
     Log::sDoLog(Log::HANDSHAKE, 5, this,
                 "TRANSMIT0[%lX] this=%p len=%d total0=%d byte0=%x\n",
                 usedPacketNumber, this, cipherLen + headerLen,
-                mNextTransmitPacketNumber - mOriginalTransmitPacketNumber,
+                mNextTransmitPacketNumber,
                 cipherPkt[0]);
 
     mNextTransmitPacketNumber++;
