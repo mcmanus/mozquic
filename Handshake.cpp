@@ -60,6 +60,22 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
   return true;
 }
 
+void
+MozQuic::EncodePN(uint32_t pn, uint8_t *framePtr, size_t &outPNLen)
+{
+  if (pn >= 128) {
+    uint32_t tmp32 = htonl(pn & 0x3fffffff);
+    memcpy(framePtr, &tmp32, 4);
+    *framePtr = *framePtr | 0xC0; // 4 byte number
+    outPNLen = 4;
+  } else {
+    // 1 byte PN
+    *framePtr = pn;
+    assert( (*framePtr & 0x80) == 0);
+    outPNLen = 1;
+  }
+}
+
 uint32_t
 MozQuic::FlushStream0(bool forceAck)
 {
@@ -111,14 +127,13 @@ MozQuic::FlushStream0(bool forceAck)
     return MOZQUIC_ERR_GENERAL;
   }
   framePtr += 2;
+  
+  uint32_t usedPacketNumber = (mConnectionState == SERVER_STATE_SSR) ?
+    mClientInitialPacketNumber : mNextTransmitPacketNumber;
 
-  tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
-  if (mConnectionState == SERVER_STATE_SSR) {
-    tmp32 = htonl(mClientInitialPacketNumber & 0xffffffff);
-  }
-  uint32_t usedPacketNumber = ntohl(tmp32);
-  memcpy(framePtr, &tmp32, 4);
-  framePtr += 4;
+  size_t pnLen;
+  EncodePN(usedPacketNumber, framePtr, pnLen);
+  framePtr += pnLen;
 
   std::unique_ptr<TransmittedPacket> packet(new TransmittedPacket(mNextTransmitPacketNumber));
   unsigned char *emptyFramePtr = framePtr;

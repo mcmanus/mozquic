@@ -223,9 +223,9 @@ MozQuic::Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
   (*payloadLenPtr)[1] = 0x00;  
   framePtr += 2;
 
-  tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
-  memcpy(framePtr, &tmp32, 4);
-  framePtr += 4;
+  size_t pnLen;
+  EncodePN(mNextTransmitPacketNumber, framePtr, pnLen);
+  framePtr += pnLen;
 
   used = framePtr - pkt;
   return MOZQUIC_OK;
@@ -604,7 +604,20 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
   mValid = MOZQUIC_OK;
 }
 
-LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize)
+static size_t DecodePNLen(unsigned char signal)
+{
+  if ((signal & 0x80) == 0) {
+    return 1;
+  }
+  if ((signal & 0xC0) == 0x80) {
+    return 2;
+  }
+
+  assert((signal & 0xC0) == 0xC0);
+  return 4;
+}
+
+LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t nextPN)
 {
   assert(pkt[0] & 0x80);
   mType = PACKET_TYPE_ERR; // signal parse error
@@ -621,25 +634,47 @@ LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize)
     uint8_t dcil = (pkt[5] & 0xf0) >> 4;
     uint8_t scil = (pkt[5] & 0x0f);
     uint32_t offset = 6;
+
     if (pktSize < offset + dcil) break;
     mDestCID.Parse(dcil, pkt + offset);
     offset += mDestCID.Len();
+
     if (pktSize < offset + scil) break;
     mSourceCID.Parse(scil, pkt + offset);
     offset += mSourceCID.Len();
 
     if (mVersion) {
       uint32_t used;
+
+      // payload Length
       if (MozQuic::DecodeVarintMax32(pkt + offset,
                                      pktSize - offset, mPayloadLen, used) != MOZQUIC_OK) {
         break;
       }
       offset += used;
 
-      if (pktSize < offset + 4) break;
-      memcpy(&mPacketNumber, pkt + offset, 4);
-      offset += 4;
-      mPacketNumber = ntohl(mPacketNumber);
+      // Packet Number
+      if (pktSize < offset + 1) break;
+      uint32_t pn32;
+      size_t len = DecodePNLen(pkt[offset]);
+      if (len == 1) {
+        pn32 = pkt[offset] & ~0x80;
+      } else {
+        pn32 = pkt[offset] & ~0xC0;
+      }
+      if (pktSize < offset + len) break;
+      for (size_t i = 1; i < len ; ++i) {
+        pn32 = (pn32 << 8) | pkt[offset + i];
+      }
+      mPacketNumber = pn32;
+      // todo needs "nearest" algorithm 
+      uint8_t popit = pkt[offset];
+      pkt[offset] = pkt[offset] & ~0xC0;
+      mPacketNumber = ShortHeaderData::DecodePacketNumber(pkt + offset, len, nextPN);
+      pkt[offset] = popit; // todo remove when shortheader handles this internally
+
+      offset += len;
+      fprintf(stderr,"packet number decoded to be %ld\n", mPacketNumber);
     }
         
     mHeaderSize = offset;

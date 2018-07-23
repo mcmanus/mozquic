@@ -878,7 +878,7 @@ MozQuic::Intake(bool *partialResult)
       }
 
     } else {
-      LongHeaderData longHeader(pkt, pktSize);
+      LongHeaderData longHeader(pkt, pktSize, 0);
 
       if (longHeader.mType == PACKET_TYPE_ERR) {
         rv = MOZQUIC_ERR_GENERAL;

@@ -82,7 +82,7 @@ private:
 class LongHeaderData
 {
 public:
-  LongHeaderData(unsigned char *, uint32_t);
+  LongHeaderData(unsigned char *, uint32_t, uint64_t next);
   enum LongHeaderType mType;
   CID mDestCID;
   CID mSourceCID;
@@ -96,12 +96,12 @@ class MozQuic;
 
 class ShortHeaderData
 {
-private:
-  static uint64_t DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next);
-
 public:
   ShortHeaderData(MozQuic *logging, unsigned char *, uint32_t, uint64_t, bool,
                   CID &defaultCID);
+
+  static uint64_t DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next);
+
   uint32_t mHeaderSize;
   CID mDestCID;
   uint64_t mPacketNumber;

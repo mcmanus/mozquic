@@ -254,6 +254,8 @@ public:
 private:
   void RaiseError(uint32_t err, const char *fmt, ...);
 
+  static void EncodePN(uint32_t pn, uint8_t *framePtr, size_t &outPNLen);
+    
   void AckScoreboard(uint64_t num, enum keyPhase kp);
   int MaybeSendAck(bool delackOK = false);
 
