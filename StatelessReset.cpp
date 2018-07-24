@@ -41,7 +41,7 @@ MozQuic::StatelessResetSend(CID &connID, const struct sockaddr *peer)
   assert(!mParent);
   ConnectionLog1("Generate Stateless Reset of connection %lx\n", connID);
   unsigned char out[kMaxMTU];
-  out[0] = 0x30 | SHORT_1;
+  out[0] = 0x30;
 
   for (int i = 0; i < (18/2); i++) {
     uint16_t tmp16 = random() & 0xffff;

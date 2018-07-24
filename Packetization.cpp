@@ -21,12 +21,12 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
 {
   // need to decide if we want 2 or 4 byte packet numbers. 1 is pretty much
   // always too short as it doesn't allow a useful window
-  // if (nextNumber - lowestUnacked) > 16000 then use 4.
-  uint8_t pnSizeType = SHORT_2;
+  // if (nextNumber - lowestUnacked) > 8000 then use 4.
+  size_t pnSize = 2;
   uint32_t needed = 3 + mPeerCID.Len();
   if (!mStreamState->mUnAckedPackets.empty() &&
-      ((mNextTransmitPacketNumber - mStreamState->mUnAckedPackets.front()->mPacketNumber) > 16000)) {
-    pnSizeType = SHORT_4; // 4 bytes
+      ((mNextTransmitPacketNumber - mStreamState->mUnAckedPackets.front()->mPacketNumber) > 8000)) {
+    pnSize = 4;
     needed += 2;
   }
 
@@ -35,20 +35,22 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   }
 
   // section 4.2 of transport short form header:
-  // 0k11 0rtt .. k=0 r=0 tt=type 
-  pkt[0] = 0x30 | pnSizeType;
+  // 0k11 0rrr .. k=0 r=0
+  pkt[0] = 0x30;
   used = 1;
   memcpy (pkt + used, mPeerCID.Data(), mPeerCID.Len());
   used += mPeerCID.Len();
 
-  if (pnSizeType == SHORT_2) { // 2 bytes
-    uint16_t tmp16 = htons(mNextTransmitPacketNumber & 0xffff);
+  if (pnSize == 2) { // 2 bytes
+    uint16_t tmp16 = htons(mNextTransmitPacketNumber & 0x3fff);
     memcpy(pkt + used, &tmp16, 2);
+    pkt[used] |= 0x80; // 2 byte marker
     used += 2;
   } else {
-    assert(pnSizeType == SHORT_4);
-    uint32_t tmp32 = htonl(mNextTransmitPacketNumber & 0xffffffff);
+    assert(pnSize == 4);
+    uint32_t tmp32 = htonl(mNextTransmitPacketNumber & 0x3fffffff);
     memcpy(pkt + used, &tmp32, 4);
+    pkt[used] |= 0xC0; // 4 byte marker
     used += 4;
   }
 
@@ -604,19 +606,6 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
   mValid = MOZQUIC_OK;
 }
 
-static size_t DecodePNLen(unsigned char signal)
-{
-  if ((signal & 0x80) == 0) {
-    return 1;
-  }
-  if ((signal & 0xC0) == 0x80) {
-    return 2;
-  }
-
-  assert((signal & 0xC0) == 0xC0);
-  return 4;
-}
-
 LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t nextPN)
 {
   assert(pkt[0] & 0x80);
@@ -654,26 +643,10 @@ LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t ne
       offset += used;
 
       // Packet Number
-      if (pktSize < offset + 1) break;
-      uint32_t pn32;
-      size_t len = DecodePNLen(pkt[offset]);
-      if (len == 1) {
-        pn32 = pkt[offset] & ~0x80;
-      } else {
-        pn32 = pkt[offset] & ~0xC0;
-      }
-      if (pktSize < offset + len) break;
-      for (size_t i = 1; i < len ; ++i) {
-        pn32 = (pn32 << 8) | pkt[offset + i];
-      }
-      mPacketNumber = pn32;
-      // todo needs "nearest" algorithm 
-      uint8_t popit = pkt[offset];
-      pkt[offset] = pkt[offset] & ~0xC0;
-      mPacketNumber = ShortHeaderData::DecodePacketNumber(pkt + offset, len, nextPN);
-      pkt[offset] = popit; // todo remove when shortheader handles this internally
-
-      offset += len;
+      size_t pnLen;
+      mPacketNumber = ShortHeaderData::DecodePacketNumber(pkt + offset, nextPN,
+                                                          pktSize - offset, pnLen);
+      offset += pnLen;
       fprintf(stderr,"packet number decoded to be %ld\n", mPacketNumber);
     }
         
@@ -684,30 +657,45 @@ LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t ne
   } while (0);
 }
 
+
 uint64_t
-ShortHeaderData::DecodePacketNumber(unsigned char *pkt, int pnSize, uint64_t next)
+ShortHeaderData::DecodePacketNumber(unsigned char *pkt, uint64_t next, uint32_t pktSize,
+                                    size_t &outPNSize)
 {
-  // pkt should point to a variable (as defined by pnSize) amount of data
-  // in network byte order
+  outPNSize = 0;
+  if (pktSize < 1) {
+    return 0;
+  }
+
   uint64_t candidate1, candidate2;
-  if (pnSize == 1) {
-    candidate1 = (next & ~0xFFUL) | pkt[0];
+  if ((*pkt & 0x80) == 0) {
+    outPNSize = 1;
+    candidate1 = (next & ~0xFFUL) | (pkt[0] & ~0x80);
     candidate2 = candidate1 + 0x100UL;
-  } else if (pnSize == 2) {
+  } else if ((*pkt & 0xC0) == 0x80) {
+    if (pktSize < 2) {
+      return 0;
+    }
+    outPNSize = 2;
     uint16_t tmp16;
     memcpy(&tmp16, pkt, 2);
+    ((unsigned char *)&tmp16)[0] &= ~0xC0;
     tmp16 = ntohs(tmp16);
     candidate1 = (next & ~0xFFFFUL) | tmp16;
     candidate2 = candidate1 + 0x10000UL;
   } else {
-    assert (pnSize == 4);
+    assert((*pkt & 0xC0) == 0xC0);
+    if (pktSize < 4) {
+      return 0;
+    }
+    outPNSize = 4;
     uint32_t tmp32;
     memcpy(&tmp32, pkt, 4);
+    ((unsigned char *)&tmp32)[0] &= ~0xC0;
     tmp32 = ntohl(tmp32);
     candidate1 = (next & ~0xFFFFFFFFUL) | tmp32;
     candidate2 = candidate1 + 0x100000000UL;
   }
-
   uint64_t distance1 = (next >= candidate1) ? (next - candidate1) : (candidate1 - next);
   uint64_t distance2 = (next >= candidate2) ? (next - candidate2) : (candidate2 - next);
   uint64_t rv = (distance1 < distance2) ? candidate1 : candidate2;
@@ -733,21 +721,8 @@ ShortHeaderData::ShortHeaderData(MozQuic *logging,
     return;
   }
 
-  uint32_t pnSize = pkt[0] & 0x03;
-  if (pnSize == SHORT_1) {
-    pnSize = 1;
-  } else if (pnSize == SHORT_2) {
-    pnSize = 2;
-  } else if (pnSize == SHORT_4) {
-    pnSize = 4;
-  } else {
-    Log::sDoLog(Log::CONNECTION, 1, logging,
-                "short header failed to parse packet size byte 0 %X\n",
-                pkt[0]);
-    return;
-  }
-
   uint32_t used = 1;
+
   if (allowOmitCID) {
     mDestCID = defaultCID;
   } else {
@@ -759,9 +734,11 @@ ShortHeaderData::ShortHeaderData(MozQuic *logging,
     mDestCID.Parse(localCIDSize - 3, pkt + used);
     used += mDestCID.Len();
   }
-  
-  mHeaderSize = used + pnSize;
-  mPacketNumber = DecodePacketNumber(pkt + used, pnSize, nextPN);
+
+  size_t pnSize;
+  mPacketNumber = DecodePacketNumber(pkt + used, nextPN, pktSize - used, pnSize);
+  used += pnSize;
+  mHeaderSize = used;
 }
 
 void
