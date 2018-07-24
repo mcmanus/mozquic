@@ -129,7 +129,7 @@ MozQuic::FlushStream0(bool forceAck)
   framePtr += 2;
   
   uint32_t usedPacketNumber = (mConnectionState == SERVER_STATE_SSR) ?
-    mClientInitialPacketNumber : mNextTransmitPacketNumber;
+    0 : mNextTransmitPacketNumber;
 
   size_t pnLen;
   EncodePN(usedPacketNumber, framePtr, pnLen);
@@ -259,20 +259,8 @@ MozQuic::ProcessServerStatelessRetry(unsigned char *pkt, uint32_t pktSize, LongH
     mHandshakeCID = header.mSourceCID; // because its stateless
   }
 
-  // essentially this is an ack of client_initial using the packet #
-  // in the header as the ack, so need to find that on the unacked list.
-  // then we can reset the unacked list
-  bool foundReference = false;
-  for (auto i = mStreamState->mUnAckedPackets.begin(); i != mStreamState->mUnAckedPackets.end(); i++) {
-    if ((*i)->mPacketNumber == header.mPacketNumber) {
-      foundReference = true;
-      break;
-    }
-  }
-
-  if (!foundReference) {
-    // packet num was supposedly copied from client - so no match
-    HandshakeLog4("RETRY failed because packet number did not match an unacked initial\n");
+  if (header.mPacketNumber != 0) {
+    HandshakeLog4("RETRY failed because packet number was not 0\n");
     return MOZQUIC_ERR_VERSION;
   }
 
