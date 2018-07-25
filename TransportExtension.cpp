@@ -20,7 +20,7 @@ enum TransportExtensionID {
   kMaxPacketSize          = 0x5,
   kStatelessResetToken    = 0x6,
   kAckDelayExponent       = 0x7,
-  kInitialMaxStreamUniID  = 0x8,
+  kInitialMaxUniStreams  = 0x8,
 };
 
 void
@@ -180,7 +180,7 @@ TransportExtension::EncodeClientTransportParameters(unsigned char *output, uint1
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamData, initialMaxStreamData);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxData, initialMaxDataBytes);
   Encode2xLenx2Record(output, _offset, maxOutput, kInitialMaxBidiStreams, initialMaxStreamBidiID);
-  Encode2xLenx2Record(output, _offset, maxOutput, kInitialMaxStreamUniID, initialMaxStreamUniID);
+  Encode2xLenx2Record(output, _offset, maxOutput, kInitialMaxUniStreams, initialMaxStreamUniID);
   Encode2xLenx2Record(output, _offset, maxOutput, kIdleTimeout, idleTimeout);
 
   if (maxPacketESize) {
@@ -253,7 +253,7 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
         _initialMaxStreamBidiID = encoded_id * 4;
         TP_ENSURE_PARAM(maxStreamBidiID);
         break;
-      case kInitialMaxStreamUniID:
+      case kInitialMaxUniStreams:
         if (len != 2) { return MOZQUIC_ERR_GENERAL; }
         Decode2ByteObject(input, offset, inputSize, encoded_id);
         if (encoded_id) {
@@ -344,7 +344,7 @@ TransportExtension::EncodeServerTransportParameters(unsigned char *output, uint1
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxStreamData, initialMaxStreamData);
   Encode2xLenx4Record(output, _offset, maxOutput, kInitialMaxData, initialMaxDataBytes);
   Encode2xLenx2Record(output, _offset, maxOutput, kInitialMaxBidiStreams, initialMaxStreamBidiID);
-  Encode2xLenx2Record(output, _offset, maxOutput, kInitialMaxStreamUniID, initialMaxStreamUniID);
+  Encode2xLenx2Record(output, _offset, maxOutput, kInitialMaxUniStreams, initialMaxStreamUniID);
   Encode2xLenx2Record(output, _offset, maxOutput, kIdleTimeout, idleTimeout);
   if (maxPacketESize) {
     Encode2xLenx2Record(output, _offset, maxOutput, kMaxPacketSize, maxPacket);
@@ -441,7 +441,7 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
         }
         TP_ENSURE_PARAM(maxStreamBidiID);
         break;
-      case kInitialMaxStreamUniID:
+      case kInitialMaxUniStreams:
         if (len != 2) { return MOZQUIC_ERR_GENERAL; }
         Decode2ByteObject(input, offset, inputSize, encoded_id);
         if (encoded_id) {
