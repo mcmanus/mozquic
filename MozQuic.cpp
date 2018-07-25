@@ -1391,8 +1391,8 @@ MozQuic::ServerConnected()
             "decode client parameters: "
             "maxstreamdata %u "
             "maxdatabytes %u "
-            "maxstreamidbidi %u "
-            "maxstreamiduni %u "
+            "maxstreambidiid %u "
+            "maxstreamuniid %u "
             "idle %u "
             "maxpacket %u\n",
             mStreamState->mPeerMaxStreamData,
