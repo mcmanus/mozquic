@@ -16,7 +16,7 @@ enum TransportExtensionID {
   kInitialMaxData         = 0x1,
   kInitialMaxBidiStreams  = 0x2,
   kIdleTimeout            = 0x3,
-  // 4 is currently unused - formerly omitCid
+  kPreferredAddress       = 0x4,
   kMaxPacketSize          = 0x5,
   kStatelessResetToken    = 0x6,
   kAckDelayExponent       = 0x7,
@@ -268,6 +268,11 @@ TransportExtension::DecodeClientTransportParameters(unsigned char *input, uint16
         Decode2ByteObject(input, offset, inputSize, _idleTimeout);
         TP_ENSURE_PARAM(idleTimeout);
         break;
+      case kPreferredAddress:
+        Log::sDoLog(Log::CONNECTION, 1, forLogging,
+                    "Server Decoded Preferred Address\n");
+        return MOZQUIC_ERR_GENERAL;
+        break;
       case kMaxPacketSize:
         if (len != 2) { return MOZQUIC_ERR_GENERAL; }
         Decode2ByteObject(input, offset, inputSize, _maxPacket);
@@ -455,6 +460,10 @@ TransportExtension::DecodeServerTransportParameters(unsigned char *input, uint16
         if (len != 2) { return MOZQUIC_ERR_GENERAL; }
         Decode2ByteObject(input, offset, inputSize, _idleTimeout);
         TP_ENSURE_PARAM(idleTimeout);
+        break;
+      case kPreferredAddress:
+        offset += len;
+        Log::sDoLog(Log::CONNECTION, 7, forLogging, "Ignoring preferred address tp\n");
         break;
       case kMaxPacketSize:
         if (len != 2) { return MOZQUIC_ERR_GENERAL; }
