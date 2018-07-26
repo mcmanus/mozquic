@@ -904,7 +904,50 @@ NSSHelper::BlockOperation(enum operationType mode,
                       data, dataLen) == SECSuccess ? MOZQUIC_OK : MOZQUIC_ERR_GENERAL;
   }
   written = enlen;
+
   return rv;
+}
+
+void
+NSSHelper::EncryptPNInPlace(unsigned char *pn,
+                            const unsigned char *cipherTextToSample,
+                            uint32_t cipherLen) // todo which key
+{
+  CK_MECHANISM_TYPE mech;
+
+#if 0
+  if (mode == kEncrypt0 || mode == kDecrypt0) {
+    mech = mPacketProtectionMech;
+  } else if (mode == kEncryptHandshake || mode == kDecryptHandshake) {
+    mech = CKM_AES_GCM;
+  } else {
+    mech = mPacketProtectionMech0RTT;
+  }
+#endif
+  mech = mPacketProtectionMech; // todo which key and mech
+
+  SECItem ivItem;
+  ivItem.data = (unsigned char *)cipherTextToSample;
+  ivItem.len = cipherLen > 16 ? 16 : cipherLen;
+  SECItem *secParam = PK11_ParamFromIV(mech, &ivItem);
+  PK11Context* EncContext = PK11_CreateContextBySymKey(mech,
+                                                       CKA_ENCRYPT,
+                                                       mPacketProtectionSenderPNKey, // todo
+                                                       secParam);
+  size_t pnLen = 4;
+  if ((*pn & 0x80) == 0) {
+    pnLen = 1;
+  } else if ((*pn & 0xC0) == 0x80) {
+    pnLen = 2;
+  }
+    
+  unsigned char outBuf[256];
+  int written;
+  PK11_CipherOp(EncContext, outBuf, &written, sizeof(outBuf), pn, pnLen);
+  fprintf(stderr,"encrpytPNInPlace %d written out as %d\n", pnLen, written);
+  PK11_DestroyContext(EncContext, PR_TRUE);
+  memcpy(pn, outBuf, pnLen);
+  SECITEM_FreeItem(secParam, PR_TRUE);
 }
 
 uint32_t
@@ -963,18 +1006,19 @@ NSSHelper::EncryptBlock(const unsigned char *aadData, uint32_t aadLen,
 uint32_t
 NSSHelper::DecryptBlock(const unsigned char *aadData, uint32_t aadLen,
                         const unsigned char *ciphertext, uint32_t ciphertextLen,
-                        uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
+                        uint64_t packetNumber,
+                        unsigned char *out, uint32_t outAvail,
                         uint32_t &written)
 {
   return BlockOperation(kDecrypt0, aadData, aadLen, ciphertext, ciphertextLen,
                         packetNumber, out, outAvail, written);
 }
 
-
 uint32_t
 NSSHelper::EncryptHandshake(const unsigned char *aadData, uint32_t aadLen,
                             const unsigned char *plaintext, uint32_t plaintextLen,
-                            uint64_t packetNumber, CID cid, unsigned char *out,
+                            uint64_t packetNumber,
+                            CID cid, unsigned char *out,
                             uint32_t outAvail, uint32_t &written)
 {
   if (cid != mPacketProtectionHandshakeCID) {
@@ -988,7 +1032,8 @@ NSSHelper::EncryptHandshake(const unsigned char *aadData, uint32_t aadLen,
 uint32_t
 NSSHelper::DecryptHandshake(const unsigned char *aadData, uint32_t aadLen,
                             const unsigned char *ciphertext, uint32_t ciphertextLen,
-                            uint64_t packetNumber, CID cid, unsigned char *out, uint32_t outAvail,
+                            uint64_t packetNumber,
+                            CID cid, unsigned char *out, uint32_t outAvail,
                             uint32_t &written)
 { 
   if (cid != mPacketProtectionHandshakeCID) {
@@ -1002,7 +1047,8 @@ NSSHelper::DecryptHandshake(const unsigned char *aadData, uint32_t aadLen,
 uint32_t
 NSSHelper::EncryptBlock0RTT(const unsigned char *aadData, uint32_t aadLen,
                             const unsigned char *plaintext, uint32_t plaintextLen,
-                            uint64_t packetNumber, unsigned char *out,
+                            uint64_t packetNumber,
+                            unsigned char *out,
                             uint32_t outAvail, uint32_t &written)
 {
   return BlockOperation(kEncrypt0RTT, aadData, aadLen, plaintext, plaintextLen,
@@ -1012,7 +1058,8 @@ NSSHelper::EncryptBlock0RTT(const unsigned char *aadData, uint32_t aadLen,
 uint32_t
 NSSHelper::DecryptBlock0RTT(const unsigned char *aadData, uint32_t aadLen,
                             const unsigned char *ciphertext, uint32_t ciphertextLen,
-                            uint64_t packetNumber, unsigned char *out, uint32_t outAvail,
+                            uint64_t packetNumber,
+                            unsigned char *out, uint32_t outAvail,
                             uint32_t &written)
 {
     return BlockOperation(kDecrypt0RTT, aadData, aadLen, ciphertext, ciphertextLen,

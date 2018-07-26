@@ -50,12 +50,7 @@ MozQuic::StatelessResetSend(CID &connID, const struct sockaddr *peer)
 
   // 1 byte packet number
   out[1 + mPeerCID.Len()] = random() & 0x7f;
-  
-    
 
-  // pad
-  // 16 bytes of reset
-  
   // pad
   uint32_t pad = mMTU - 16 - mPeerCID.Len() - 2;
   pad = (random() % pad) & ~0x1; // force even
@@ -67,6 +62,7 @@ MozQuic::StatelessResetSend(CID &connID, const struct sockaddr *peer)
     out[2 + mPeerCID.Len() + i] = random() & 0xff;
   }
 
+  // 16 bytes of reset
   StatelessResetCalculateToken(mStatelessResetKey, connID, out + 2 + mPeerCID.Len() + pad); // from key and CID
 
   return mSendState->Transmit(0, true, false, false, out, 2 + 16 + mPeerCID.Len() + pad, peer);

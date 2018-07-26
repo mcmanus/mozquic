@@ -94,7 +94,8 @@ public:
   ShortHeaderData(MozQuic *logging, unsigned char *, uint32_t, uint64_t, bool,
                   CID &defaultCID);
 
-  static uint64_t DecodePacketNumber(unsigned char *pkt, uint64_t next, uint32_t pktSize,
+  static uint64_t DecodePacketNumber(MozQuic *,
+                                     unsigned char *pkt, uint64_t next, uint32_t pktSize,
                                      size_t &outPNSize);
 
   uint32_t mHeaderSize;

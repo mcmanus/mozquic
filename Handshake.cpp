@@ -41,13 +41,15 @@ MozQuic::IntegrityCheck(unsigned char *pkt, uint32_t pktSize, uint32_t headerSiz
 
   uint32_t rv;
   if (mNSSHelper) {
-    rv = mNSSHelper->DecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize, packetNumber, handshakeCID,
-                                      outbuf + headerSize, kMozQuicMSS - headerSize, outSize);
+    rv = mNSSHelper->DecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize,
+                                      packetNumber,
+                                      handshakeCID, outbuf + headerSize, kMozQuicMSS - headerSize, outSize);
   } else {
     // need longheader.mdestcid
     assert ((pkt[0] & 0x7f) == PACKET_TYPE_INITIAL || (pkt[0] & 0x7f) == PACKET_TYPE_RETRY);
-    rv = NSSHelper::staticDecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize, packetNumber, handshakeCID,
-                                           outbuf + headerSize, kMozQuicMSS - headerSize, outSize);
+    rv = NSSHelper::staticDecryptHandshake(pkt, headerSize, pkt + headerSize, pktSize - headerSize,
+                                           packetNumber,
+                                           handshakeCID, outbuf + headerSize, kMozQuicMSS - headerSize, outSize);
   }
     
   if (rv != MOZQUIC_OK) {
@@ -132,6 +134,7 @@ MozQuic::FlushStream0(bool forceAck)
     0 : mNextTransmitPacketNumber;
 
   size_t pnLen;
+  const unsigned char *pnPtr = framePtr;
   EncodePN(usedPacketNumber, framePtr, pnLen);
   framePtr += pnLen;
 
@@ -187,8 +190,8 @@ MozQuic::FlushStream0(bool forceAck)
 
     assert(mHandshakeCID);
     uint32_t rv = mNSSHelper->EncryptHandshake(pkt, headerLen, pkt + headerLen, framePtr - emptyFramePtr,
-                                               usedPacketNumber, mHandshakeCID,
-                                               cipherPkt + headerLen, kMozQuicMSS - headerLen, cipherLen);
+                                               usedPacketNumber,
+                                               mHandshakeCID, cipherPkt + headerLen, kMozQuicMSS - headerLen, cipherLen);
     if (rv != MOZQUIC_OK) {
       HandshakeLog1("TRANSMIT0[%lX] this=%p Encrypt Fail %x\n",
                     usedPacketNumber, this, rv);
@@ -196,7 +199,15 @@ MozQuic::FlushStream0(bool forceAck)
     }
     assert (cipherLen == (framePtr - emptyFramePtr) + 16);
     assert(cipherLen < 16383);
-
+    
+    // packet number encryption
+    assert(cipherPkt + (pnPtr - pkt) + 4 >= cipherPkt + headerLen); // pn + 4 is in ciphertext
+    assert(cipherPkt + (pnPtr - pkt) + 4 <= cipherPkt + headerLen + cipherLen);
+    
+    EncryptPNInPlace(cipherPkt + (pnPtr - pkt),
+                     cipherPkt + (pnPtr - pkt) + 4,
+                     (cipherPkt + headerLen + cipherLen) - (cipherPkt + (pnPtr - pkt) + 4));
+    
     uint32_t code = mSendState->Transmit(mNextTransmitPacketNumber, bareAck, false,
                                          packet->mQueueOnTransmit,
                                          cipherPkt, cipherLen + headerLen, nullptr);

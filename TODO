@@ -7,6 +7,12 @@ max_stream_id incremented as necesarry?
 0rtt fails test14 when server is run slow (logs and rr)
 
 
+-
+
+really need a datastrucutre for a packet. header, data, pnptr, etc.
+
+
+
 
 
 

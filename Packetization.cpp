@@ -6,6 +6,7 @@
 #include "Logging.h"
 #include "MozQuic.h"
 #include "MozQuicInternal.h"
+#include "NSSHelper.h"
 #include "Packetization.h"
 #include "Streams.h"
 
@@ -17,7 +18,7 @@ namespace mozquic  {
 
 uint32_t
 MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
-                                 uint32_t &used)
+                                 uint32_t &used, unsigned char **pnPtrOut)
 {
   // need to decide if we want 2 or 4 byte packet numbers. 1 is pretty much
   // always too short as it doesn't allow a useful window
@@ -40,6 +41,7 @@ MozQuic::CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize,
   used = 1;
   memcpy (pkt + used, mPeerCID.Data(), mPeerCID.Len());
   used += mPeerCID.Len();
+  *pnPtrOut = pkt + used;
 
   if (pnSize == 2) { // 2 bytes
     uint16_t tmp16 = htons(mNextTransmitPacketNumber & 0x3fff);
@@ -192,7 +194,8 @@ MozQuic::EncodeVarint(uint64_t input, unsigned char *dest, uint32_t avail, uint3
 
 uint32_t
 MozQuic::Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
-                                    uint32_t &used, unsigned char **payloadLenPtr)
+                                    uint32_t &used, unsigned char **payloadLenPtr,
+                                    unsigned char **pnPtr)
 {
   unsigned char *framePtr = pkt;
   if (pktSize < 5) {
@@ -226,6 +229,7 @@ MozQuic::Create0RTTLongPacketHeader(unsigned char *pkt, uint32_t pktSize,
   framePtr += 2;
 
   size_t pnLen;
+  *pnPtr = framePtr;
   EncodePN(mNextTransmitPacketNumber, framePtr, pnLen);
   framePtr += pnLen;
 
@@ -644,7 +648,8 @@ LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t ne
 
       // Packet Number
       size_t pnLen;
-      mPacketNumber = ShortHeaderData::DecodePacketNumber(pkt + offset, nextPN,
+      mPacketNumber = ShortHeaderData::DecodePacketNumber(nullptr, // todo it needs to know to use handshake or 0rtt key
+                                                          pkt + offset, nextPN,
                                                           pktSize - offset, pnLen);
       offset += pnLen;
       fprintf(stderr,"packet number decoded to be %ld\n", mPacketNumber);
@@ -658,39 +663,54 @@ LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t ne
 }
 
 
+uint8_t  MozQuic::DecryptLeadingPN(unsigned char *pn)  { return mNSSHelper->DecryptLeadingPN(pn); }
+uint16_t MozQuic::DecryptLeading2PN(unsigned char *pn) { return mNSSHelper->DecryptLeading2PN(pn); }
+uint32_t MozQuic::DecryptLeading4PN(unsigned char *pn) { return mNSSHelper->DecryptLeading4PN(pn); }
+
+void
+MozQuic::EncryptPNInPlace(unsigned char *pn,
+                          const unsigned char *cipherTextToSample,
+                          uint32_t cipherLen)
+{
+  return mNSSHelper->EncryptPNInPlace(pn, cipherTextToSample, cipherLen);
+}
+
 uint64_t
-ShortHeaderData::DecodePacketNumber(unsigned char *pkt, uint64_t next, uint32_t pktSize,
+ShortHeaderData::DecodePacketNumber(MozQuic *mq,
+                                    unsigned char *pkt, uint64_t next, uint32_t pktSize,
                                     size_t &outPNSize)
 {
   outPNSize = 0;
   if (pktSize < 1) {
     return 0;
   }
+  unsigned char byte1 = mq->DecryptLeadingPN(pkt); // todo, 0rtt, handshake or 1rtt?
 
   uint64_t candidate1, candidate2;
-  if ((*pkt & 0x80) == 0) {
+  if ((byte1 & 0x80) == 0) {
     outPNSize = 1;
-    candidate1 = (next & ~0xFFUL) | (pkt[0] & ~0x80);
+    *pkt = byte1;
+    candidate1 = (next & ~0xFFUL) | (byte1 & ~0x80);
     candidate2 = candidate1 + 0x100UL;
-  } else if ((*pkt & 0xC0) == 0x80) {
+  } else if ((byte1 & 0xC0) == 0x80) {
     if (pktSize < 2) {
       return 0;
     }
     outPNSize = 2;
-    uint16_t tmp16;
-    memcpy(&tmp16, pkt, 2);
+    uint16_t tmp16 = mq->DecryptLeading2PN(pkt);
+    memcpy(pkt, (unsigned char *)&tmp16, 2);
     ((unsigned char *)&tmp16)[0] &= ~0xC0;
     tmp16 = ntohs(tmp16);
     candidate1 = (next & ~0xFFFFUL) | tmp16;
     candidate2 = candidate1 + 0x10000UL;
   } else {
-    assert((*pkt & 0xC0) == 0xC0);
+    assert((byte1 & 0xC0) == 0xC0);
     if (pktSize < 4) {
       return 0;
     }
     outPNSize = 4;
-    uint32_t tmp32;
-    memcpy(&tmp32, pkt, 4);
+    uint32_t tmp32 = mq->DecryptLeading4PN(pkt);
+    memcpy(pkt, (unsigned char *)&tmp32, 4);
     ((unsigned char *)&tmp32)[0] &= ~0xC0;
     tmp32 = ntohl(tmp32);
     candidate1 = (next & ~0xFFFFFFFFUL) | tmp32;
@@ -705,7 +725,7 @@ ShortHeaderData::DecodePacketNumber(unsigned char *pkt, uint64_t next, uint32_t 
 // must be even and <= 18
 static const uint32_t localCIDSize = 10; // 4 ought to be plenty. but stress test
 
-ShortHeaderData::ShortHeaderData(MozQuic *logging,
+ShortHeaderData::ShortHeaderData(MozQuic *mq,
                                  unsigned char *pkt, uint32_t pktSize,
                                  uint64_t nextPN, bool allowOmitCID,
                                  CID &defaultCID)
@@ -716,8 +736,7 @@ ShortHeaderData::ShortHeaderData(MozQuic *logging,
   mPacketNumber = 0;
   assert(pktSize >= 1);
   if ((pkt[0] & 0xB8) != 0x30) {
-    Log::sDoLog(Log::CONNECTION, 1, logging,
-                "short header failed const bits\n");
+    Log::sDoLog(Log::CONNECTION, 1, mq, "short header failed const bits\n");
     return;
   }
 
@@ -735,9 +754,14 @@ ShortHeaderData::ShortHeaderData(MozQuic *logging,
     used += mDestCID.Len();
   }
 
-  size_t pnSize;
-  mPacketNumber = DecodePacketNumber(pkt + used, nextPN, pktSize - used, pnSize);
-  used += pnSize;
+  if (!nextPN) {
+    mPacketNumber = 0;
+  } else {
+    size_t pnSize;
+    mPacketNumber = DecodePacketNumber(mq, pkt + used, nextPN, pktSize - used, pnSize);
+    used += pnSize;
+  }
+
   mHeaderSize = used;
 }
 

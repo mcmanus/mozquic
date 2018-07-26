@@ -992,16 +992,17 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
   assert(mtu <= kMaxMTU);
 
   unsigned char *payloadLenPtr = nullptr;
+  unsigned char *pnPtr = nullptr;
   if (mMozQuic->GetConnectionState() == CLIENT_STATE_0RTT) {
     mMozQuic->Create0RTTLongPacketHeader(plainPkt, mtu - kTagLen, headerLen,
-                                         &payloadLenPtr);
+                                         &payloadLenPtr, &pnPtr);
   } else if ((mMozQuic->GetConnectionState() != SERVER_STATE_CONNECTED) &&
              (mMozQuic->GetConnectionState() != SERVER_STATE_0RTT) &&
              (mMozQuic->GetConnectionState() != CLIENT_STATE_CONNECTED)) {
     // if 0RTT data gets rejected, wait for the connected state to send data.
     return MOZQUIC_OK;
   } else {
-    mMozQuic->CreateShortPacketHeader(plainPkt, mtu - kTagLen, headerLen);
+    mMozQuic->CreateShortPacketHeader(plainPkt, mtu - kTagLen, headerLen, &pnPtr);
   }
 
   unsigned char *framePtr = plainPkt + headerLen;
@@ -1048,7 +1049,7 @@ StreamState::FlushOnce(bool forceAck, bool forceFrame, bool &outWritten)
     
   uint32_t bytesOut = 0;
   bool bareAck = framePtr == (plainPkt + headerLen);
-  uint32_t rv = mMozQuic->ProtectedTransmit(plainPkt, headerLen,
+  uint32_t rv = mMozQuic->ProtectedTransmit(plainPkt, headerLen, pnPtr,
                                             plainPkt + headerLen, framePtr - (plainPkt + headerLen),
                                             mtu - headerLen - kTagLen, !payloadLenPtr, !bareAck,
                                             packet->mQueueOnTransmit, 0, &bytesOut);

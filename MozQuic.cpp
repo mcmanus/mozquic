@@ -237,7 +237,7 @@ MozQuic::RealTransmit(const unsigned char *pkt, uint32_t len, const struct socka
 }
 
 uint32_t
-MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
+MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen, const unsigned char *pnPtr,
                            unsigned char *data, uint32_t dataLen, uint32_t dataAllocation,
                            bool addAcks, bool ackable, bool queueOnly, uint32_t MTU, uint32_t *bytesOut)
 {
@@ -289,17 +289,26 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen,
   unsigned char cipherPkt[kMaxMTU];
   memcpy(cipherPkt, header, headerLen);
   assert(headerLen + dataLen + 16 <= MTU);
+  assert(pnPtr < (header + headerLen));
+  assert(pnPtr > header);
   uint32_t rv = 0;
   if (mConnectionState == CLIENT_STATE_0RTT) {
     rv = mNSSHelper->EncryptBlock0RTT(header, headerLen, data, dataLen,
-                                      mNextTransmitPacketNumber, cipherPkt + headerLen,
-                                      MTU - headerLen, written);
+                                      mNextTransmitPacketNumber,
+                                      cipherPkt + headerLen, MTU - headerLen, written);
   } else {
     rv = mNSSHelper->EncryptBlock(header, headerLen, data, dataLen,
-                                  mNextTransmitPacketNumber, cipherPkt + headerLen,
-                                  MTU - headerLen, written);
+                                  mNextTransmitPacketNumber,
+                                  cipherPkt + headerLen, MTU - headerLen, written);
   }
+  // packet number encryption
+  assert(cipherPkt + (pnPtr - header) + 4 >= cipherPkt + headerLen); // pn + 4 is in ciphertext
+  assert(cipherPkt + (pnPtr - header) + 4 <= cipherPkt + headerLen + written);
 
+  EncryptPNInPlace(cipherPkt + (pnPtr - header),
+                   cipherPkt + (pnPtr - header) + 4,
+                   (cipherPkt + headerLen + written) - (cipherPkt + (pnPtr - header) + 4));
+  
   ConnectionLog6("encrypt[%lX] rv=%d inputlen=%d (+%d of aead) outputlen=%d\n",
                  mNextTransmitPacketNumber, rv, dataLen, headerLen, written);
 
@@ -367,7 +376,8 @@ MozQuic::Shutdown(uint16_t code, const char *reason)
   // todo when transport params allow truncate id, the connid might go
   // short header with connid kp = 0, 4 bytes of packetnumber
   uint32_t used, headerLen;
-  CreateShortPacketHeader(plainPkt, mMTU - kTagLen, used);
+  unsigned char *pnPtr;
+  CreateShortPacketHeader(plainPkt, mMTU - kTagLen, used, &pnPtr);
   headerLen = used;
 
   plainPkt[used] = FRAME_TYPE_CONN_CLOSE;
@@ -389,8 +399,8 @@ MozQuic::Shutdown(uint16_t code, const char *reason)
     used += reasonLen;
   }
 
-  ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, used - headerLen,
-                    mMTU - headerLen - kTagLen, false, true);
+  ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, pnPtr,
+                    used - headerLen, mMTU - headerLen - kTagLen, false, true);
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
 }
 
@@ -849,10 +859,6 @@ MozQuic::Intake(bool *partialResult)
 
     if (!(pkt[0] & 0x80)) { // short form protected packets
       ShortHeaderData tmpShortHeader(this, pkt, pktSize, 0, mLocalOmitCID, mLocalCID);
-      if (pktSize < tmpShortHeader.mHeaderSize) {
-        rv = MOZQUIC_ERR_GENERAL;
-        continue;
-      }
       CID temp;
       tmpSession = FindSession(tmpShortHeader.mDestCID);
       if (!tmpSession) {
@@ -867,6 +873,10 @@ MozQuic::Intake(bool *partialResult)
       ShortHeaderData shortHeader(this, pkt, pktSize, session->mNextRecvPacketNumber,
                                   mLocalOmitCID, mLocalCID);
       assert(shortHeader.mDestCID == tmpShortHeader.mDestCID);
+      if (pktSize < shortHeader.mHeaderSize) {
+        rv = MOZQUIC_ERR_GENERAL;
+        continue;
+      }
       ConnectionLogCID5(&tmpShortHeader.mDestCID, &temp,
                         "SHORTFORM PACKET[%d] pkt# %lX hdrsize=%d explicitcid=%d\n",
                         pktSize, shortHeader.mPacketNumber, shortHeader.mHeaderSize,

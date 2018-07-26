@@ -33,11 +33,13 @@ MozQuic::CheckPeer(uint32_t deadline)
   unsigned char plainPkt[kMaxMTU];
   uint32_t used = 0;
 
-  CreateShortPacketHeader(plainPkt, mMTU - kTagLen, used);
+  unsigned char *pnPtr;
+  CreateShortPacketHeader(plainPkt, mMTU - kTagLen, used, &pnPtr);
   uint32_t headerLen = used;
   plainPkt[used++] = FRAME_TYPE_PING;
 
-  return ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, FRAME_TYPE_PING_LENGTH,
+  return ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, pnPtr,
+                           FRAME_TYPE_PING_LENGTH,
                            mMTU - headerLen - kTagLen, true, true);
 }
 
@@ -62,7 +64,8 @@ MozQuic::StartPMTUD1()
   mPMTUDTarget = (kMaxMTU < mMaxPacketConfig) ? kMaxMTU : mMaxPacketConfig;
 
   uint32_t headerLen;
-  CreateShortPacketHeader(plainPkt, mPMTUDTarget - kTagLen, headerLen);
+  unsigned char *pnPtr;
+  CreateShortPacketHeader(plainPkt, mPMTUDTarget - kTagLen, headerLen, &pnPtr);
   uint32_t padAmt = mPMTUDTarget - headerLen - kTagLen;
   memset(plainPkt + headerLen, FRAME_TYPE_PADDING, padAmt);
   plainPkt[headerLen] = FRAME_TYPE_PING; // make the first frame a ping frame
@@ -73,7 +76,7 @@ MozQuic::StartPMTUD1()
 
   uint32_t bytesOut = 0;
   if (ProtectedTransmit(plainPkt, headerLen,
-                        plainPkt + headerLen, padAmt, kMaxMTU,
+                        plainPkt + headerLen, pnPtr, padAmt, kMaxMTU,
                         false, true, false,
                         mPMTUDTarget, &bytesOut) != MOZQUIC_OK) {
     mPMTUD1PacketNumber = 0;
