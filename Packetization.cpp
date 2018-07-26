@@ -662,11 +662,6 @@ LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t ne
   } while (0);
 }
 
-
-uint8_t  MozQuic::DecryptLeadingPN(unsigned char *pn)  { return mNSSHelper->DecryptLeadingPN(pn); }
-uint16_t MozQuic::DecryptLeading2PN(unsigned char *pn) { return mNSSHelper->DecryptLeading2PN(pn); }
-uint32_t MozQuic::DecryptLeading4PN(unsigned char *pn) { return mNSSHelper->DecryptLeading4PN(pn); }
-
 void
 MozQuic::EncryptPNInPlace(unsigned char *pn,
                           const unsigned char *cipherTextToSample,
@@ -675,42 +670,49 @@ MozQuic::EncryptPNInPlace(unsigned char *pn,
   return mNSSHelper->EncryptPNInPlace(pn, cipherTextToSample, cipherLen);
 }
 
+void
+MozQuic::DecryptPNInPlace(unsigned char *pn,
+                          const unsigned char *cipherTextToSample,
+                          uint32_t cipherLen)
+{
+  return mNSSHelper->DecryptPNInPlace(pn, cipherTextToSample, cipherLen);
+}
+
 uint64_t
 ShortHeaderData::DecodePacketNumber(MozQuic *mq,
                                     unsigned char *pkt, uint64_t next, uint32_t pktSize,
                                     size_t &outPNSize)
 {
   outPNSize = 0;
-  if (pktSize < 1) {
+  if (pktSize < 4) {
     return 0;
   }
-  unsigned char byte1 = mq->DecryptLeadingPN(pkt); // todo, 0rtt, handshake or 1rtt?
+  mq->DecryptPNInPlace(pkt, pkt + 4, pktSize - 4); // todo key
 
   uint64_t candidate1, candidate2;
-  if ((byte1 & 0x80) == 0) {
+  if ((*pkt & 0x80) == 0) {
     outPNSize = 1;
-    *pkt = byte1;
-    candidate1 = (next & ~0xFFUL) | (byte1 & ~0x80);
+    candidate1 = (next & ~0xFFUL) | (*pkt & ~0x80);
     candidate2 = candidate1 + 0x100UL;
-  } else if ((byte1 & 0xC0) == 0x80) {
+  } else if ((*pkt & 0xC0) == 0x80) {
     if (pktSize < 2) {
       return 0;
     }
     outPNSize = 2;
-    uint16_t tmp16 = mq->DecryptLeading2PN(pkt);
-    memcpy(pkt, (unsigned char *)&tmp16, 2);
+    uint16_t tmp16;
+    memcpy((unsigned char *)&tmp16, pkt, 2);
     ((unsigned char *)&tmp16)[0] &= ~0xC0;
     tmp16 = ntohs(tmp16);
     candidate1 = (next & ~0xFFFFUL) | tmp16;
     candidate2 = candidate1 + 0x10000UL;
   } else {
-    assert((byte1 & 0xC0) == 0xC0);
+    assert((*pkt & 0xC0) == 0xC0);
     if (pktSize < 4) {
       return 0;
     }
     outPNSize = 4;
-    uint32_t tmp32 = mq->DecryptLeading4PN(pkt);
-    memcpy(pkt, (unsigned char *)&tmp32, 4);
+    uint32_t tmp32;
+    memcpy((unsigned char *)&tmp32, pkt, 4);
     ((unsigned char *)&tmp32)[0] &= ~0xC0;
     tmp32 = ntohl(tmp32);
     candidate1 = (next & ~0xFFFFFFFFUL) | tmp32;

@@ -72,12 +72,12 @@ public:
                             uint64_t packetNumber,
                             unsigned char *out, uint32_t outAvail, uint32_t &written);
 
-  uint8_t  DecryptLeadingPN(unsigned char *pn); // todo need which key
-  uint16_t DecryptLeading2PN(unsigned char *pn); // todo need which key
-  uint32_t DecryptLeading4PN(unsigned char *pn); // todo need which key
   void     EncryptPNInPlace(unsigned char *pn,
-                            const unsigned char *cipherTextToSample, uint32_t cipherLen); // todo which key
-  
+                            const unsigned char *cipherTextToSample,
+                            uint32_t cipherLen); // todo which key
+  void     DecryptPNInPlace(unsigned char *pn,
+                            const unsigned char *cipherTextToSample, uint32_t cipherLen); // todo which key  
+
   bool SetLocalTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // local data to send
   bool SetRemoteTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // remote data recvd
   void GetRemoteTransportExtensionInfo(unsigned char * &_output, uint16_t &actual) {

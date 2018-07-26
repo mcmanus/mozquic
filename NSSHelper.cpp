@@ -916,9 +916,9 @@ NSSHelper::EncryptPNInPlace(unsigned char *pn,
   CK_MECHANISM_TYPE mech;
 
 #if 0
-  if (mode == kEncrypt0 || mode == kDecrypt0) {
+  if (mode == kEncrypt0) {
     mech = mPacketProtectionMech;
-  } else if (mode == kEncryptHandshake || mode == kDecryptHandshake) {
+  } else if (mode == kEncryptHandshake) {
     mech = CKM_AES_GCM;
   } else {
     mech = mPacketProtectionMech0RTT;
@@ -946,6 +946,50 @@ NSSHelper::EncryptPNInPlace(unsigned char *pn,
   PK11_CipherOp(EncContext, outBuf, &written, sizeof(outBuf), pn, pnLen);
   fprintf(stderr,"encrpytPNInPlace %d written out as %d\n", pnLen, written);
   PK11_DestroyContext(EncContext, PR_TRUE);
+  memcpy(pn, outBuf, pnLen);
+  SECITEM_FreeItem(secParam, PR_TRUE);
+}
+
+void
+NSSHelper::DecryptPNInPlace(unsigned char *pn,
+                            const unsigned char *cipherTextToSample,
+                            uint32_t cipherLen) // todo which key
+{
+  CK_MECHANISM_TYPE mech;
+
+#if 0
+  if (mode == kDecrypt0) {
+    mech = mPacketProtectionMech;
+  } else if (mode == kDecryptHandshake) {
+    mech = CKM_AES_CTR;
+  } else {
+    mech = mPacketProtectionMech0RTT;
+  }
+#endif
+  mech = mPacketProtectionMech; // todo which key and mech
+
+  SECItem ivItem;
+  ivItem.data = (unsigned char *)cipherTextToSample;
+  ivItem.len = cipherLen > 16 ? 16 : cipherLen;
+  SECItem *secParam = PK11_ParamFromIV(mech, &ivItem);
+  PK11Context* EncContext = PK11_CreateContextBySymKey(mech,
+                                                       CKA_DECRYPT,
+                                                       mPacketProtectionReceiverPNKey, // todo
+                                                       secParam);
+  unsigned char outBuf[256];
+  int written;
+  PK11_CipherOp(EncContext, outBuf, &written, sizeof(outBuf), pn, 4);
+  PK11_DestroyContext(EncContext, PR_TRUE);
+
+  size_t pnLen = 4;
+  if ((outBuf[0] & 0x80) == 0) {
+    pnLen = 1;
+  } else if ((outBuf[0] & 0xC0) == 0x80) {
+    pnLen = 2;
+  }
+
+  fprintf(stderr,"decrpytPNInPlace %d from dec, decoded to %d\n",written, pnLen);
+
   memcpy(pn, outBuf, pnLen);
   SECITEM_FreeItem(secParam, PR_TRUE);
 }
