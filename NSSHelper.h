@@ -14,17 +14,6 @@ namespace mozquic {
 
 class MozQuic;
 
-enum operationType {
-  kEncrypt0,
-  kDecrypt0,
-//  kEncrypt1,
-//  kDecrypt1,
-  kEncryptHandshake,
-  kDecryptHandshake,
-  kEncrypt0RTT,
-  kDecrypt0RTT,
-};
-
 // if you Read() from the helper, it pulls through the tls layer from the mozquic::stream0 buffer where
 // peer data lke the client hello is stored.. if you Write() to the helper something
 // like "", the tls layer adds the server hello on the way out into mozquic::stream0
@@ -72,11 +61,13 @@ public:
                             uint64_t packetNumber,
                             unsigned char *out, uint32_t outAvail, uint32_t &written);
 
-  void     EncryptPNInPlace(unsigned char *pn,
+  CK_MECHANISM_TYPE ModeToMechanism(enum operationType mode);
+  PK11SymKey *      ModeToPNKey(enum operationType mode);
+  void     EncryptPNInPlace(enum operationType mode, unsigned char *pn,
                             const unsigned char *cipherTextToSample,
-                            uint32_t cipherLen); // todo which key
-  void     DecryptPNInPlace(unsigned char *pn,
-                            const unsigned char *cipherTextToSample, uint32_t cipherLen); // todo which key  
+                            uint32_t cipherLen);
+  void DecryptPNInPlace(enum operationType mode, unsigned char *pn,
+                        const unsigned char *cipherTextToSample, uint32_t cipherLen);
 
   bool SetLocalTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // local data to send
   bool SetRemoteTransportExtensionInfo(const unsigned char *data, uint16_t datalen); // remote data recvd
@@ -94,6 +85,10 @@ public:
   bool IsEarlyDataAcceptedClient();
 
 private:
+  static void DecryptPNInPlace(unsigned char *pn,
+                               CK_MECHANISM_TYPE mechToUse,
+                               PK11SymKey         *keyToUse,
+                               const unsigned char *cipherTextToSample, uint32_t cipherLen);
   void SharedInit();
   static PRStatus NSPRGetPeerName(PRFileDesc *aFD, PRNetAddr*addr);
   static PRStatus NSPRGetSocketOption(PRFileDesc *aFD, PRSocketOptionData *aOpt);
@@ -137,7 +132,11 @@ public:
                                          const unsigned char *data, uint32_t dataLen,
                                          uint64_t packetNumber, CID connectionID,
                                          unsigned char *out, uint32_t outAvail, uint32_t &written);
-
+  static void     staticDecryptPNInPlace(unsigned char *pn,
+                                         CID connectionID,
+                                         const unsigned char *cipherTextToSample,
+                                         uint32_t cipherLen);
+  
   static uint64_t SockAddrHasher(const struct sockaddr *);
 
 private:

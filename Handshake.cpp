@@ -204,7 +204,7 @@ MozQuic::FlushStream0(bool forceAck)
     assert(cipherPkt + (pnPtr - pkt) + 4 >= cipherPkt + headerLen); // pn + 4 is in ciphertext
     assert(cipherPkt + (pnPtr - pkt) + 4 <= cipherPkt + headerLen + cipherLen);
     
-    EncryptPNInPlace(cipherPkt + (pnPtr - pkt),
+    EncryptPNInPlace(kEncryptHandshake, cipherPkt + (pnPtr - pkt),
                      cipherPkt + (pnPtr - pkt) + 4,
                      (cipherPkt + headerLen + cipherLen) - (cipherPkt + (pnPtr - pkt) + 4));
     

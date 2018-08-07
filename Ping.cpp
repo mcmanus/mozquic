@@ -38,7 +38,8 @@ MozQuic::CheckPeer(uint32_t deadline)
   uint32_t headerLen = used;
   plainPkt[used++] = FRAME_TYPE_PING;
 
-  return ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, pnPtr,
+  return ProtectedTransmit(plainPkt, headerLen,  pnPtr,
+                           plainPkt + headerLen,
                            FRAME_TYPE_PING_LENGTH,
                            mMTU - headerLen - kTagLen, true, true);
 }
@@ -75,8 +76,8 @@ MozQuic::StartPMTUD1()
   mPMTUD1Deadline->Arm(3000); // 3 seconds to ack the ping
 
   uint32_t bytesOut = 0;
-  if (ProtectedTransmit(plainPkt, headerLen,
-                        plainPkt + headerLen, pnPtr, padAmt, kMaxMTU,
+  if (ProtectedTransmit(plainPkt, headerLen, pnPtr,
+                        plainPkt + headerLen, padAmt, kMaxMTU,
                         false, true, false,
                         mPMTUDTarget, &bytesOut) != MOZQUIC_OK) {
     mPMTUD1PacketNumber = 0;

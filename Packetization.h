@@ -28,6 +28,17 @@ enum LongHeaderType {
   PACKET_TYPE_ERR                    = 0xFF
 };
 
+enum operationType {
+  kEncrypt0,
+  kDecrypt0,
+//  kEncrypt1,
+//  kDecrypt1,
+  kEncryptHandshake,
+  kDecryptHandshake,
+  kEncrypt0RTT,
+  kDecrypt0RTT,
+};
+
 class CID
 {
 public:
@@ -73,10 +84,12 @@ private:
   char mText[37]; // todo make this lazy allocated for logging
 };
 
+class MozQuic;
+
 class LongHeaderData
 {
 public:
-  LongHeaderData(unsigned char *, uint32_t, uint64_t next);
+  LongHeaderData(MozQuic *, unsigned char *, uint32_t, uint64_t next);
   enum LongHeaderType mType;
   CID mDestCID;
   CID mSourceCID;
@@ -84,9 +97,11 @@ public:
   uint64_t mPacketNumber;
   uint32_t mVersion;
   uint32_t mHeaderSize;
-};
 
-class MozQuic;
+private:
+  uint64_t DecodePacketNumber(unsigned char *pkt, uint64_t next, uint32_t pktSize,
+                              size_t &outPNSize);
+};
 
 class ShortHeaderData
 {
@@ -94,9 +109,13 @@ public:
   ShortHeaderData(MozQuic *logging, unsigned char *, uint32_t, uint64_t, bool,
                   CID &defaultCID);
 
-  static uint64_t DecodePacketNumber(MozQuic *,
+  static uint64_t DecodePacketNumber(MozQuic *, enum operationType mode,
                                      unsigned char *pkt, uint64_t next, uint32_t pktSize,
                                      size_t &outPNSize);
+
+  static uint64_t DecodePlaintextPacketNumber(unsigned char *pkt,
+                                              uint64_t next, uint32_t pktSize,
+                                              size_t &outPNSize);
 
   uint32_t mHeaderSize;
   CID mDestCID;

@@ -328,8 +328,10 @@ public:
   static void EncodeVarintAs4(uint64_t input, unsigned char *dest);
   static void EncodeVarintAs8(uint64_t input, unsigned char *dest);
 
-  void DecryptPNInPlace(unsigned char *pn, const unsigned char *cipherTextToSample, uint32_t cipherLen);
-  void EncryptPNInPlace(unsigned char *pn, const unsigned char *cipherTextToSample, uint32_t cipherLen);
+  void DecryptPNInPlace(enum operationType mode, unsigned char *pn,
+                        const unsigned char *cipherTextToSample, uint32_t cipherLen);
+  void EncryptPNInPlace(enum operationType mode, unsigned char *pn,
+                        const unsigned char *cipherTextToSample, uint32_t cipherLen);
 
 private:
   uint32_t CreateShortPacketHeader(unsigned char *pkt, uint32_t pktSize, uint32_t &used, unsigned char **pnPtrOut);

@@ -305,7 +305,9 @@ MozQuic::ProtectedTransmit(unsigned char *header, uint32_t headerLen, const unsi
   assert(cipherPkt + (pnPtr - header) + 4 >= cipherPkt + headerLen); // pn + 4 is in ciphertext
   assert(cipherPkt + (pnPtr - header) + 4 <= cipherPkt + headerLen + written);
 
-  EncryptPNInPlace(cipherPkt + (pnPtr - header),
+  
+  EncryptPNInPlace(mConnectionState == CLIENT_STATE_0RTT ? kEncrypt0RTT : kEncrypt0,
+                   cipherPkt + (pnPtr - header),
                    cipherPkt + (pnPtr - header) + 4,
                    (cipherPkt + headerLen + written) - (cipherPkt + (pnPtr - header) + 4));
   
@@ -399,7 +401,7 @@ MozQuic::Shutdown(uint16_t code, const char *reason)
     used += reasonLen;
   }
 
-  ProtectedTransmit(plainPkt, headerLen, plainPkt + headerLen, pnPtr,
+  ProtectedTransmit(plainPkt, headerLen, pnPtr, plainPkt + headerLen,
                     used - headerLen, mMTU - headerLen - kTagLen, false, true);
   mConnectionState = mIsClient ? CLIENT_STATE_CLOSED : SERVER_STATE_CLOSED;
 }
@@ -870,7 +872,7 @@ MozQuic::Intake(bool *partialResult)
         continue;
       }
       session = tmpSession->mAlive;
-      ShortHeaderData shortHeader(this, pkt, pktSize, session->mNextRecvPacketNumber,
+      ShortHeaderData shortHeader(session.get(), pkt, pktSize, session->mNextRecvPacketNumber,
                                   mLocalOmitCID, mLocalCID);
       assert(shortHeader.mDestCID == tmpShortHeader.mDestCID);
       if (pktSize < shortHeader.mHeaderSize) {
@@ -888,12 +890,16 @@ MozQuic::Intake(bool *partialResult)
       }
 
     } else {
-      LongHeaderData longHeader(pkt, pktSize, 0);
+      LongHeaderData longHeader(mIsClient ? this : nullptr, pkt, pktSize, 0);
 
       if (longHeader.mType == PACKET_TYPE_ERR) {
         rv = MOZQUIC_ERR_GENERAL;
         continue;
       }
+
+      ConnectionLogCID5(&longHeader.mDestCID, &longHeader.mSourceCID,
+                        "LONGFORM PACKET [size=%d] type %X version %X\n",
+                        pktSize, longHeader.mType, longHeader.mVersion);
 
       if (!VersionOK(longHeader.mVersion)) { // version negotiation
         if (!mIsClient) {
@@ -924,10 +930,6 @@ MozQuic::Intake(bool *partialResult)
         coalescingLeftoverSize =
           pktSize - longHeader.mHeaderSize - longHeader.mPayloadLen;
       }
-
-      ConnectionLogCID5(&longHeader.mDestCID, &longHeader.mSourceCID,
-                        "LONGFORM PACKET[%d] pkt# %lX type %X version %X\n",
-                        pktSize, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
 
       if (longHeader.mType != PACKET_TYPE_0RTT_PROTECTED) {
         *partialResult = true;
@@ -970,6 +972,7 @@ MozQuic::Intake(bool *partialResult)
             break;
           } else {
             session = tmpSession->mAlive;
+            longHeader = LongHeaderData(session.get(), pkt, pktSize, 0);
           }
         } else {
           tmpSession = this;
@@ -1005,6 +1008,7 @@ MozQuic::Intake(bool *partialResult)
           continue;
         }
         session = tmpSession->mAlive;
+        longHeader = LongHeaderData(session.get(), pkt, pktSize, 0);
         break;
 
       default:
@@ -1012,11 +1016,15 @@ MozQuic::Intake(bool *partialResult)
         rv = MOZQUIC_ERR_GENERAL;
         break;
       }
-
+      
       if (!session || rv != MOZQUIC_OK) {
         ConnectionLog1("unable to find connection for packet\n");
         continue;
       }
+
+      ConnectionLogCID5(&longHeader.mDestCID, &longHeader.mSourceCID,
+                        "LONGFORM PACKET[%d] pkt# %lX type %X version %X\n",
+                        pktSize, longHeader.mPacketNumber, longHeader.mType, longHeader.mVersion);
 
       switch (longHeader.mType) {
 

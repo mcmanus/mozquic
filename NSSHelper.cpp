@@ -314,7 +314,7 @@ NSSHelper::MakeKeyFromRaw(unsigned char *initialSecret,
   PK11SymKey *finalPNKey = nullptr;
   PK11SymKey *secretSKey = nullptr;
   unsigned char ppKey[32];
-  unsigned char pnKey[12];
+  unsigned char pnKey[32];
   assert (secretSize <= 48);
   assert (keySize <= sizeof(ppKey));
 
@@ -341,9 +341,11 @@ NSSHelper::MakeKeyFromRaw(unsigned char *initialSecret,
     goto failure;
   }
 
-  // pn is always 12
+  // assumes keySize for protection key is the same as the pnkey, which
+  // is probably not universally true but is true for the pn protection
+  // schemes currently defined
   if (QHkdfExpandLabelRaw(secretSKey, hashType,
-                          "pn", 2, pnKey, 12) != SECSuccess) {
+                          "pn", 2, pnKey, keySize) != SECSuccess) {
     goto failure;
   }
 
@@ -357,11 +359,17 @@ NSSHelper::MakeKeyFromRaw(unsigned char *initialSecret,
                                  CKA_DERIVE, &ppKey_item, NULL);
   }
 
+  PK11_FreeSlot(slot);
+  if (!(slot = PK11_GetInternalSlot())){
+    goto failure;
+  }
+
   {
-    SECItem pnKey_item = {siBuffer, pnKey, 12};
+    SECItem pnKey_item = {siBuffer, pnKey, 16};
     finalPNKey = PK11_ImportSymKey(slot, importMechanism2, PK11_OriginUnwrap,
                                    CKA_DERIVE, &pnKey_item, NULL);
   }
+  assert (finalPNKey);
 
   PK11_FreeSlot(slot);
   if (secretSKey) {
@@ -908,78 +916,155 @@ NSSHelper::BlockOperation(enum operationType mode,
   return rv;
 }
 
-void
-NSSHelper::EncryptPNInPlace(unsigned char *pn,
-                            const unsigned char *cipherTextToSample,
-                            uint32_t cipherLen) // todo which key
+CK_MECHANISM_TYPE
+NSSHelper::ModeToMechanism(enum operationType mode)
 {
-  CK_MECHANISM_TYPE mech;
+  if (mode == kEncryptHandshake || mode == kDecryptHandshake) {
+    return CKM_AES_CTR;
+  }
 
-#if 0
-  if (mode == kEncrypt0) {
+  CK_MECHANISM_TYPE mech;
+  if (mode == kEncrypt0 || mode == kDecrypt0) {
     mech = mPacketProtectionMech;
-  } else if (mode == kEncryptHandshake) {
-    mech = CKM_AES_GCM;
   } else {
     mech = mPacketProtectionMech0RTT;
   }
-#endif
-  mech = mPacketProtectionMech; // todo which key and mech
+  assert(mech == CKM_AES_GCM || mech == CKM_NSS_CHACHA20_POLY1305);
+  return mech == CKM_AES_GCM ? CKM_AES_CTR : CKM_NSS_CHACHA20_POLY1305;
+}
 
-  SECItem ivItem;
-  ivItem.data = (unsigned char *)cipherTextToSample;
-  ivItem.len = cipherLen > 16 ? 16 : cipherLen;
-  SECItem *secParam = PK11_ParamFromIV(mech, &ivItem);
-  PK11Context* EncContext = PK11_CreateContextBySymKey(mech,
-                                                       CKA_ENCRYPT,
-                                                       mPacketProtectionSenderPNKey, // todo
-                                                       secParam);
+PK11SymKey *
+NSSHelper::ModeToPNKey(enum operationType mode)
+{
+  switch (mode) {
+  case kEncrypt0:
+    return mPacketProtectionSenderPNKey;
+  case kDecrypt0:
+    return mPacketProtectionReceiverPNKey;
+  case kEncryptHandshake:
+    return mPacketProtectionHandshakeSenderPNKey;
+  case kDecryptHandshake:
+    return mPacketProtectionHandshakeReceiverPNKey;
+  case kEncrypt0RTT:
+  case kDecrypt0RTT:
+    fprintf(stderr,"USING 0RTTPNkey\n");
+    return mPacketProtectionPNKey0RTT;
+  }
+}
+
+void
+NSSHelper::EncryptPNInPlace(enum operationType mode, unsigned char *pn,
+                            const unsigned char *cipherTextToSample,
+                            uint32_t cipherLen)
+{
+  assert (mode == kEncrypt0 || mode == kEncryptHandshake || kEncrypt0RTT);
+  CK_MECHANISM_TYPE mech = ModeToMechanism(mode);
+  PK11SymKey *key = ModeToPNKey(mode);
+  if (!key) {
+    return;
+  }
+
   size_t pnLen = 4;
   if ((*pn & 0x80) == 0) {
     pnLen = 1;
   } else if ((*pn & 0xC0) == 0x80) {
     pnLen = 2;
   }
+
+  unsigned char *params;
+  unsigned int paramsLength;
+  if (mech == CKM_AES_CTR) {
+    CK_AES_CTR_PARAMS ctrParams;
+
+    params = (unsigned char *) &ctrParams;
+    paramsLength = sizeof(ctrParams);
+    memset(&ctrParams, 0, sizeof(ctrParams));
+    ctrParams.ulCounterBits = cipherLen > 16 ? 16 : cipherLen;
+    memcpy(ctrParams.cb, (unsigned char *)cipherTextToSample,
+           cipherLen > 16 ? 16 : cipherLen);
+    SECItem param = {siBuffer, params, paramsLength};
+  
+    PK11Context *EncContext = PK11_CreateContextBySymKey(mech,
+                                                         CKA_ENCRYPT,
+                                                         key,
+                                                         &param);
+    assert (EncContext);
     
-  unsigned char outBuf[256];
-  int written;
-  PK11_CipherOp(EncContext, outBuf, &written, sizeof(outBuf), pn, pnLen);
-  fprintf(stderr,"encrpytPNInPlace %d written out as %d\n", pnLen, written);
-  PK11_DestroyContext(EncContext, PR_TRUE);
-  memcpy(pn, outBuf, pnLen);
-  SECITEM_FreeItem(secParam, PR_TRUE);
+    unsigned char outBuf[4];
+    assert(pnLen <= sizeof(outBuf));
+    int written;
+    PK11_CipherOp(EncContext, outBuf, &written, sizeof(outBuf), pn, pnLen);
+    fprintf(stderr,"encryptPNInPlace pnlen=%d %d -> %d\n",
+            pnLen, *pn, *outBuf);
+    memcpy(pn, outBuf, written);
+    PK11_DestroyContext(EncContext, PR_TRUE);
+  } else {
+    // todo Need an api for nss chacha20xor that lets us set the counter
+    assert(0);
+  }
+}
+
+void
+NSSHelper::staticDecryptPNInPlace(unsigned char *pn,
+                                  CID connectionID,
+                                  const unsigned char *cipherTextToSample,
+                                  uint32_t cipherLen)
+{
+  ServerHandshakeReceiverKeys keys(connectionID);
+
+  DecryptPNInPlace(pn, CKM_AES_CTR,
+                   keys.mPacketProtectionHandshakeReceiverPNKey,
+                   cipherTextToSample, cipherLen);
+}
+
+void
+NSSHelper::DecryptPNInPlace(enum operationType mode, unsigned char *pn,
+                            const unsigned char *cipherTextToSample,
+                            uint32_t cipherLen)
+{
+  assert (mode == kDecrypt0 || mode == kDecryptHandshake || kDecrypt0RTT);
+  CK_MECHANISM_TYPE mech = ModeToMechanism(mode);
+  PK11SymKey *key = ModeToPNKey(mode);
+
+  DecryptPNInPlace(pn, mech, key,
+                   cipherTextToSample, cipherLen);
 }
 
 void
 NSSHelper::DecryptPNInPlace(unsigned char *pn,
+                            CK_MECHANISM_TYPE mechToUse,
+                            PK11SymKey         *keyToUse,
                             const unsigned char *cipherTextToSample,
-                            uint32_t cipherLen) // todo which key
+                            uint32_t cipherLen)
 {
-  CK_MECHANISM_TYPE mech;
-
-#if 0
-  if (mode == kDecrypt0) {
-    mech = mPacketProtectionMech;
-  } else if (mode == kDecryptHandshake) {
-    mech = CKM_AES_CTR;
-  } else {
-    mech = mPacketProtectionMech0RTT;
+  if (!keyToUse) {
+    return;
   }
-#endif
-  mech = mPacketProtectionMech; // todo which key and mech
 
-  SECItem ivItem;
-  ivItem.data = (unsigned char *)cipherTextToSample;
-  ivItem.len = cipherLen > 16 ? 16 : cipherLen;
-  SECItem *secParam = PK11_ParamFromIV(mech, &ivItem);
-  PK11Context* EncContext = PK11_CreateContextBySymKey(mech,
-                                                       CKA_DECRYPT,
-                                                       mPacketProtectionReceiverPNKey, // todo
-                                                       secParam);
-  unsigned char outBuf[256];
+  // todo see issue 93 - chacha20 broken
+  assert (mechToUse == CKM_AES_CTR);
+    
+  CK_AES_CTR_PARAMS ctrParams;
+  unsigned char *params;
+  unsigned int paramsLength;
+
+  params = (unsigned char *) &ctrParams;
+  paramsLength = sizeof(ctrParams);
+  memset(&ctrParams, 0, sizeof(ctrParams));
+  ctrParams.ulCounterBits = cipherLen > 16 ? 16 : cipherLen;
+  memcpy(ctrParams.cb, (unsigned char *)cipherTextToSample,
+         cipherLen > 16 ? 16 : cipherLen);
+  SECItem param = {siBuffer, params, paramsLength};
+
+  PK11Context *context = PK11_CreateContextBySymKey(mechToUse,
+                                                    CKA_DECRYPT,
+                                                    keyToUse,
+                                                    &param);
+  assert(context);
+  unsigned char outBuf[4];
   int written;
-  PK11_CipherOp(EncContext, outBuf, &written, sizeof(outBuf), pn, 4);
-  PK11_DestroyContext(EncContext, PR_TRUE);
+  PK11_CipherOp(context, outBuf, &written, sizeof(outBuf), pn, 4);
+  PK11_DestroyContext(context, PR_TRUE);
 
   size_t pnLen = 4;
   if ((outBuf[0] & 0x80) == 0) {
@@ -988,10 +1073,10 @@ NSSHelper::DecryptPNInPlace(unsigned char *pn,
     pnLen = 2;
   }
 
-  fprintf(stderr,"decrpytPNInPlace %d from dec, decoded to %d\n",written, pnLen);
+  fprintf(stderr,"decryptPNInPlace pnlen=%d %d -> %d\n",
+          pnLen, *pn, *outBuf);
 
   memcpy(pn, outBuf, pnLen);
-  SECITEM_FreeItem(secParam, PR_TRUE);
 }
 
 uint32_t
@@ -1136,7 +1221,9 @@ NSSHelper::SharedInit()
   // To disable any of the usual cipher suites..
   // SSL_CipherPrefSet(mFD, TLS_AES_128_GCM_SHA256, 0);
   // SSL_CipherPrefSet(mFD, TLS_AES_256_GCM_SHA384, 0);
-  // SSL_CipherPrefSet(mFD, TLS_CHACHA20_POLY1305_SHA256, 0);
+
+  // todo - encrpyted chacha20 packet numbers are waiting for an nss api
+  SSL_CipherPrefSet(mFD, TLS_CHACHA20_POLY1305_SHA256, 0);
 
   SSL_OptionSet(mFD, SSL_SECURITY, true);
   SSL_OptionSet(mFD, SSL_HANDSHAKE_AS_CLIENT, mIsClient);

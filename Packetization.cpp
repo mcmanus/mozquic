@@ -610,7 +610,7 @@ FrameHeaderData::FrameHeaderData(const unsigned char *pkt, uint32_t pktSize,
   mValid = MOZQUIC_OK;
 }
 
-LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t nextPN)
+LongHeaderData::LongHeaderData(MozQuic *mq, unsigned char *pkt, uint32_t pktSize, uint64_t nextPN)
 {
   assert(pkt[0] & 0x80);
   mType = PACKET_TYPE_ERR; // signal parse error
@@ -648,11 +648,20 @@ LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t ne
 
       // Packet Number
       size_t pnLen;
-      mPacketNumber = ShortHeaderData::DecodePacketNumber(nullptr, // todo it needs to know to use handshake or 0rtt key
-                                                          pkt + offset, nextPN,
-                                                          pktSize - offset, pnLen);
+      enum LongHeaderType pktType = static_cast<enum LongHeaderType>(pkt[0] & ~0x80);
+      if (mq) {
+        mPacketNumber = ShortHeaderData::DecodePacketNumber(mq,
+                                                            pktType == PACKET_TYPE_0RTT_PROTECTED ? kDecrypt0RTT : kDecryptHandshake,
+                                                            pkt + offset, nextPN,
+                                                            pktSize - offset, pnLen);
+      } else if (pktType == PACKET_TYPE_INITIAL) {
+        mPacketNumber = DecodePacketNumber(pkt + offset, nextPN,
+                                           pktSize - offset, pnLen);
+      } else {
+        mPacketNumber = 0;
+        pnLen = 1;
+      }
       offset += pnLen;
-      fprintf(stderr,"packet number decoded to be %ld\n", mPacketNumber);
     }
         
     mHeaderSize = offset;
@@ -663,31 +672,60 @@ LongHeaderData::LongHeaderData(unsigned char *pkt, uint32_t pktSize, uint64_t ne
 }
 
 void
-MozQuic::EncryptPNInPlace(unsigned char *pn,
+MozQuic::EncryptPNInPlace(enum operationType mode, unsigned char *pn,
                           const unsigned char *cipherTextToSample,
                           uint32_t cipherLen)
 {
-  return mNSSHelper->EncryptPNInPlace(pn, cipherTextToSample, cipherLen);
+  return mNSSHelper->EncryptPNInPlace(mode, pn, cipherTextToSample, cipherLen);
 }
 
 void
-MozQuic::DecryptPNInPlace(unsigned char *pn,
+MozQuic::DecryptPNInPlace(enum operationType mode, unsigned char *pn,
                           const unsigned char *cipherTextToSample,
                           uint32_t cipherLen)
 {
-  return mNSSHelper->DecryptPNInPlace(pn, cipherTextToSample, cipherLen);
+  if (mode == kDecrypt0RTT && mEarlyDataState != EARLY_DATA_ACCEPTED) {
+    return;
+  }
+  return mNSSHelper->DecryptPNInPlace(mode, pn, cipherTextToSample, cipherLen);
 }
 
 uint64_t
-ShortHeaderData::DecodePacketNumber(MozQuic *mq,
-                                    unsigned char *pkt, uint64_t next, uint32_t pktSize,
-                                    size_t &outPNSize)
+LongHeaderData::DecodePacketNumber(unsigned char *pkt, uint64_t next, uint32_t pktSize,
+                                   size_t &outPNSize)
 {
   outPNSize = 0;
   if (pktSize < 4) {
     return 0;
   }
-  mq->DecryptPNInPlace(pkt, pkt + 4, pktSize - 4); // todo key
+
+  NSSHelper::staticDecryptPNInPlace(pkt,
+                                    mDestCID,
+                                    pkt + 4, pktSize - 4);
+  return ShortHeaderData::DecodePlaintextPacketNumber(pkt, next, pktSize, outPNSize);
+}
+
+uint64_t
+ShortHeaderData::DecodePacketNumber(MozQuic *mq, enum operationType mode,
+                                    unsigned char *pkt, uint64_t next, uint32_t pktSize,
+                                    size_t &outPNSize)
+{
+  assert(mq);
+  outPNSize = 0;
+  if (pktSize < 4) {
+    return 0;
+  }
+
+  mq->DecryptPNInPlace(mode, pkt, pkt + 4, pktSize - 4);
+  return DecodePlaintextPacketNumber(pkt, next, pktSize, outPNSize);
+}
+
+uint64_t
+ShortHeaderData::DecodePlaintextPacketNumber(unsigned char *pkt,
+                                             uint64_t next, uint32_t pktSize,
+                                             size_t &outPNSize)
+{
+  outPNSize = 0;
 
   uint64_t candidate1, candidate2;
   if ((*pkt & 0x80) == 0) {
@@ -760,7 +798,7 @@ ShortHeaderData::ShortHeaderData(MozQuic *mq,
     mPacketNumber = 0;
   } else {
     size_t pnSize;
-    mPacketNumber = DecodePacketNumber(mq, pkt + used, nextPN, pktSize - used, pnSize);
+    mPacketNumber = DecodePacketNumber(mq, kDecrypt0, pkt + used, nextPN, pktSize - used, pnSize);
     used += pnSize;
   }
 
