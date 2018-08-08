@@ -947,7 +947,6 @@ NSSHelper::ModeToPNKey(enum operationType mode)
     return mPacketProtectionHandshakeReceiverPNKey;
   case kEncrypt0RTT:
   case kDecrypt0RTT:
-    fprintf(stderr,"USING 0RTTPNkey\n");
     return mPacketProtectionPNKey0RTT;
   }
 }
@@ -994,8 +993,6 @@ NSSHelper::EncryptPNInPlace(enum operationType mode, unsigned char *pn,
     assert(pnLen <= sizeof(outBuf));
     int written;
     PK11_CipherOp(EncContext, outBuf, &written, sizeof(outBuf), pn, pnLen);
-    fprintf(stderr,"encryptPNInPlace pnlen=%d %d -> %d\n",
-            pnLen, *pn, *outBuf);
     memcpy(pn, outBuf, written);
     PK11_DestroyContext(EncContext, PR_TRUE);
   } else {
@@ -1072,9 +1069,6 @@ NSSHelper::DecryptPNInPlace(unsigned char *pn,
   } else if ((outBuf[0] & 0xC0) == 0x80) {
     pnLen = 2;
   }
-
-  fprintf(stderr,"decryptPNInPlace pnlen=%d %d -> %d\n",
-          pnLen, *pn, *outBuf);
 
   memcpy(pn, outBuf, pnLen);
 }
