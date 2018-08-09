@@ -607,9 +607,12 @@ public:
         !handshakeSecret) {
       goto cleanup;
     }
-    assert (PK11_ExtractKeyValue(handshakeSecret) == SECSuccess);
-    assert (PK11_GetKeyData(handshakeSecret)->len == 32);
-
+    if (PK11_ExtractKeyValue(handshakeSecret) != SECSuccess) {
+      goto cleanup;
+    }
+    if (PK11_GetKeyData(handshakeSecret)->len != 32) {
+      goto cleanup;
+    }
     if (QHkdfExpandLabelRaw(handshakeSecret, ssl_hash_sha256,
                             kHandshakeClientLabel, strlen(kHandshakeClientLabel),
                             expandOut, 32) != SECSuccess) {
