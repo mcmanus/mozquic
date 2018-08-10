@@ -1140,10 +1140,19 @@ MozQuic::IO()
 
   Timer::Tick();
   
-  if ((mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_0RTT ||
-       mConnectionState == CLIENT_STATE_1RTT || mConnectionState == CLIENT_STATE_0RTT) &&
-      mNextTransmitPacketNumber > 14) {
-    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"TimedOut Client In Handshake");
+  if ((mNextTransmitPacketNumber > 14) &&
+      (mConnectionState == SERVER_STATE_1RTT || mConnectionState == SERVER_STATE_0RTT)) {
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"server TimedOut an incomplete client handshake");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  if ((mNextTransmitPacketNumber > 14) && (mConnectionState == CLIENT_STATE_1RTT)) {
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"client TimedOut an incomplete 1rtt handshake");
+    return MOZQUIC_ERR_GENERAL;
+  }
+
+  if ((mNextTransmitPacketNumber > 24) && (mConnectionState == CLIENT_STATE_0RTT)) {
+    RaiseError(MOZQUIC_ERR_GENERAL, (char *)"client TimedOut an incomplete 0rtt handshake");
     return MOZQUIC_ERR_GENERAL;
   }
 
