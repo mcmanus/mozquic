@@ -381,7 +381,9 @@ MozQuic::ProcessAck(FrameHeaderData *ackMetaInfo, const unsigned char *framePtr,
       }
     }
     // fast retransmit.. may be a nop
-    reportLossLessThan = std::max(reportLossLessThan, haveAckForEnd - kReorderingThreshold);
+    if (haveAckForEnd > kReorderingThreshold) {
+      reportLossLessThan = std::max(reportLossLessThan, haveAckForEnd - kReorderingThreshold);
+    }
   }
 
   if (maybeDoEarlyRetransmit && !mStreamState->mUnAckedPackets.empty()) {

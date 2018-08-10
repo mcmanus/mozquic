@@ -932,8 +932,8 @@ NSSHelper::ModeToMechanism(enum operationType mode)
   } else {
     mech = mPacketProtectionMech0RTT;
   }
-  assert(mech == CKM_AES_GCM || mech == CKM_NSS_CHACHA20_POLY1305);
-  return mech == CKM_AES_GCM ? CKM_AES_CTR : CKM_NSS_CHACHA20_POLY1305;
+
+  return mech == CKM_NSS_CHACHA20_POLY1305 ? CKM_NSS_CHACHA20_POLY1305 : CKM_AES_CTR;
 }
 
 PK11SymKey *
