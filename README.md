@@ -18,26 +18,28 @@ sudo sysctl -w net.core.wmem_max=16000000
 == Build Notes
 
 ```
-setenv MOZQUIC_BUILD /home/mcmanus/src/mozquic
+setenv MOZQUIC_BUILD $HOME/src/mozquic
 ```
 
 # These are for runtime
 ```
-setenv LD_LIBRARY_PATH $MOZQUIC_BUILD/dist/`cat $MOZQUIC_BUILD/dist/latest`/lib
+setenv LD_LIBRARY_PATH $HOME/src/dist/Debug/lib
 setenv MOZQUIC_NSS_CONFIG $MOZQUIC_BUILD/mozquic/sample/nss-config/
 ```
 
 # These are used to build mozquic standalone
 ```
+cd $HOME/src
 git clone git@github.com:mcmanus/mozquic.git
 git clone git@github.com:nss-dev/nss.git
 hg clone https://hg.mozilla.org/projects/nspr
-cd nss
-nss/build.sh
+(cd nss && ./build.sh)
 cd mozquic
 make
 ls client server
 ```
+
+(The NSS build script installs the result in the `$HOME/src/dist` directory.)
 
 # This is useful for running the regression tests
 ```
@@ -45,9 +47,9 @@ MOZQUIC_LOG=all:5 go run qdrive/main.go -shims mozquic/tests/qdrive/mozquic.json
 
 rm -f /tmp/get-? ; ./client -get /documentation/nghttpd.1.html -get /stylesheets/screen.css -get /index.html -get /favicon.png -peer nghttp2.org:4433 -send-close -ignorePKI ; ls /tmp/get-?
 
--rw-rw-rw- 1 mcmanus 21475 Sep 18 16:49 /tmp/get-1
--rw-rw-rw- 1 mcmanus 39082 Sep 18 16:49 /tmp/get-3
--rw-rw-rw- 1 mcmanus  6625 Sep 18 16:49 /tmp/get-5
--rw-rw-rw- 1 mcmanus   400 Sep 18 16:49 /tmp/get-7
+-rw-rw-rw- 1 user 21475 Sep 18 16:49 /tmp/get-1
+-rw-rw-rw- 1 user 39082 Sep 18 16:49 /tmp/get-3
+-rw-rw-rw- 1 user  6625 Sep 18 16:49 /tmp/get-5
+-rw-rw-rw- 1 user   400 Sep 18 16:49 /tmp/get-7
 
 ```
