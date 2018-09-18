@@ -1,0 +1,78 @@
+language: c++
+sudo: required
+cache:
+    directories:
+        - $HOME/ninja
+        - $HOME/gyp
+
+env:
+    global:
+        - LD_LIBRARY_PATH=$HOME/dist/Debug/lib
+        - PATH=$HOME/gyp:$HOME/ninja:$PATH
+
+addons:
+    apt:
+        config:
+            retries: true
+        sources:
+            - ubuntu-toolchain-r-test
+            - llvm-toolchain-trusty-6.0
+        packages:
+            - clang-6.0
+            - clang-tools-6.0
+            - valgrind
+            - g++-8
+            - libstdc++-8-dev
+            - mercurial
+
+matrix:
+    include:
+        - os: linux
+          compiler: gcc
+          dist: trusty
+          env: T=normal
+        - os: linux
+          compiler: clang
+          dist: trusty
+          env: T=normal
+        - os: osx
+          compiler: clang
+          env: T=normal
+
+install:
+  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update > /dev/null; fi
+#  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install ninja gyp; fi
+
+before_script:
+    - |
+      if [ ! -e $HOME/gyp/gyp ]; then
+        (cd $HOME &&
+         git clone --depth=1 https://chromium.googlesource.com/external/gyp)
+      fi
+    - |
+      if [ ! -e $HOME/ninja/ninja ]; then
+        (cd $HOME &&
+         git clone --depth=1 https://github.com/ninja-build/ninja.git &&
+         cd ninja &&
+         ./configure.py --bootstrap)
+      fi
+    - |
+      (cd $HOME && hg clone https://hg.mozilla.org/projects/nspr)
+    - |
+      (cd $HOME &&
+      git clone --depth=1 https://github.com/nss-dev/nss.git &&
+      cd nss && ./build.sh )
+
+script:
+    - |
+        if [ "$T" = "normal" ]; then
+             make NSS_ROOT=$HOME/nss
+        fi
+
+# whitelist branches to avoid testing feature branches twice (as branch and as pull request)
+branches:
+    only:
+        - master
+
+notifications:
+  email: false
