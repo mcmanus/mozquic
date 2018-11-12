@@ -32,11 +32,9 @@ setenv MOZQUIC_NSS_CONFIG $MOZQUIC_BUILD/mozquic/sample/nss-config/
 git clone git@github.com:mcmanus/mozquic.git
 git clone git@github.com:nss-dev/nss.git
 hg clone https://hg.mozilla.org/projects/nspr
-cd nss
 nss/build.sh
 cd mozquic
 make
-ls client server
 ```
 
 # This is useful for running the regression tests
